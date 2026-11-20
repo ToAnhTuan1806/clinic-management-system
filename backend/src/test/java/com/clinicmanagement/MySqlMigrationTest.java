@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.sql.Connection;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Tag;
@@ -12,15 +13,18 @@ import org.junit.jupiter.api.Test;
 @Tag("mysql")
 class MySqlMigrationTest {
     @Test
-    void migrateV1ValidateAndRepeatWithoutChangingAppliedHistory() throws Exception {
+    void migrateThroughV2ValidateAndRepeatWithoutChangingAppliedHistory() throws Exception {
         Flyway flyway = MySqlTestDatabase.flyway();
-        boolean fresh = flyway.info().current() == null;
+        int pendingBefore = flyway.info().pending().length;
         var result = flyway.migrate();
-        assertThat(result.migrationsExecuted).isEqualTo(fresh ? 1 : 0);
+        assertThat(result.migrationsExecuted).isEqualTo(pendingBefore);
         assertThat(flyway.validateWithResult().validationSuccessful).isTrue();
-        assertThat(flyway.info().applied()).hasSize(1);
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("1");
-        assertThat(flyway.info().current().getScript()).isEqualTo("V1__create_users.sql");
+        assertThat(flyway.info().applied()).hasSize(2);
+        assertThat(Arrays.stream(flyway.info().applied())
+                .filter(info -> info.getVersion().getVersion().equals("1"))
+                .map(info -> info.getScript()).toList()).containsExactly("V1__create_users.sql");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("2");
+        assertThat(flyway.info().current().getScript()).isEqualTo("V2__create_specialties_and_doctors.sql");
         List<String> before = history(flyway);
         assertThat(flyway.migrate().migrationsExecuted).isZero();
         assertThat(history(flyway)).isEqualTo(before);
