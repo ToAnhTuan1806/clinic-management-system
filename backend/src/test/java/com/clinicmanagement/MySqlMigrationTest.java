@@ -12,15 +12,15 @@ import org.junit.jupiter.api.Test;
 @Tag("mysql")
 class MySqlMigrationTest {
     @Test
-    void migrateV1ValidateAndRepeatWithoutChangingAppliedHistory() throws Exception {
+    void migrateThroughV2ValidateAndRepeatWithoutChangingAppliedHistory() throws Exception {
         Flyway flyway = MySqlTestDatabase.flyway();
-        boolean fresh = flyway.info().current() == null;
+        int pendingBefore = flyway.info().pending().length;
         var result = flyway.migrate();
-        assertThat(result.migrationsExecuted).isEqualTo(fresh ? 1 : 0);
+        assertThat(result.migrationsExecuted).isEqualTo(pendingBefore);
         assertThat(flyway.validateWithResult().validationSuccessful).isTrue();
-        assertThat(flyway.info().applied()).hasSize(1);
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("1");
-        assertThat(flyway.info().current().getScript()).isEqualTo("V1__create_users.sql");
+        assertThat(flyway.info().applied()).hasSize(2);
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("2");
+        assertThat(flyway.info().current().getScript()).isEqualTo("V2__create_specialties_and_doctors.sql");
         List<String> before = history(flyway);
         assertThat(flyway.migrate().migrationsExecuted).isZero();
         assertThat(history(flyway)).isEqualTo(before);
