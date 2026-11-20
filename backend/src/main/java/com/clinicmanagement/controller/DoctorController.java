@@ -16,6 +16,13 @@ public class DoctorController {
     private final DoctorService doctors;
     public DoctorController(DoctorService doctors) { this.doctors = doctors; }
 
+    @GetMapping("/eligible-users")
+    public ApiResponse<PageResponse<EligibleDoctorUserResponse>> eligibleUsers(
+            @RequestParam(required = false) String q, @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return new ApiResponse<>(doctors.eligibleUsers(q, page, size));
+    }
+
     @GetMapping
     public ApiResponse<PageResponse<DoctorView>> list(@AuthenticationPrincipal AuthenticatedUser viewer,
             @RequestParam(required = false) String q, @RequestParam(required = false) @Positive Long specialtyId,

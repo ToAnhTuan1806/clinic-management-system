@@ -16,12 +16,16 @@ final class CatalogQueries {
         return PageRequest.of(page, size, Sort.by(property).ascending().and(Sort.by("id")));
     }
 
-    static String like(String search) {
+    static String search(String search) {
         String value = search == null ? "" : search.trim();
         if (value.length() > 120) {
             throw new ManagementException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "Search is too long.");
         }
-        return "%" + value.toLowerCase(Locale.ROOT).replace("\\", "\\\\").replace("%", "\\%")
+        return value.toLowerCase(Locale.ROOT);
+    }
+
+    static String like(String search) {
+        return "%" + search(search).replace("\\", "\\\\").replace("%", "\\%")
                 .replace("_", "\\_") + "%";
     }
 }

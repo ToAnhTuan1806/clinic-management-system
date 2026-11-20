@@ -1,6 +1,7 @@
 # API Contract — Clinic Management System (D03)
 
 Task hiện tại: **CL-D03-BE**; kế thừa Auth/JWT CL-D02-BE và nền tảng CL-D01-BE.
+Contract chính thức cho FE D03, cập nhật ngày **2026-11-21**.
 `IMPLEMENTED` chỉ áp dụng cho phần đã có code và kiểm thử; `PROPOSED` chưa phải API sử dụng được.
 Phạm vi chức năng: [FR-01–FR-14](requirements/FEATURE_SCOPE.md).
 
@@ -10,11 +11,11 @@ Phạm vi chức năng: [FR-01–FR-14](requirements/FEATURE_SCOPE.md).
 - GET đọc dữ liệu; POST tạo hoặc thực hiện chuyển trạng thái; PATCH cập nhật một phần.
   DELETE chỉ dùng khi mô hình cho phép xóa, không dùng để xóa lịch sử khám.
 - User, Doctor, Specialty dùng PK BIGINT signed; API trả id dạng chuỗi để tránh mất chính xác ở JavaScript.
-  V1 users đã có; V2 doctor/specialty do Database/QA sở hữu, chưa có trong workspace khi triển khai D03.
+  V1 users và V2 doctor/specialty đã tích hợp; cả hai migration do Database/QA sở hữu và không bị sửa.
 - Ngày: `YYYY-MM-DD`; thời điểm: ISO-8601 UTC, ví dụ `2026-11-20T02:00:00Z`.
   FE hiển thị theo `Asia/Ho_Chi_Minh`, không gửi thời điểm thiếu offset.
-- Danh sách dự kiến: `page=0&size=20&sort=createdAt,desc`; size tối đa 100;
-  chỉ cho phép sort/filter theo danh sách BE công bố, thêm id làm thứ tự phụ ổn định.
+- Danh sách D03: `page=0&size=20`, size 1–100; thứ tự cố định như mục 3.2,
+  luôn có id làm thứ tự phụ ổn định. D03 chưa hỗ trợ query `sort` do client chọn.
 - Không nhận trực tiếp JPA entity làm request/response; dùng DTO và Bean Validation;
   giới hạn trường có thể ghi để ngăn cập nhật role/owner trái phép.
 - Không trả mật khẩu/hash/token nội bộ, stack trace, SQL hoặc URL kết nối.
@@ -183,10 +184,10 @@ BE kiểm tra DB trên mỗi request; token của user đã xóa/khóa bị từ
 
 Lỗi từ Bearer authentication có header `WWW-Authenticate: Bearer`, không echo token hoặc lỗi parser.
 
-### 3.2 Specialties và Doctors — IMPLEMENTED D03, MySQL chờ V2
+### 3.2 Specialties và Doctors — IMPLEMENTED D03
 
-Tám API đã có code và kiểm thử H2/HTTP. Chưa xác nhận tích hợp MySQL cho các API D03
-vì chưa có V2 từ QA. Không dùng fixture H2 làm migration hoặc tạo bảng MySQL để vượt validation.
+Tám API CRUD cùng endpoint eligible-users đã triển khai. V1/V2 đã tích hợp;
+kiểm thử HTTP chạy riêng trên H2 và MySQL QA cô lập. Fixture H2 không được dùng làm migration.
 
 **Phân quyền thực tế**
 
@@ -200,6 +201,7 @@ vì chưa có V2 từ QA. Không dùng fixture H2 làm migration hoặc tạo b�
 Tất cả yêu cầu JWT của user ACTIVE; anonymous/sai JWT nhận 401. Detail ngoài phạm vi
 đọc (doctor khác với DOCTOR, profile ẩn với PATIENT) trả 404. Không có public staff registration.
 Không có DELETE API; request DELETE vẫn bị deny 403 sau xác thực.
+Riêng GET `/doctors/eligible-users` chỉ ADMIN; ba role còn lại nhận 403, không dùng quyền đọc doctors chung.
 
 **GET /specialties, GET /doctors** (tiền tố `/api/v1`)
 
@@ -220,7 +222,8 @@ Không có DELETE API; request DELETE vẫn bị deny 403 sau xác thực.
 Code trim/uppercase, `[A-Z0-9][A-Z0-9_-]{0,31}`; name trim, không rỗng, tối đa 120 ký tự.
 Code/name UNIQUE; pre-check name không phân biệt hoa thường và DB UNIQUE là lớp bảo vệ cuối.
 Description tùy chọn, tối đa 5000 ký tự; isActive bỏ qua khi tạo mặc định true.
-Name collation và so sánh dấu phải được QA xác minh cùng V2; H2 không chứng minh hành vi MySQL collation.
+V2 dùng utf8mb4_0900_ai_ci cho specialty name: UNIQUE không phân biệt hoa thường/dấu.
+DB constraint là lớp quyết định khi pre-check không bắt được xung đột; khi đó có thể trả SPECIALTY_CONFLICT.
 
 Response create/detail/patch:
 
@@ -287,6 +290,24 @@ PATCH không phải JSON Merge Patch: field bỏ qua hoặc NULL giữ nguyên; 
 description/biography/licenseNumber xóa giá trị về NULL; code/name rỗng không hợp lệ.
 Body không có field cần cập nhật trả 400 VALIDATION_FAILED. Field thừa bị 400 HTTP_400.
 
+**Bảng DTO request chính thức**
+
+| API | Field | Kiểu / validation |
+| --- | --- | --- |
+| POST specialty | code, name | String bắt buộc; code canonical 1–32 ký tự theo pattern nêu trên; name trim 1–120 |
+| POST/PATCH specialty | description | String tùy chọn, tối đa 5000; PATCH chuỗi rỗng để clear |
+| POST/PATCH specialty | isActive | Boolean tùy chọn; POST mặc định true, PATCH NULL/bỏ qua giữ nguyên |
+| PATCH specialty | code, name | Tùy chọn; nếu có giá trị phải hợp lệ như POST |
+| POST doctor | userId, specialtyId | ID dương, gửi dạng chuỗi số BIGINT; bắt buộc, phải tham chiếu resource hợp lệ |
+| POST doctor | doctorCode | String bắt buộc, canonical 1–32 theo pattern code |
+| POST/PATCH doctor | licenseNumber | String tùy chọn, tối đa 100; trim/uppercase; rỗng = NULL |
+| POST/PATCH doctor | biography | String tùy chọn, tối đa 5000; PATCH chuỗi rỗng để clear |
+| POST/PATCH doctor | isActive | Boolean tùy chọn; POST mặc định true, PATCH giữ nguyên nếu NULL/bỏ qua |
+| PATCH doctor | specialtyId, doctorCode | Tùy chọn, validation như POST; userId/fullName/role/status không được nhận |
+
+Path id là số nguyên dương trong phạm vi signed BIGINT; sai định dạng/0/âm/overflow trả 400.
+Không có resource hoặc FK hợp lệ nhưng không tồn tại trả 404. Response ID luôn là chuỗi.
+
 **Lỗi D03**
 
 | HTTP | Code | Trường hợp |
@@ -303,15 +324,44 @@ Body không có field cần cập nhật trả 400 VALIDATION_FAILED. Field th�
 | 409 | DOCTOR_CONCURRENT_UPDATE | Doctor đổi liên kết trong lúc xử lý; reload và thử lại |
 
 Write giữ khóa transaction theo specialty (ID tăng dần nếu đổi) → user → doctor.
-Disable specialty và tạo/đổi/bật doctor dùng cùng khóa parent. H2 đã có test đồng thời;
-chưa tuyên bố giao thức này được xác minh trên MySQL trước khi có V2.
+Disable specialty và tạo/đổi/bật doctor dùng cùng khóa parent. Test HTTP đồng thời chạy trên
+cả H2 và MySQL: tạo doctor/disable specialty không cùng thành công; một user không tạo hai profile.
 
-**Chọn user DOCTOR cho FE — PROPOSED, chưa triển khai**
+**GET /api/v1/doctors/eligible-users — ADMIN, IMPLEMENTED D03**
 
-Đã đề xuất `GET /api/v1/doctors/eligible-users`, chỉ ADMIN, phân trang,
-trả tối thiểu id/fullName/email của user ACTIVE/DOCTOR chưa liên kết profile.
-Endpoint này đang chờ chốt trước khi triển khai, chưa nằm trong danh sách API D03 có thể gọi.
-Không mở `/users` chung hoặc public register cho staff để thay thế bước đó.
+JWT hợp lệ, user hiện tại ACTIVE và role ADMIN. Bộ lọc phía BE cố định:
+user ACTIVE, role DOCTOR và chưa có **bất kỳ** profile Doctor nào, kể cả profile inactive.
+Client không thể nới bộ lọc bằng query role/status. Không mở `/users` chung hoặc tạo staff qua register.
+
+| Query | Mặc định | Quy ước |
+| --- | --- | --- |
+| q | rỗng | Trim, tối đa 120 ký tự; tìm substring fullName hoặc email, không phân biệt hoa thường |
+| page | 0 | Integer >= 0 |
+| size | 20 | Integer 1–100 |
+
+Thứ tự fullName tăng dần, sau đó id tăng dần; không hỗ trợ sort tùy ý.
+Search là literal: `%`, `_`, dấu quote không trở thành wildcard/SQL. Các điều kiện role/status/unlinked
+không phải filter do client cấu hình. Trang không có kết quả trả 200 với items rỗng.
+
+Ví dụ GET `/api/v1/doctors/eligible-users?q=example&page=0&size=20`:
+
+```json
+{
+  "data": {
+    "items": [{"id":"21","fullName":"Tên bác sĩ","email":"doctor@example.invalid"}],
+    "page":0,"size":20,"totalElements":1,"totalPages":1
+  }
+}
+```
+
+Mỗi item có **đúng id/fullName/email**, không passwordHash/role/status/license hoặc trường entity khác.
+Backend dùng projection ba cột, không trả entity User. Query sai trả 400
+VALIDATION_FAILED (range/độ dài) hoặc HTTP_400 (không parse được integer);
+thiếu/sai JWT trả 401; role khác ADMIN trả 403 ACCESS_DENIED.
+
+FE flow: gọi eligible-users bằng token ADMIN → dùng item.id làm userId khi POST doctor →
+refresh danh sách sau tạo. Kết quả có thể đổi giữa GET và POST; nếu user đã được liên kết hoặc bị khóa,
+POST vẫn kiểm tra lại và trả 409 USER_ALREADY_LINKED/USER_NOT_ELIGIBLE. Không tự tạo tài khoản staff.
 
 ## 4. Error response
 
@@ -352,8 +402,9 @@ Ví dụ validation **PROPOSED trên endpoint nghiệp vụ**:
 }
 ```
 
-Mã nghiệp vụ dự kiến: `APPOINTMENT_SLOT_UNAVAILABLE`, `INVALID_STATE_TRANSITION`,
-`VERSION_CONFLICT`, `RESOURCE_NOT_FOUND`. Chưa triển khai trong D01.
+D03 đã triển khai `RESOURCE_NOT_FOUND` và các mã catalog ở mục 3.2.
+`APPOINTMENT_SLOT_UNAVAILABLE`, `INVALID_STATE_TRANSITION`, `VERSION_CONFLICT`
+vẫn là đề xuất cho các nghiệp vụ ngày sau.
 
 ## 5. Phân quyền và trạng thái bảo mật
 
@@ -365,7 +416,7 @@ Mã nghiệp vụ dự kiến: `APPOINTMENT_SLOT_UNAVAILABLE`, `INVALID_STATE_TR
 | PATIENT | Hồ sơ cá nhân, đặt/đổi/hủy lịch và lịch sử của mình | Kiểm tra ownership ở BE; không tin patientId từ client |
 
 **D03 IMPLEMENTED:** GET health và POST register/login public; GET auth/me cần JWT hợp lệ.
-Chỉ mở thêm tám API doctor/specialty đúng method và role ở mục 3.2.
+Chỉ mở thêm tám API doctor/specialty và eligible-users đúng method/role ở mục 3.2.
 Mọi API khác denyAll, kể cả ADMIN. HTTP Basic/form login/session cookie không dùng;
 không có tài khoản mặc định. Session policy stateless, request cache tắt.
 CSRF tắt vì credential chỉ được gửi chủ động qua Authorization header, không dùng cookie xác thực.
@@ -401,6 +452,7 @@ Các dòng có nhiều method mô tả các API riêng cùng trạng thái tri�
 | FR-01 | PATCH | `/users/{id}/status`, `/users/{id}/role` | ADMIN | PROPOSED |
 | FR-02 | GET, PATCH | `/me/profile` | Đã xác thực, self | PROPOSED |
 | FR-03 | GET | `/doctors`, `/doctors/{id}` | Bốn role theo scope mục 3.2; DOCTOR self, PATIENT active | **IMPLEMENTED D03** |
+| FR-03 | GET | `/doctors/eligible-users` | Chỉ ADMIN; ACTIVE/DOCTOR/unlinked cố định | **IMPLEMENTED D03** |
 | FR-03 | POST | `/doctors` | ADMIN | **IMPLEMENTED D03** |
 | FR-03 | PATCH | `/doctors/{id}` | ADMIN | **IMPLEMENTED D03** |
 | FR-04 | GET | `/specialties`, `/specialties/{id}` | Bốn role theo scope mục 3.2 | **IMPLEMENTED D03** |
@@ -466,15 +518,15 @@ Payload/response chi tiết của từng API nghiệp vụ sẽ chốt cùng ERD
 
 ## 8. Điểm cần đồng bộ
 
-- **FE:** health/register/login/me đã có code; dùng Bearer header, expiresIn tính bằng giây,
-  id chuỗi, data/Problem Details và logout client-only. Cần QA V1 trước khi dùng auth trên MySQL.
+- **FE:** health/register/login/me, tám API catalog và eligible-users đã có code;
+  dùng Bearer header, expiresIn tính bằng giây, id chuỗi, data/Problem Details và logout client-only.
+  DTO/query params/response/errors D03 chính thức ở mục 3.2; không dùng các API PROPOSED như API đã có.
 - **FE + BE:** cấu hình origin chính xác; không gửi credentials cookie; refresh/revoke chưa có;
   UI ẩn nút theo role không thay thế quyền phía BE.
 - **DB + BE:** MySQL version, database rỗng/riêng để kiểm thử, tài khoản qua secret của môi trường,
   quyền Flyway, ERD, loại id, index, timezone, charset/collation và concurrency cho slot.
-- **DB:** V1 users đã có. V2 specialties/doctors chỉ do QA sở hữu, chưa có trong workspace.
-  Doctor/Specialty map đúng tên cột/kiểu/quan hệ trong DATABASE_DESIGN; chỉ có fixture H2 riêng cho test.
-  Cần QA chốt unique/collation/FK RESTRICT, cấp V2 rồi chạy mysqlTest trên DB cô lập.
+- **DB:** V1/V2 của QA đã tích hợp, không sửa migration đã áp dụng.
+  Doctor/Specialty map theo DATABASE_DESIGN; MySQL suite dùng DB cô lập, không dùng fixture H2 thay schema.
   Hibernate chỉ validate, không tự tạo/cập nhật schema. Xem [hướng dẫn backend](../backend/README.md).
 - **Phạm vi:** ma trận quyền xem dữ liệu lâm sàng, slot duration, thời hạn đổi/hủy, audit retention
   và chính sách điều chỉnh hồ sơ hoàn tất còn cần chốt.

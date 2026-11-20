@@ -80,15 +80,14 @@ V1 hiện đã có trong workspace sau đồng bộ D02; dùng location classpat
 MYSQL_TEST_MIGRATIONS_LOCATION chỉ dành cho test khi cần đối chiếu bản QA ngoài tree;
 không thêm/sửa migration vào source BE.
 
-**D03:** V1 hiện đã có trong workspace sau đồng bộ D02. V2 specialties/doctors chưa được QA cung cấp;
-MySQL D03 **PENDING**, chưa chạy mysqlTest cho D03. Cần V2 trước khi startup MySQL hoặc chạy suite này;
-không tạo bảng thủ công/ddl-auto=update hoặc dùng fixture H2 để thay V2.
+**D03:** V1 users và V2 specialties/doctors đã tích hợp; MySQL suite dùng cả hai migration chính thức.
+Không tạo bảng thủ công/ddl-auto=update hoặc dùng fixture H2 để thay migration QA.
 
 `mysqlTest` dùng profile `mysql-integration`: datasource/JPA/Flyway main, SQL init never,
 Hibernate validate, Flyway **migrate + validate** trên database cô lập. Không dùng H2 fixture.
 MySqlMigrationTest kiểm tra migrate, validate, migrate lại no-op và history bất biến;
 MySqlStartupTest kiểm tra schema/UTC/config/health; MySqlAuthIntegrationTest chạy bộ auth HTTP;
-MySqlCatalogIntegrationTest tái dùng contract D03 khi có V2.
+MySqlCatalogIntegrationTest tái dùng contract D03 trên MySQL thật, gồm eligible-users.
 Key/password/token test sinh trong bộ nhớ, không yêu cầu JWT_SECRET thật cho test Spring context.
 Không dùng ddl-auto=update/create hoặc tự sửa V1 để vượt lỗi. Schema mismatch phải báo BLOCKED.
 
@@ -130,18 +129,23 @@ Các nghiệp vụ khác vẫn bị khóa, chưa có đặt lịch.
 - User liên kết phải là DOCTOR/ACTIVE, chưa có profile; userId không đổi qua PATCH.
 - Code uppercase/unique, license nullable/unique; ID chuỗi, data envelope và Problem Details.
 - CORS cho phép PATCH chỉ với origin trong allowlist; các endpoint ngoài scope vẫn denyAll.
-- Endpoint ADMIN chọn user DOCTOR chưa liên kết đang chờ chốt, chưa triển khai.
+- GET `/api/v1/doctors/eligible-users` chỉ ADMIN, tìm fullName/email với q, page/size;
+  chỉ user ACTIVE/DOCTOR chưa có bất kỳ doctor profile nào. Mỗi item chỉ id/fullName/email.
+  Thứ tự fullName/id; dùng item.id làm userId khi POST doctor, rồi refresh danh sách.
 
-Kiểm thử D03 ngày 2026-11-21: clean build thành công, **96 tests / 0 failures / 0 errors / 0 skipped**,
-gồm 65 regression hiện có và 31 ca catalog H2/HTTP với bốn role, validation, duplicate, inactive,
-FK, pagination, scope dữ liệu và concurrency. Output riêng để giữ JAR đang chạy:
+Kiểm thử nghiệm thu D03 ngày 2026-11-21 được chạy riêng cho task test (unit/H2) và mysqlTest.
+Kết quả cuối: **110/110 unit/H2 và 89/89 MySQL PASS**, không failures/errors/skipped.
+Suite giữ regression D02, quyền bốn role, validation, duplicate, inactive, FK, pagination,
+scope dữ liệu, concurrency, eligible-users và CORS GET/POST/PATCH. Output riêng để giữ JAR đang chạy:
 
 ```powershell
 .\gradlew.bat --no-daemon --init-script build/d02-final-inputs/output.gradle clean build
+.\gradlew.bat --no-daemon --init-script build/d02-final-inputs/output.gradle mysqlTest
 ```
 
-Báo cáo máy sinh ở `build/d02-final-validation/reports/tests/test/index.html`.
-Chưa có kết quả PASS cho D03 MySQL; collation, FK và transaction trên MySQL cần QA V2 và suite MySQL.
+Báo cáo máy sinh ở `build/d02-final-validation/reports/tests/test/index.html`
+và `build/d02-final-validation/reports/tests/mysqlTest/index.html`.
+MySQL tests chỉ chạy trên database cô lập có V1/V2, không chạy lên Clinic dùng chung.
 Không tạo Markdown báo cáo D03 riêng; contract/FE/DB handoff ở API_CONTRACT.
 
 Ví dụ tạo key dev trong environment của process PowerShell, không in/lưu giá trị:
@@ -165,7 +169,7 @@ Không đưa secret vào Git, command-line argument, shell output hoặc tài li
 
 - Không có URL hoặc credentials DB mặc định ở cấu hình main; thiếu biến sẽ không khởi động thành công.
 - JPA `ddl-auto=validate`, `open-in-view=false`; timestamps JDBC theo UTC.
-- Flyway enabled ở main; V1 thuộc Database/QA. BE không tạo/sửa migration hoặc schema thật.
+- Flyway enabled ở main; V1/V2 thuộc Database/QA. BE không sửa migration hoặc schema dùng chung.
 - Không tự baseline database có sẵn; Flyway clean bị tắt; SQL init bị tắt.
 - Security chỉ mở health/register/login/me và doctor/specialty đúng điều kiện; Basic/form/session login tắt,
   không có mật khẩu sinh tự động; JWT filter nằm trong SecurityFilterChain.
@@ -173,6 +177,6 @@ Không đưa secret vào Git, command-line argument, shell output hoặc tài li
 
 Phạm vi: [FEATURE_SCOPE](../docs/requirements/FEATURE_SCOPE.md).
 Giao kèo FE: [API_CONTRACT](../docs/API_CONTRACT.md).
-Kết quả hiện tại: [D02_BE_TEST_RESULTS](../docs/D02_BE_TEST_RESULTS.md).
+Lịch sử D02: [D02_BE_TEST_RESULTS](../docs/D02_BE_TEST_RESULTS.md).
 Lịch sử D01: [D01_BE_TEST_RESULTS](../docs/D01_BE_TEST_RESULTS.md).
 Đối chiếu ERD và quyết định cần chốt: [SCHEMA_REVIEW_D01](../docs/SCHEMA_REVIEW_D01.md).

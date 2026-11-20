@@ -31,6 +31,12 @@ public class DoctorService {
         this.users = users;
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
+    public PageResponse<EligibleDoctorUserResponse> eligibleUsers(String q, int page, int size) {
+        return PageResponse.from(users.findEligibleDoctors(CatalogQueries.search(q),
+                CatalogQueries.page(page, size, "fullName")));
+    }
+
     public PageResponse<DoctorView> list(AuthenticatedUser viewer, String q, Long specialtyId,
                                           Boolean active, int page, int size) {
         if (viewer.role() == Role.PATIENT && Boolean.FALSE.equals(active)) {

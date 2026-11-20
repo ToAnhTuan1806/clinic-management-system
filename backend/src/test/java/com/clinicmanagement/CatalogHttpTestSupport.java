@@ -80,6 +80,82 @@ abstract class CatalogHttpTestSupport extends TestSecurityProperties {
         return user;
     }
 
+    @ParameterizedTest
+    @EnumSource(Role.class)
+    void eligibleUsersAreAdminOnly(Role role) throws Exception {
+        var response = call("GET", "/api/v1/doctors/eligible-users", null, role);
+        if (role == Role.ADMIN) {
+            assertThat(response.statusCode()).isEqualTo(200);
+            assertThat(body(response).path("data").path("totalElements").asLong()).isEqualTo(2);
+        } else {
+            problem(response, 403, "ACCESS_DENIED");
+        }
+    }
+
+    @Test
+    void eligibleUsersRequireBearerAuthentication() throws Exception {
+        problem(call("GET", "/api/v1/doctors/eligible-users", null, null), 401, "AUTHENTICATION_REQUIRED");
+        problem(request("GET", "/api/v1/doctors/eligible-users", null, UUID.randomUUID().toString(), Map.of()),
+                401, "INVALID_ACCESS_TOKEN");
+    }
+
+    @Test
+    void eligibleUsersExcludeEveryLinkedProfileAndReturnOnlySelectionFields() throws Exception {
+        String specialty = specialty("ENT", "Ear Clinic", true);
+        createDoctor(actors.get(Role.DOCTOR).getId(), specialty, "DR_A", true);
+        createDoctor(secondDoctor.getId(), specialty, "DR_B", false);
+        User first = seed(Role.DOCTOR, "Eligible Alpha");
+        User second = seed(Role.DOCTOR, "Eligible Beta");
+        User disabled = seed(Role.DOCTOR, "Disabled Candidate");
+        jdbc.update("UPDATE users SET status = 'DISABLED' WHERE id = ?", disabled.getId());
+        JsonNode page = list("/api/v1/doctors/eligible-users?role=PATIENT&status=DISABLED", Role.ADMIN);
+        assertThat(page.path("totalElements").asLong()).isEqualTo(2);
+        List<String> ids = new ArrayList<>();
+        for (JsonNode item : page.path("items")) {
+            assertThat(item.size()).isEqualTo(3);
+            for (String field : List.of("id", "fullName", "email")) assertThat(item.has(field)).isTrue();
+            assertThat(item.path("id").asString()).matches("[1-9][0-9]*");
+            assertThat(item.has("passwordHash")).isFalse();
+            assertThat(item.has("role")).isFalse();
+            assertThat(item.has("status")).isFalse();
+            ids.add(item.path("id").asString());
+        }
+        assertThat(ids).containsExactly(first.getId().toString(), second.getId().toString());
+        createDoctor(first.getId(), specialty, "DR_C", true);
+        assertThat(list("/api/v1/doctors/eligible-users", Role.ADMIN).path("totalElements").asLong()).isEqualTo(1);
+        jdbc.update("UPDATE users SET status = 'DISABLED' WHERE id = ?", second.getId());
+        assertThat(list("/api/v1/doctors/eligible-users", Role.ADMIN).path("totalElements").asLong()).isZero();
+    }
+
+    @Test
+    void eligibleUserSearchPaginationAndStableOrdering() throws Exception {
+        User candidate = seed(Role.DOCTOR, "Search Candidate");
+        User sameName = seed(Role.DOCTOR, "Doctor Alpha");
+        String emailQuery = URLEncoder.encode(" " + candidate.getEmail().toUpperCase(Locale.ROOT) + " ", StandardCharsets.UTF_8);
+        JsonNode emailPage = list("/api/v1/doctors/eligible-users?q=" + emailQuery, Role.ADMIN);
+        assertThat(emailPage.path("totalElements").asLong()).isEqualTo(1);
+        assertThat(emailPage.path("items").get(0).path("id").asString()).isEqualTo(candidate.getId().toString());
+        assertThat(list("/api/v1/doctors/eligible-users?q=search", Role.ADMIN).path("totalElements").asLong()).isEqualTo(1);
+        JsonNode first = list("/api/v1/doctors/eligible-users?q=doctor&page=0&size=1", Role.ADMIN);
+        JsonNode second = list("/api/v1/doctors/eligible-users?q=doctor&page=1&size=1", Role.ADMIN);
+        assertThat(first.path("totalElements").asLong()).isEqualTo(3);
+        assertThat(first.path("totalPages").asInt()).isEqualTo(3);
+        assertThat(first.path("items").get(0).path("id").asString()).isEqualTo(actors.get(Role.DOCTOR).getId().toString());
+        assertThat(second.path("items").get(0).path("id").asString()).isEqualTo(sameName.getId().toString());
+        assertThat(list("/api/v1/doctors/eligible-users?page=99&size=1", Role.ADMIN).path("items").size()).isZero();
+        for (String query : List.of("%", "_", "' OR 1=1 --")) {
+            assertThat(list("/api/v1/doctors/eligible-users?q=" + URLEncoder.encode(query, StandardCharsets.UTF_8), Role.ADMIN)
+                    .path("totalElements").asLong()).isZero();
+        }
+    }
+
+    @ParameterizedTest(name = "eligible-users validation: {0}")
+    @ValueSource(strings = {"page=-1", "size=0", "size=101", "page=invalid", "qTooLong"})
+    void eligibleUserQueryValidation(String variant) throws Exception {
+        String query = variant.equals("qTooLong") ? "q=" + "x".repeat(121) : variant;
+        assertThat(call("GET", "/api/v1/doctors/eligible-users?" + query, null, Role.ADMIN).statusCode()).isEqualTo(400);
+    }
+
     @Test
     void specialtyCreatePatchSearchAndPagination() throws Exception {
         var first = call("POST", "/api/v1/specialties", Map.of("code", " ent ", "name", " Ear Clinic ",
@@ -312,16 +388,19 @@ abstract class CatalogHttpTestSupport extends TestSecurityProperties {
                 "password", password, "fullName", "Synthetic", "role", "DOCTOR"), null), 400, "HTTP_400");
     }
 
-    @Test
-    void corsAllowsPatchOnlyForConfiguredOrigin() throws Exception {
-        var allowed = request("OPTIONS", "/api/v1/doctors/1", null, null, Map.of("Origin", TEST_ORIGIN,
-                "Access-Control-Request-Method", "PATCH", "Access-Control-Request-Headers", "authorization,content-type"));
+    @ParameterizedTest
+    @ValueSource(strings = {"GET", "POST", "PATCH"})
+    void corsAllowsCatalogMethodsOnlyForConfiguredOrigin(String method) throws Exception {
+        String path = method.equals("GET") ? "/api/v1/doctors/eligible-users"
+                : method.equals("POST") ? "/api/v1/specialties" : "/api/v1/doctors/1";
+        var allowed = request("OPTIONS", path, null, null, Map.of("Origin", TEST_ORIGIN,
+                "Access-Control-Request-Method", method, "Access-Control-Request-Headers", "authorization,content-type"));
         assertThat(allowed.statusCode()).isEqualTo(200);
-        assertThat(allowed.headers().firstValue("Access-Control-Allow-Methods").orElse("")).contains("PATCH");
+        assertThat(allowed.headers().firstValue("Access-Control-Allow-Methods").orElse("")).contains(method);
         assertThat(allowed.headers().firstValue("Access-Control-Allow-Origin")).contains(TEST_ORIGIN);
         assertThat(allowed.headers().firstValue("Access-Control-Allow-Credentials")).isEmpty();
-        problem(request("OPTIONS", "/api/v1/doctors/1", null, null, Map.of("Origin", "https://untrusted.example.invalid",
-                "Access-Control-Request-Method", "PATCH")), 403, "CORS_REJECTED");
+        problem(request("OPTIONS", path, null, null, Map.of("Origin", "https://untrusted.example.invalid",
+                "Access-Control-Request-Method", method)), 403, "CORS_REJECTED");
     }
 
     @Test
