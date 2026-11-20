@@ -1,2 +1,2 @@
-/** Spring Data JPA repositories; add interfaces after database model agreement. */
+/** Spring Data JPA repositories; users only in D02. */
 package com.clinicmanagement.repository;

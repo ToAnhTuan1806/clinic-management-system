@@ -12,3 +12,14 @@ database/backups/
 backend/.gradle/
 backend/build/
 database/qa/__pycache__/
+
+# Gradle, Java and IDE output across workspace modules
+**/.gradle/
+**/build/
+**/out/
+.idea/
+*.iml
+*.log
+
+# Optional local backend configuration can contain credentials
+backend/src/main/resources/application-local.yml

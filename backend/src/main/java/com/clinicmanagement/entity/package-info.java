@@ -1,2 +1,2 @@
-/** Persistence entities; no speculative domain schema is created in D01. */
+/** User persistence model; clinical entities and migrations remain outside D02. */
 package com.clinicmanagement.entity;

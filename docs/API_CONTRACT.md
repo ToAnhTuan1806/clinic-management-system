@@ -1,6 +1,6 @@
-# API Contract sơ bộ — Clinic Management System
+# API Contract — Clinic Management System (D02)
 
-Task: **CL-D01-BE**. Tài liệu phục vụ FE/BE/DB thống nhất trước khi làm nghiệp vụ.
+Task hiện tại: **CL-D02-BE**; kế thừa nền tảng CL-D01-BE.
 `IMPLEMENTED` chỉ áp dụng cho phần đã có code và kiểm thử; `PROPOSED` chưa phải API sử dụng được.
 Phạm vi chức năng: [FR-01–FR-14](requirements/FEATURE_SCOPE.md).
 
@@ -9,7 +9,8 @@ Phạm vi chức năng: [FR-01–FR-14](requirements/FEATURE_SCOPE.md).
 - Base path: `/api/v1`; JSON UTF-8; tên trường camelCase; URL danh từ số nhiều, chữ thường có dấu `-`.
 - GET đọc dữ liệu; POST tạo hoặc thực hiện chuyển trạng thái; PATCH cập nhật một phần.
   DELETE chỉ dùng khi mô hình cho phép xóa, không dùng để xóa lịch sử khám.
-- Id nghiệp vụ trao đổi dưới dạng chuỗi opaque; BE/DB cần chốt UUID/BIGINT trước migration đầu tiên.
+- User dùng PK BIGINT signed; API trả id dạng chuỗi để tránh mất chính xác ở JavaScript.
+  Các entity khác chưa triển khai; schema/migration do Database/QA phụ trách.
 - Ngày: `YYYY-MM-DD`; thời điểm: ISO-8601 UTC, ví dụ `2026-11-20T02:00:00Z`.
   FE hiển thị theo `Asia/Ho_Chi_Minh`, không gửi thời điểm thiếu offset.
 - Danh sách dự kiến: `page=0&size=20&sort=createdAt,desc`; size tối đa 100;
@@ -37,9 +38,10 @@ Phạm vi chức năng: [FR-01–FR-14](requirements/FEATURE_SCOPE.md).
 | 500 | Lỗi không dự kiến, thông điệp an toàn cho client |
 | 503 | Phụ thuộc không sẵn sàng, chỉ áp dụng khi có readiness/cơ chế tương ứng |
 
-Không trả 200 kèm cờ lỗi cho request thất bại. Trong D01, GET đến API bảo vệ trả 401;
-POST/PATCH/DELETE thiếu CSRF token có thể bị chặn 403 trước bước xác thực/định tuyến.
-Vì vậy API `PROPOSED` có thể trả 401/403 thay vì 404, không có nghĩa API đã tồn tại.
+Không trả 200 kèm cờ lỗi. D02 dùng Bearer header, không có cookie xác thực; CSRF được tắt.
+Thiếu/sai JWT ở API bảo vệ trả 401; JWT hợp lệ nhưng request không được cấp quyền trả 403.
+API `PROPOSED` vẫn denyAll, có thể trả 401/403 thay vì 404; không có nghĩa API đã tồn tại.
+CORS từ origin/method/header ngoài allowlist trả 403 CORS_REJECTED.
 
 ## 3. Response thành công
 
@@ -67,6 +69,120 @@ trong mỗi request, không phải readiness probe và không trả version, pro
 }
 ```
 
+### 3.1 Authentication — IMPLEMENTED D02
+
+Chỉ có ba API auth dưới đây đã triển khai. Ví dụ dùng placeholder, không chứa mật khẩu/token thật.
+Register/login phải gửi `Content-Type: application/json`; không gửi Bearer cũ/hết hạn đến API public.
+Spring Security vẫn kiểm tra Bearer nếu client tự gửi header đó, kể cả trên route public.
+
+**POST /api/v1/auth/register — public**
+
+```json
+{
+  "email": "patient@example.invalid",
+  "password": "<password entered by user>",
+  "fullName": "Synthetic Example"
+}
+```
+
+- Email trim/lowercase với Locale.ROOT, hợp lệ theo @Email, tối đa 254 ký tự và UNIQUE.
+- fullName trim, không rỗng, tối đa 120 ký tự.
+- Password không trim; @NotBlank, @Size 12–72 ký tự và tối đa **72 byte UTF-8** để không
+  bị BCrypt cắt bớt dữ liệu. Không có mật khẩu mặc định; hash bằng BCrypt cost 12.
+- Chỉ nhận email/password/fullName. Trường thừa như role/status/id/passwordHash trả 400 HTTP_400.
+  Client không thể tự cấp role; BE luôn tạo **PATIENT + ACTIVE**.
+- Không tạo Doctor/Patient profile hoặc tự liên kết hồ sơ bệnh nhân trong D02.
+
+Thành công **201**, Location `/api/v1/auth/me` (đọc sau khi đăng nhập), Cache-Control `no-store`:
+
+```json
+{
+  "data": {
+    "id": "1",
+    "email": "patient@example.invalid",
+    "fullName": "Synthetic Example",
+    "role": "PATIENT",
+    "status": "ACTIVE"
+  }
+}
+```
+
+Không tự đăng nhập hoặc cấp token sau register. Email trùng sau chuẩn hóa trả
+**409 EMAIL_ALREADY_EXISTS**; payload/validation lỗi trả 400.
+UNIQUE ở DB bảo vệ cả hai request đăng ký đồng thời.
+
+**POST /api/v1/auth/login — public**
+
+```json
+{"email":"patient@example.invalid","password":"<password entered by user>"}
+```
+
+Email được chuẩn hóa như register. Password bắt buộc không rỗng, tối đa 72 byte UTF-8;
+không trim. Sai email/password hoặc tài khoản DISABLED đều trả cùng
+**401 INVALID_CREDENTIALS**, detail `Invalid email or password.`; không tiết lộ tài khoản có tồn tại.
+Payload sai định dạng/thiếu trường trả 400, không phải lỗi xác thực.
+
+Thành công **200**, Cache-Control `no-store`, không Set-Cookie:
+
+```json
+{
+  "data": {
+    "accessToken": "<access token returned only to the client>",
+    "tokenType": "Bearer",
+    "expiresIn": 1800,
+    "user": {
+      "id": "1",
+      "email": "patient@example.invalid",
+      "fullName": "Synthetic Example",
+      "role": "PATIENT",
+      "status": "ACTIVE"
+    }
+  }
+}
+```
+
+BE cập nhật last_login_at/updated_at khi login thành công; cập nhật có điều kiện ACTIVE,
+chỉ ghi timestamps để không ghi đè role/status/password bị thay đổi đồng thời.
+Không trả passwordHash, hash hay timestamps nội bộ trong UserResponse.
+
+**GET /api/v1/auth/me — Bearer bắt buộc**
+
+```http
+Authorization: Bearer <accessToken>
+```
+
+Thành công **200** có `data` với đúng 5 trường id/email/fullName/role/status như register,
+Cache-Control `no-store`. Cả ADMIN/DOCTOR/RECEPTIONIST/PATIENT ACTIVE đều dùng được.
+BE kiểm tra DB trên mỗi request; token của user đã xóa/khóa bị từ chối 401.
+
+**JWT và logout**
+
+- HS256 duy nhất; bắt buộc chữ ký hợp lệ, issuer đúng và sub/iat/exp hợp lệ.
+  Lifetime **30 phút / 1800 giây**, không có grace sau exp; không nhận token thiếu exp,
+  iat tương lai hoặc lifetime dài hơn 30 phút.
+- JWT chứa iss/sub/iat/exp; sub là user id. Không chứa passwordHash, email hoặc nội dung bệnh án.
+  Role/status được đọc từ DB; các claim role/roles/scope không cấp quyền trong D02.
+- JWT_SECRET là Base64 của ít nhất 32 byte ngẫu nhiên, lấy từ environment, không có key mặc định.
+  JWT_ISSUER mặc định `clinic-management`, có thể cấu hình và phải khớp khi xác minh.
+- Chỉ nhận token qua Authorization header; không đọc query parameter, form hoặc cookie.
+- Logout D02 **chỉ xóa token phía client**. Không có logout/revoke/refresh endpoint đã triển khai;
+  token còn hiệu lực đến exp nếu tài khoản vẫn ACTIVE. Không tuyên bố server đã revoke token.
+
+**Lỗi auth thực tế**
+
+| HTTP | Code | Trường hợp |
+| --- | --- | --- |
+| 400 | VALIDATION_FAILED | Email/fullName/password không hợp lệ |
+| 400 | HTTP_400 | JSON sai, thiếu body hoặc trường thừa |
+| 401 | INVALID_CREDENTIALS | Login sai hoặc tài khoản DISABLED |
+| 401 | AUTHENTICATION_REQUIRED | API bảo vệ thiếu Bearer |
+| 401 | INVALID_ACCESS_TOKEN | Token sai chữ ký/hết hạn/sai issuer/claims/thuật toán; user không ACTIVE hoặc không còn tồn tại |
+| 403 | ACCESS_DENIED | JWT hợp lệ nhưng thiếu quyền; API chưa triển khai vẫn denyAll |
+| 403 | CORS_REJECTED | Cross-origin request ngoài allowlist |
+| 409 | EMAIL_ALREADY_EXISTS | Email canonical đã tồn tại |
+
+Lỗi từ Bearer authentication có header `WWW-Authenticate: Bearer`, không echo token hoặc lỗi parser.
+
 ## 4. Error response
 
 Dùng Problem Details theo [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457.html),
@@ -87,10 +203,10 @@ Dùng Problem Details theo [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457.htm
 
 - `status`: trùng HTTP status; `instance`: path, không gồm query có thể chứa dữ liệu riêng tư.
 - FE xử lý theo `status` + `code`, không so sánh chuỗi `detail`.
-- D01 có `AUTHENTICATION_REQUIRED`, `ACCESS_DENIED`, `INTERNAL_ERROR`,
+- Nền tảng có `AUTHENTICATION_REQUIRED`, `ACCESS_DENIED`, `INTERNAL_ERROR`,
   `HTTP_<status>` và handler `VALIDATION_FAILED` cho DTO có `@Valid`.
 - Validation handler chỉ trả tên trường và thông điệp an toàn, không trả giá trị bị từ chối.
-  Chưa có DTO request nghiệp vụ trong D01.
+  D02 đã có RegisterRequest/LoginRequest; DTO nghiệp vụ khám/đặt lịch chưa triển khai.
 
 Ví dụ validation **PROPOSED trên endpoint nghiệp vụ**:
 
@@ -118,16 +234,23 @@ Mã nghiệp vụ dự kiến: `APPOINTMENT_SLOT_UNAVAILABLE`, `INVALID_STATE_TR
 | RECEPTIONIST | Hồ sơ hành chính bệnh nhân, lịch, xác nhận, check-in | Chỉ metadata vận hành của hồ sơ khám; không sửa chẩn đoán/đơn thuốc |
 | PATIENT | Hồ sơ cá nhân, đặt/đổi/hủy lịch và lịch sử của mình | Kiểm tra ownership ở BE; không tin patientId từ client |
 
-**D01 IMPLEMENTED:** chỉ GET health được permit; tất cả request còn lại `denyAll`, kể cả
-principal có role ADMIN. Không có đăng nhập, HTTP Basic, form login, tài khoản mặc định hoặc JWT.
-Session policy là stateless, request cache tắt; CSRF giữ mặc định; CORS chưa mở origin nào.
+**D02 IMPLEMENTED:** GET health và POST register/login được public; GET auth/me cần JWT hợp lệ.
+Mọi API còn lại denyAll, kể cả ADMIN. HTTP Basic/form login/session cookie không dùng;
+không có tài khoản mặc định. Session policy stateless, request cache tắt.
+CSRF tắt vì credential chỉ được gửi chủ động qua Authorization header, không dùng cookie xác thực.
+Nếu sau này đổi sang cookie/session phải đánh giá và bật lại bảo vệ CSRF phù hợp.
 Security headers mặc định của Spring Security được giữ (HSTS chỉ trên HTTPS).
 `/error` là handler nội bộ khi servlet error dispatch; gọi trực tiếp vẫn bị bảo vệ.
 
-**PROPOSED:** JWT và mapping `ROLE_ADMIN/ROLE_DOCTOR/ROLE_RECEPTIONIST/ROLE_PATIENT` ở giai đoạn sau.
-Chốt transport, refresh/logout/revoke, CORS allowlist và CSRF với FE trước khi mở endpoint.
-Role không thay thế kiểm tra ownership/phân công ở service và truy vấn repository.
-Đăng ký public chỉ tạo PATIENT; API ADMIN tạo nhân viên không nhận role từ người chưa xác thực.
+JWT được xử lý bởi OAuth2 Resource Server trong SecurityFilterChain, không có filter xác thực nằm ngoài chain.
+Authority map nhất quán ROLE_ADMIN/ROLE_DOCTOR/ROLE_RECEPTIONIST/ROLE_PATIENT từ role DB hiện tại.
+CORS_ALLOWED_ORIGINS là danh sách origin chính xác, phân cách dấu phẩy; mặc định rỗng.
+Không cho wildcard/null/pattern/path; chỉ HTTP(S), methods GET/POST/OPTIONS,
+headers Authorization/Content-Type, exposed Location, allowCredentials=false.
+Origin FE thực tế cần cấu hình ở môi trường; không có origin localhost mặc định ở main.
+
+**PROPOSED:** quyền chi tiết API nghiệp vụ, ownership/phân công, refresh/revoke và quản lý tài khoản nhân viên.
+Role không thay thế kiểm tra dữ liệu ở service/query khi các API đó được triển khai.
 
 ## 6. Danh mục endpoint
 
@@ -138,10 +261,10 @@ Các dòng có nhiều method mô tả các API riêng cùng trạng thái tri�
 | FR | Method | Path | Quyền dự kiến | Trạng thái |
 | --- | --- | --- | --- | --- |
 | Nền tảng | GET | `/health` | Public | **IMPLEMENTED** |
-| FR-01 | POST | `/auth/register` | Public, chỉ PATIENT | PROPOSED |
-| FR-01 | POST | `/auth/login` | Public | PROPOSED |
-| FR-01 | POST | `/auth/logout` | Đã xác thực | PROPOSED |
-| FR-01 | GET | `/auth/me` | Đã xác thực, self | PROPOSED |
+| FR-01 | POST | `/auth/register` | Public, chỉ PATIENT | **IMPLEMENTED D02** |
+| FR-01 | POST | `/auth/login` | Public | **IMPLEMENTED D02** |
+| FR-01 | POST | `/auth/logout` | Chưa có endpoint; D02 logout ở client | PROPOSED sau D02 |
+| FR-01 | GET | `/auth/me` | JWT hợp lệ, ACTIVE, self | **IMPLEMENTED D02** |
 | FR-01 | PATCH | `/me/password` | Đã xác thực, self | PROPOSED |
 | FR-01 | GET, POST | `/users` | ADMIN; POST tạo tài khoản nhân viên | PROPOSED |
 | FR-01 | PATCH | `/users/{id}/status`, `/users/{id}/role` | ADMIN | PROPOSED |
@@ -212,10 +335,10 @@ Payload/response chi tiết của từng API nghiệp vụ sẽ chốt cùng ERD
 
 ## 8. Điểm cần đồng bộ
 
-- **FE:** base URL/port, envelope `data`, Problem Details, pagination từ 0,
-  UTC và role/ownership; D01 chỉ gọi được health, chưa có API login hoặc dữ liệu demo.
-- **FE + BE:** origin chạy FE, transport xác thực, CSRF/CORS, refresh/revoke và thông điệp lỗi;
-  không mở wildcard credentials hoặc tắt CSRF trước khi quyết định transport.
+- **FE:** health/register/login/me đã có code; dùng Bearer header, expiresIn tính bằng giây,
+  id chuỗi, data/Problem Details và logout client-only. Cần QA V1 trước khi dùng auth trên MySQL.
+- **FE + BE:** cấu hình origin chính xác; không gửi credentials cookie; refresh/revoke chưa có;
+  UI ẩn nút theo role không thay thế quyền phía BE.
 - **DB + BE:** MySQL version, database rỗng/riêng để kiểm thử, tài khoản qua secret của môi trường,
   quyền Flyway, ERD, loại id, index, timezone, charset/collation và concurrency cho slot.
 - **DB:** Flyway đã được cấu hình nhưng chưa có SQL domain migration;
@@ -233,3 +356,4 @@ chưa được coi là schema/API đã duyệt; không tạo migration để t�
 - [Spring Boot 4.1 — system requirements](https://docs.spring.io/spring-boot/4.1/system-requirements.html)
 - [Spring Boot — data initialization / Flyway](https://docs.spring.io/spring-boot/how-to/data-initialization.html)
 - [Spring Security — CSRF](https://docs.spring.io/spring-security/reference/servlet/exploits/csrf.html)
+- [Spring Security — JWT Resource Server](https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/jwt.html)

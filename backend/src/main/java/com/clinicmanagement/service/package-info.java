@@ -1,2 +1,2 @@
-/** Application services and transaction boundaries; business use cases follow D01. */
+/** Authentication transactions; clinical use cases remain outside D02. */
 package com.clinicmanagement.service;

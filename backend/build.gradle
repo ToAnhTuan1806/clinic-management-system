@@ -21,6 +21,7 @@ dependencies {
     implementation platform('org.springframework.boot:spring-boot-dependencies:4.1.3')
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation 'org.springframework.boot:spring-boot-starter-security-oauth2-resource-server'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-flyway'
@@ -40,7 +41,7 @@ tasks.named('test') {
 }
 
 tasks.register('mysqlTest', Test) {
-    description = 'Runs startup checks against the MySQL instance configured by DB_* variables.'
+    description = 'Runs Flyway, schema and auth HTTP checks on an isolated clinic_d02_be_it_* MySQL database.'
     group = 'verification'
     testClassesDirs = sourceSets.test.output.classesDirs
     classpath = sourceSets.test.runtimeClasspath

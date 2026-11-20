@@ -25,6 +25,7 @@ public final class ApiProblems {
     public static void write(HttpServletResponse response, ObjectMapper mapper, HttpStatus status,
                              String code, String detail, String path) throws IOException {
         response.setStatus(status.value());
+        response.setHeader("Cache-Control", "no-store");
         response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         mapper.writeValue(response.getOutputStream(), create(status, code, detail, path));
