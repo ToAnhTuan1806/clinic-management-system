@@ -1,6 +1,6 @@
 # Third-party component notices
 
-shadcn/ui components under `src/components/ui/` were generated with the official shadcn CLI and customized for this application. Source: https://github.com/shadcn-ui/ui. Copyright (c) 2023 shadcn. MIT license.
+shadcn/ui components under `src/components/ui/` were installed from the official shadcn CLI/registry and customized for this application. D02 Form was copied from the official new-york form registry to preserve existing D01 Button/Label components. Source: https://github.com/shadcn-ui/ui. Copyright (c) 2023 shadcn. MIT license.
 
 `src/components/ui/blur-fade.tsx` was installed from Magic UI's `@magicui/blur-fade` registry. Source: https://github.com/magicuidesign/magicui. Copyright (c) Magic UI. MIT license. Local adaptations disable blur by default and respect reduced motion.
 

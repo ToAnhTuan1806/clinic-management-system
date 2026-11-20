@@ -1,18 +1,14 @@
 import axios from 'axios'
+import { isAuthMock } from '@/auth/config'
+import { installAuthInterceptors } from '@/auth/http'
 
-// No requests are made by the scaffold. Configure only when an API exists.
+const baseURL = isAuthMock
+  ? window.location.origin
+  : import.meta.env.VITE_API_BASE_URL
 export const apiClient = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || undefined,
+  baseURL: baseURL || undefined,
   timeout: 15_000,
   headers: { Accept: 'application/json' },
 })
 
-// Avoid accidentally sending requests to the frontend origin.
-apiClient.interceptors.request.use((config) => {
-  if (!import.meta.env.VITE_API_BASE_URL) {
-    throw new Error(
-      'API chưa được cấu hình. Thiết lập VITE_API_BASE_URL trước khi tích hợp.',
-    )
-  }
-  return config
-})
+installAuthInterceptors(apiClient, () => Boolean(baseURL))

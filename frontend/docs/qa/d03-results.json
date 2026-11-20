@@ -1,0 +1,213 @@
+{
+  "task": "CL-D03-FE",
+  "status": "BLOCKED",
+  "branch": "feature/trang",
+  "head": "2443e32830026449dac32a63a6b9117f87ab74b4",
+  "completedAtUTC": "2026-11-20 18:38:36 UTC",
+  "realD03Integration": "NOT TESTED — D03 API/DTO contract absent; Backend still D02",
+  "source": "MOCK UI / MOCK AUTH ONLY",
+  "unitTests": {
+    "passed": 35,
+    "total": 35,
+    "d02": 21,
+    "d03": 14,
+    "realIntegration": false
+  },
+  "qualityGates": {
+    "lint": "PASS",
+    "build": "PASS",
+    "formatCheck": "PASS",
+    "test": "PASS"
+  },
+  "screenshotsCreated": 0,
+  "d03MockUI": {
+    "source": "MOCK ONLY — NO D03 BACKEND HTTP",
+    "checks": [
+      {
+        "label": "ADMIN specialty list, pagination, search and empty state",
+        "result": "PASS",
+        "source": "MOCK FE gateway + synthetic auth state"
+      },
+      {
+        "label": "Specialty create validation and successful DEMO save",
+        "result": "PASS",
+        "source": "MOCK FE gateway + synthetic auth state"
+      },
+      {
+        "label": "Specialty edit and status cancel/confirm, no hard delete",
+        "result": "PASS",
+        "source": "MOCK FE gateway + synthetic auth state"
+      },
+      {
+        "label": "Duplicate specialty error remains in form, preserves input",
+        "result": "PASS",
+        "source": "MOCK FE gateway + synthetic auth state"
+      },
+      {
+        "label": "MOCK pending save disables form and blocks double submit and dismissal",
+        "result": "PASS",
+        "source": "MOCK FE gateway + synthetic auth state"
+      },
+      {
+        "label": "Doctor list specialty filter, active filter, search and pagination",
+        "result": "PASS",
+        "source": "MOCK FE gateway + synthetic auth state"
+      },
+      {
+        "label": "Doctor create validates choices, excludes inactive specialties and invalid users",
+        "result": "PASS",
+        "source": "MOCK FE gateway + synthetic auth state"
+      },
+      {
+        "label": "Doctor edit, active status confirmation and details",
+        "result": "PASS",
+        "source": "MOCK FE gateway + synthetic auth state"
+      },
+      {
+        "label": "MOCK 403 save shows error without success or closing editor",
+        "result": "PASS",
+        "source": "MOCK FE gateway + synthetic auth state"
+      },
+      {
+        "label": "Network-like MOCK list fault offers retry, clears stale results",
+        "result": "PASS",
+        "source": "MOCK FE gateway + synthetic auth state"
+      },
+      {
+        "label": "RECEPTIONIST reads both lists without management controls",
+        "result": "PASS",
+        "source": "MOCK FE gateway + synthetic auth state"
+      },
+      {
+        "label": "DOCTOR only sees own profile and can open details",
+        "result": "PASS",
+        "source": "MOCK FE gateway + synthetic auth state"
+      },
+      {
+        "label": "PATIENT sees only active entries, no status/admin controls, RoleGuard remains",
+        "result": "PASS",
+        "source": "MOCK FE gateway + synthetic auth state"
+      },
+      {
+        "label": "Mobile/tablet/desktop, Light/Dark and modal focus/escape",
+        "result": "PASS",
+        "source": "MOCK FE gateway + synthetic auth state"
+      },
+      {
+        "label": "MOCK 401 expires session, redirects Login, ProtectedRoute blocks reuse",
+        "result": "PASS",
+        "source": "MOCK FE gateway + synthetic auth state"
+      }
+    ],
+    "count": 15,
+    "runtimeErrors": 0,
+    "screenshotsCreated": 0
+  },
+  "d02MockRegression": {
+    "label": "API MOCK ONLY — NOT A REAL BACKEND TEST",
+    "checks": [
+      {
+        "label": "Unauthenticated direct URL redirects to Login",
+        "result": "PASS",
+        "source": "API MOCK"
+      },
+      {
+        "label": "Login validation and focus; no request on invalid form",
+        "result": "PASS",
+        "source": "API MOCK"
+      },
+      {
+        "label": "Password visibility and keyboard Enter submits",
+        "result": "PASS",
+        "source": "API MOCK"
+      },
+      {
+        "label": "Login network error and malformed success never authenticate",
+        "result": "PASS",
+        "source": "API MOCK"
+      },
+      {
+        "label": "Register validation, matching confirmation, no privileged role selection",
+        "result": "PASS",
+        "source": "API MOCK"
+      },
+      {
+        "label": "Register maps network, duplicate email and Problem Details field errors",
+        "result": "PASS",
+        "source": "API MOCK"
+      },
+      {
+        "label": "Register PATIENT success redirects to Login with explicit MOCK notice",
+        "result": "PASS",
+        "source": "API MOCK"
+      },
+      {
+        "label": "Loading and double-submit lock; /me validates identity before entry",
+        "result": "PASS",
+        "source": "API MOCK"
+      },
+      {
+        "label": "403 keeps session and shows missing permission; 401 clears and redirects",
+        "result": "PASS",
+        "source": "API MOCK"
+      },
+      {
+        "label": "All four roles enter the correct workspace and guard direct SPA URLs",
+        "result": "PASS",
+        "source": "API MOCK"
+      },
+      {
+        "label": "Logout and reload remove authentication; history cannot restore it",
+        "result": "PASS",
+        "source": "API MOCK"
+      },
+      {
+        "label": "Keyboard skip link and focus are usable",
+        "result": "PASS",
+        "source": "API MOCK"
+      },
+      {
+        "label": "Mobile navigation traps focus, closes on Escape and supports logout",
+        "result": "PASS",
+        "source": "API MOCK"
+      },
+      {
+        "label": "Responsive Light/Dark auth pages at 320/390/768/1440px",
+        "result": "PASS",
+        "source": "API MOCK"
+      },
+      {
+        "label": "Reduced motion disables loading animation",
+        "result": "PASS",
+        "source": "API MOCK"
+      }
+    ],
+    "runtimeErrors": 0,
+    "requestSummary": {
+      "login": 11,
+      "register": 5,
+      "me": 10,
+      "unexpected": 0
+    },
+    "tokensLogged": false
+  },
+  "productionPending": {
+    "source": "PRODUCTION UI WITH MOCK D02 AUTH ONLY — NO REAL BACKEND",
+    "result": "PASS",
+    "d03Requests": 0,
+    "mockDirectoryEnabled": false,
+    "unconfiguredMutationsDisabled": true,
+    "screenshotsCreated": 0
+  },
+  "blockers": [
+    "docs/API_CONTRACT.md is still D02; doctors/specialties PROPOSED only.",
+    "D03 DTOs, validation, filter/pagination/status API and eligible DOCTOR user endpoint not finalized.",
+    "Real D03 role/CRUD/401/403 testing required before merge."
+  ],
+  "limitations": [
+    "Provisional FE models and minimal validation are not approved Backend DTO/validation.",
+    "Doctor own-profile policy and immutable linked account UI are provisional pending contract.",
+    "Mock permissions do not certify Backend security/ownership.",
+    "No new screenshots, BE/DB/migration changes or Git mutation."
+  ]
+}

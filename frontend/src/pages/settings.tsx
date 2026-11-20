@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { EmptyState, ErrorState, LoadingState } from '@/components/page-states'
+import { SessionCard } from '@/components/auth/session-card'
 
 export default function Settings() {
   const { theme, setTheme } = useTheme()
@@ -22,6 +23,7 @@ export default function Settings() {
           Giao diện nhất quán, phù hợp với cách bạn làm việc.
         </p>
       </div>
+      <SessionCard />
       <Card className="gap-5 p-6">
         <div className="flex items-center gap-3">
           <Palette className="size-5 text-primary" aria-hidden="true" />
@@ -63,8 +65,8 @@ export default function Settings() {
           <Badge variant="outline">Chưa tích hợp API</Badge>
         </div>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          Bản DEMO chỉ cung cấp giao diện nền tảng. Đăng nhập, phân quyền và các
-          chức năng nghiệp vụ chưa được kết nối.
+          Các phân hệ nghiệp vụ vẫn đang ở dạng DEMO và chưa có dữ liệu thật.
+          Quyền truy cập dữ liệu phải tiếp tục được kiểm tra tại Backend.
         </p>
       </Card>
       <Card className="gap-5 p-6">

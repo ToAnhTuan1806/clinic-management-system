@@ -1,30 +1,41 @@
 import { lazy, Suspense, useEffect, useRef } from 'react'
-import {
-  BrowserRouter,
-  Navigate,
-  Route,
-  Routes,
-  useLocation,
-} from 'react-router'
+import { BrowserRouter, Route, Routes, useLocation } from 'react-router'
 import { MotionConfig } from 'motion/react'
 import { MainLayout } from '@/components/layout/main-layout'
 import { ThemeProvider } from '@/components/theme-provider'
 import { LoadingState } from '@/components/page-states'
 import { navigation } from '@/lib/navigation'
+import { AuthProvider } from '@/auth/provider'
+import {
+  HomeRedirect,
+  ProtectedRoute,
+  PublicAuthRoute,
+  RoleGuard,
+} from '@/auth/guards'
 
 const Dashboard = lazy(() => import('@/pages/dashboard'))
 const ModulePlaceholder = lazy(() => import('@/pages/module-placeholder'))
 const Settings = lazy(() => import('@/pages/settings'))
 const Login = lazy(() => import('@/pages/login'))
+const Register = lazy(() => import('@/pages/register'))
+const Booking = lazy(() => import('@/pages/booking'))
+const Forbidden = lazy(() => import('@/pages/forbidden'))
 const NotFound = lazy(() => import('@/pages/not-found'))
+const Directory = lazy(() => import('@/pages/directory'))
 
 function RouteEffects() {
   const { pathname } = useLocation()
   const previous = useRef(pathname)
   useEffect(() => {
     const label =
-      pathname === '/login'
-        ? 'Đăng nhập'
+      pathname === '/login' ||
+      pathname === '/register' ||
+      pathname === '/forbidden'
+        ? {
+            '/login': 'Đăng nhập',
+            '/register': 'Đăng ký',
+            '/forbidden': 'Không đủ quyền',
+          }[pathname]
         : (navigation.find((item) => item.path === pathname)?.label ??
           'Không tìm thấy')
     document.title = `${label} · ClinicOS DEMO`
@@ -42,39 +53,64 @@ export default function App() {
     <ThemeProvider>
       <MotionConfig reducedMotion="user">
         <BrowserRouter>
-          <RouteEffects />
-          <a href="#main-content" className="skip-link">
-            Đến nội dung chính
-          </a>
-          <Suspense
-            fallback={
-              <div className="p-6">
-                <LoadingState />
-              </div>
-            }
-          >
-            <Routes>
-              <Route path="/login" element={<Login />} />
-              <Route element={<MainLayout />}>
-                <Route index element={<Navigate to="/dashboard" replace />} />
-                <Route path="/dashboard" element={<Dashboard />} />
-                {navigation
-                  .filter(
-                    (item) =>
-                      item.path !== '/dashboard' && item.path !== '/settings',
-                  )
-                  .map((item) => (
-                    <Route
-                      key={item.path}
-                      path={item.path}
-                      element={<ModulePlaceholder />}
-                    />
-                  ))}
-                <Route path="/settings" element={<Settings />} />
-                <Route path="*" element={<NotFound />} />
-              </Route>
-            </Routes>
-          </Suspense>
+          <AuthProvider>
+            <RouteEffects />
+            <a href="#main-content" className="skip-link">
+              Đến nội dung chính
+            </a>
+            <Suspense
+              fallback={
+                <div className="p-6">
+                  <LoadingState />
+                </div>
+              }
+            >
+              <Routes>
+                <Route element={<PublicAuthRoute />}>
+                  <Route path="/login" element={<Login />} />
+                  <Route path="/register" element={<Register />} />
+                </Route>
+                <Route element={<ProtectedRoute />}>
+                  <Route element={<MainLayout />}>
+                    <Route index element={<HomeRedirect />} />
+                    {navigation.map((item) => (
+                      <Route
+                        key={item.path}
+                        element={<RoleGuard allowed={item.roles} />}
+                      >
+                        <Route
+                          path={item.path}
+                          element={
+                            item.path === '/dashboard' ? (
+                              <Dashboard />
+                            ) : item.path === '/settings' ? (
+                              <Settings />
+                            ) : item.path === '/booking' ? (
+                              <Booking />
+                            ) : item.path === '/doctors' ||
+                              item.path === '/specialties' ? (
+                              <Directory
+                                key={item.path}
+                                kind={
+                                  item.path === '/doctors'
+                                    ? 'doctors'
+                                    : 'specialties'
+                                }
+                              />
+                            ) : (
+                              <ModulePlaceholder />
+                            )
+                          }
+                        />
+                      </Route>
+                    ))}
+                    <Route path="/forbidden" element={<Forbidden />} />
+                    <Route path="*" element={<NotFound />} />
+                  </Route>
+                </Route>
+              </Routes>
+            </Suspense>
+          </AuthProvider>
         </BrowserRouter>
       </MotionConfig>
     </ThemeProvider>

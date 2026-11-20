@@ -16,6 +16,8 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { BlurFade } from '@/components/ui/blur-fade'
 import { EmptyState } from '@/components/page-states'
+import { useAuth } from '@/auth/context'
+import { canAccessPath } from '@/lib/navigation'
 
 const metrics = [
   { label: 'Lịch hẹn hôm nay', icon: CalendarDays, to: '/appointments' },
@@ -25,6 +27,10 @@ const metrics = [
 ]
 
 export default function Dashboard() {
+  const { user } = useAuth()
+  const visibleMetrics = metrics.filter(
+    (item) => user && canAccessPath(user.role, item.to),
+  )
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -33,7 +39,11 @@ export default function Dashboard() {
             KHÔNG GIAN CHĂM SÓC SỨC KHỎE
           </p>
           <h1 className="text-2xl font-semibold sm:text-3xl">
-            Tổng quan phòng khám
+            {user?.role === 'DOCTOR'
+              ? 'Không gian bác sĩ'
+              : user?.role === 'RECEPTIONIST'
+                ? 'Không gian lễ tân'
+                : 'Tổng quan phòng khám'}
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
             Mọi kết nối bắt đầu từ một không gian làm việc rõ ràng.
@@ -72,7 +82,7 @@ export default function Dashboard() {
               asChild
               className="mt-6 h-10 bg-white px-4 text-blue-800 hover:bg-blue-50"
             >
-              <Link to="/patients">
+              <Link to={user?.role === 'DOCTOR' ? '/doctors' : '/patients'}>
                 Khám phá không gian <ArrowRight aria-hidden="true" />
               </Link>
             </Button>
@@ -99,7 +109,7 @@ export default function Dashboard() {
         aria-label="Chỉ số phòng khám"
         className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4"
       >
-        {metrics.map(({ label, icon: Icon, to }) => (
+        {visibleMetrics.map(({ label, icon: Icon, to }) => (
           <Link
             key={to}
             to={to}
@@ -155,32 +165,34 @@ export default function Dashboard() {
             </p>
           </div>
           <div className="divide-y px-5">
-            {metrics.slice(1).map(({ label, icon: Icon, to }) => (
-              <Link
-                key={to}
-                to={to}
-                className="group flex min-h-20 items-center gap-3 rounded py-3"
-              >
-                <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted">
-                  <Icon
-                    className="size-[18px] text-primary"
+            {visibleMetrics
+              .filter((item) => item.to !== '/appointments')
+              .map(({ label, icon: Icon, to }) => (
+                <Link
+                  key={to}
+                  to={to}
+                  className="group flex min-h-20 items-center gap-3 rounded py-3"
+                >
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted">
+                    <Icon
+                      className="size-[18px] text-primary"
+                      aria-hidden="true"
+                    />
+                  </span>
+                  <span>
+                    <span className="block text-sm font-medium group-hover:text-primary">
+                      {label}
+                    </span>
+                    <span className="mt-1 block text-xs text-muted-foreground">
+                      Màn hình nền tảng
+                    </span>
+                  </span>
+                  <ChevronRight
+                    className="ml-auto size-4 text-muted-foreground"
                     aria-hidden="true"
                   />
-                </span>
-                <span>
-                  <span className="block text-sm font-medium group-hover:text-primary">
-                    {label}
-                  </span>
-                  <span className="mt-1 block text-xs text-muted-foreground">
-                    Màn hình nền tảng
-                  </span>
-                </span>
-                <ChevronRight
-                  className="ml-auto size-4 text-muted-foreground"
-                  aria-hidden="true"
-                />
-              </Link>
-            ))}
+                </Link>
+              ))}
           </div>
         </Card>
       </div>
