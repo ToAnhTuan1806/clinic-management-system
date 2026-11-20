@@ -1,7 +1,13 @@
 # Embedded, disposable test database only. Never packaged in the application JAR.
 spring:
   datasource:
-    url: jdbc:h2:mem:clinic_test;DB_CLOSE_DELAY=-1
+    url: jdbc:h2:mem:${random.uuid};DB_CLOSE_DELAY=-1
     username: sa
     password: ""
     driver-class-name: org.h2.Driver
+  flyway:
+    enabled: false
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:fixtures/users-schema.sql

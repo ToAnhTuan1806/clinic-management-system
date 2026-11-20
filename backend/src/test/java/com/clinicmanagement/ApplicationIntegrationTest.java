@@ -7,7 +7,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.Map;
-import org.flywaydb.core.Flyway;
+import jakarta.persistence.EntityManagerFactory;
+import com.clinicmanagement.entity.User;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -26,13 +27,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @ActiveProfiles("test")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class ApplicationIntegrationTest {
+class ApplicationIntegrationTest extends TestSecurityProperties {
     @LocalServerPort
     private int port;
     @Autowired
     private ObjectMapper mapper;
     @Autowired
-    private Flyway flyway;
+    private EntityManagerFactory entityManagerFactory;
     @Autowired
     private WebApplicationContext context;
 
@@ -57,10 +58,10 @@ class ApplicationIntegrationTest {
     }
 
     @Test
-    void writesRemainCsrfProtectedAndLoginIsNotAvailable() throws Exception {
+    void loginIsPublicAndValidatesBodyWithoutCsrfCookie() throws Exception {
         HttpResponse<String> response = send("POST", "/api/v1/auth/login");
-        assertThat(response.statusCode()).isEqualTo(403);
-        assertProblem(response, "ACCESS_DENIED", "/api/v1/auth/login");
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertProblem(response, "HTTP_400", "/api/v1/auth/login");
     }
 
     @Test
@@ -71,11 +72,9 @@ class ApplicationIntegrationTest {
     }
 
     @Test
-    void flywayStartsAndNoDomainMigrationIsInvented() {
-        assertThat(flyway.getConfiguration().isCleanDisabled()).isTrue();
-        assertThat(flyway.getConfiguration().isBaselineOnMigrate()).isFalse();
-        assertThat(flyway.info().pending()).isEmpty();
-        assertThat(flyway.info().applied()).isEmpty();
+    void jpaValidatesTheTestOnlyUserFixture() {
+        assertThat(entityManagerFactory.getMetamodel().getEntities()).hasSize(1);
+        assertThat(entityManagerFactory.getMetamodel().entity(User.class).getName()).isEqualTo("User");
     }
 
     private void assertProblem(HttpResponse<String> response, String code, String path) throws Exception {

@@ -19,7 +19,7 @@ import tools.jackson.databind.ObjectMapper;
 @Tag("mysql")
 @ActiveProfiles("mysql-validation")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class MySqlStartupTest {
+class MySqlStartupTest extends TestSecurityProperties {
     @LocalServerPort
     private int port;
     @Autowired
