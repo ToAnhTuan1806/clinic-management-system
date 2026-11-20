@@ -40,8 +40,10 @@ Test mặc định bật profile `test`, H2 in-memory riêng cho mỗi context v
 HTTP integration chạy Tomcat thật trên port ngẫu nhiên, qua SecurityFilterChain thật.
 Key và password test được sinh ngẫu nhiên trong bộ nhớ, không dùng secret/account mặc định.
 H2 và fixture chỉ nằm trong test runtime, không có trong boot JAR; không thay thế test MySQL.
-Task mysqlTest vẫn riêng; chưa chạy D02 vì QA V1/users chưa có. Xem báo cáo D02 để biết
-workaround output riêng khi build/libs đang bị tiến trình khác giữ mở.
+Task mysqlTest chạy riêng Flyway/schema và cùng bộ auth HTTP trên MySQL thật.
+Các test ghi dữ liệu chỉ nhận URL loopback có tên database `clinic_d02_be_it_*`;
+test có xóa user fixture giữa các ca, không dùng database chia sẻ.
+Xem báo cáo D02 để biết output kiểm thử cuối và provenance của V1 từ dev.
 
 ## Khởi động với MySQL
 
@@ -55,9 +57,11 @@ Provision database riêng và cung cấp các biến sau bằng môi trường/s
 | `JWT_SECRET` | Có | Base64 của ít nhất 32 byte ngẫu nhiên; không có giá trị mặc định |
 | `JWT_ISSUER` | Không | Mặc định clinic-management; luôn được kiểm tra khi xác thực |
 | `CORS_ALLOWED_ORIGINS` | Không | Origin FE chính xác phân cách dấu phẩy; rỗng = không mở cross-origin |
+| `MYSQL_TEST_MIGRATIONS_LOCATION` | Chỉ test, tùy chọn | Flyway filesystem location chứa V1 QA nguyên bản khi branch BE chưa có migration; mặc định classpath:db/migration |
 | `SERVER_PORT` | Không | Mặc định 8080 |
 
-Ví dụ định dạng URL: `jdbc:mysql://localhost:3306/clinic_management` (không phải cấu hình đã tích hợp).
+URL Clinic do QA cung cấp: `jdbc:mysql://127.0.0.1:3307/clinic_management_db`.
+Đây là database chia sẻ, **không phải URL để chạy mysqlTest**.
 Thiết lập TLS và thông số kết nối theo môi trường DB. Không đưa credentials vào URL hoặc shell history.
 Spring Boot không tự đọc `.env`; cần inject biến từ terminal/IDE/CI. Không commit file cấu hình chứa secret.
 
@@ -67,17 +71,21 @@ Sau khi đã inject biến, chạy:
 .\gradlew.bat --no-daemon mysqlTest
 ```
 
-**Điều kiện trước khi chạy:** QA đã cung cấp/applied V1 được review và bảng users khớp mapping.
-Hiện workspace BE chưa có V1, MySQL QA chưa có users: integration auth MySQL **PENDING**.
-Không tạo bảng thủ công hoặc dùng ddl-auto=update để vượt qua bước này.
+**Điều kiện trước khi chạy:** provision database kiểm thử mới, loopback, tên
+`clinic_d02_be_it_<unique_suffix>`; cấp quyền chỉ trên database kiểm thử và inject DB_* tương ứng.
+Không trỏ test vào clinic_management_db hoặc database có dữ liệu cần giữ.
+V1 đã có trên dev; feature/tuan hiện chưa chứa file này. Lần final review dùng bản sao nguyên byte
+từ ref dev vào build input đã ignore và cấu hình MYSQL_TEST_MIGRATIONS_LOCATION;
+không thêm/sửa migration vào source BE. Khi tree tích hợp đã có V1, có thể dùng location classpath mặc định.
 
-`mysqlTest` bật profile `mysql-validation`: có kết nối MySQL thật, giữ JPA/Flyway nhưng
-chỉ gọi Flyway **validate**, không migrate hoặc tạo bảng lịch sử. Test kiểm tra engine MySQL,
-`SELECT 1`, Flyway validation, JPA validate users và HTTP health; chưa có bộ test auth CRUD MySQL.
-Chỉ dùng database QA đã xác minh; không dùng DB sản xuất.
-Thiếu DB_* hoặc không kết nối được MySQL phải báo BLOCKED, không coi test H2 là thay thế.
+`mysqlTest` dùng profile `mysql-integration`: datasource/JPA/Flyway main, SQL init never,
+Hibernate validate, Flyway **migrate + validate** trên database cô lập. Không dùng H2 fixture.
+MySqlMigrationTest kiểm tra migrate, validate, migrate lại no-op và history bất biến;
+MySqlStartupTest kiểm tra schema/UTC/config/health; MySqlAuthIntegrationTest chạy bộ auth HTTP.
+Key/password/token test sinh trong bộ nhớ, không yêu cầu JWT_SECRET thật cho test Spring context.
+Không dùng ddl-auto=update/create hoặc tự sửa V1 để vượt lỗi. Schema mismatch phải báo BLOCKED.
 
-Sau khi có users/V1 đã được QA thống nhất, có thể dùng cùng profile để kiểm tra startup
+Sau khi có users/V1 đã được QA thống nhất, có thể dùng profile mysql-validation để kiểm tra startup
 mà không tự apply migration từ BE:
 
 ```powershell

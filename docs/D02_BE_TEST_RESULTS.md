@@ -1,231 +1,204 @@
-# CL-D02-BE — JWT Authentication & Authorization
+# CL-D02-BE FINAL REVIEW — MySQL V1 integration
 
 Ngày: **2026-11-20**, Asia/Bangkok.
 
-TASK: **CL-D02-BE**
+TASK: **CL-D02-BE FINAL REVIEW**
 BRANCH: **feature/tuan**
-HEAD trước/sau: **58f72a7ebf744a5d8d450bcf8b16d732affb544c**
-STATUS: **READY FOR REVIEW — implementation và test H2/HTTP; auth MySQL integration PENDING QA V1.**
+HEAD trước/sau: **3ae40b87954badf05599ec957a72ee76ea1dc4d5**
+STATUS: **READY FOR COMMIT** — Backend D02 và V1 QA tương thích trên MySQL thật; chưa tự commit/merge/push.
 
-## Kiểm soát thay đổi
+## Phạm vi và đầu vào
 
-- Đã kiểm tra workspace, branch, Git status và HEAD trước khi làm; không đổi nhánh/worktree.
-- `.gitignore` đã untracked từ trước, được giữ nguyên; không coi là file D02 tạo ra.
-- Không commit, push, pull, fetch, merge, rebase hoặc reset.
-- Không sửa FE, Docker Compose, tài liệu nguồn QA hoặc migration của Database/QA.
-- Chưa có `docs/database/DATABASE_DESIGN.md` trong branch BE. Đã đọc và đối chiếu bản
-  `docs/database/DATABASE_DESIGN.md` trong worktree QA `F:\RikkeiEdu\clinic-management-system-QA`;
-  đồng thời đọc FEATURE_SCOPE, API_CONTRACT và SCHEMA_REVIEW_D01 của BE.
-- Có tiến trình khác đang giữ JAR/log D01 trong backend/build. Đã kiểm tra PID/thời điểm
-  nhưng không in command line/credential, không dừng tiến trình hoặc thay thế runtime đó.
+- Đã kiểm tra workspace, branch, Git status và HEAD trước khi làm. Không đổi nhánh/worktree;
+  không commit, push, pull, fetch, merge, reset hoặc rebase.
+- Có sẵn thay đổi ở docs/SCHEMA_REVIEW_D01.md, docs/requirements/FEATURE_SCOPE.md và
+  .gitignore untracked. Giữ nguyên nội dung, đối chiếu checksum cuối phiên; không tính vào file của task này.
+- Không sửa main auth code, FE, Docker Compose, migration V1 hoặc tài liệu của QA.
+- Không xóa database hay Docker volume. Dữ liệu test chỉ là tài khoản giả sinh ngẫu nhiên;
+  không có bệnh nhân thật, account mặc định, mật khẩu cố định hoặc credential/token trong báo cáo.
 
-## API IMPLEMENTED
+## Migration provenance — không sửa V1
 
-| API | Authentication | Thành công | Hành vi |
-| --- | --- | --- | --- |
-| POST /api/v1/auth/register | Public | 201 | Chỉ PATIENT/ACTIVE, email canonical UNIQUE, BCrypt, không tự cấp JWT |
-| POST /api/v1/auth/login | Public | 200 | Kiểm tra mật khẩu/ACTIVE, cập nhật lastLoginAt, trả Bearer/expiresIn/user |
-| GET /api/v1/auth/me | JWT hợp lệ + ACTIVE | 200 | Đúng 5 trường id/email/fullName/role/status, không passwordHash |
-| GET /api/v1/health | Public | 200 | Giữ body D01 `{"data":{"status":"UP"}}` |
+V1 chưa nằm trong working tree feature/tuan. Ref local origin/dev đã chứa bản được merge;
+không cần và không thực hiện fetch/merge để đọc:
 
-Response thành công bọc data; lỗi application/problem+json có status/code.
-Register/Login không nhận role/status; JSON field thừa trả 400.
-Email được trim/lowercase Locale.ROOT; fullName trim; password không trim.
-Register dùng @Size 12–72 ký tự, tối đa 72 byte UTF-8; BCrypt cost 12.
-Login sai email/password hoặc DISABLED trả cùng INVALID_CREDENTIALS/401.
-Email trùng kể cả race trả EMAIL_ALREADY_EXISTS/409 nhờ pre-check và UNIQUE ở DB.
-Không có Doctor/Patient entity/profile, account mặc định hoặc dữ liệu bệnh nhân thật.
-
-## JWT CONFIGURATION
-
-| Biến môi trường | Quy ước |
+| Đầu vào | Giá trị |
 | --- | --- |
-| JWT_SECRET | Bắt buộc; Base64 của ít nhất 32 byte ngẫu nhiên; không có key mặc định |
-| JWT_ISSUER | Mặc định clinic-management; không được rỗng, luôn được xác minh |
-| CORS_ALLOWED_ORIGINS | Origin HTTP(S) chính xác phân cách dấu phẩy; mặc định rỗng |
-| DB_URL / DB_USERNAME / DB_PASSWORD | Giữ lấy từ environment, không hardcode |
+| Commit dev được kiểm tra | 9838b44312cb62e32e846d65f03dc023ac6c3ca3 |
+| Path | backend/src/main/resources/db/migration/V1__create_users.sql |
+| Git blob | 56a0f6f8be55ae6769c3848a6d302abb25dc7db5 |
+| SHA-256 nội dung | 27043f2c2669b8b666d4c17f9be12d14cc40a7e96451ad10b2a99f3b07955edf |
 
-- Chỉ HS256. Claims tối thiểu iss/sub/iat/exp; sub là user id dạng chuỗi.
-- Expiry 30 phút/1800 giây; kiểm tra chữ ký, issuer, exp/iat/sub, token thiếu exp,
-  iat tương lai hoặc lifetime dài hơn 30 phút đều bị từ chối. Không có grace sau exp.
-- Trên mỗi request, load user từ DB và yêu cầu ACTIVE. Role hiện tại của DB map sang
-  ROLE_ADMIN/ROLE_DOCTOR/ROLE_RECEPTIONIST/ROLE_PATIENT; bỏ qua role/roles/scope trong token.
-- OAuth2 Resource Server xử lý Bearer trong SecurityFilterChain; không có JWT filter ngoài chain.
-- Không xác thực bằng cookie/query/form; stateless, không Basic/form login/session.
-- CSRF tắt vì credential chỉ gửi chủ động qua Authorization header, không có cookie xác thực.
-  Nếu đổi transport sang cookie phải đánh giá lại CSRF.
-- CORS exact allowlist, không wildcard/null/pattern; GET/POST/OPTIONS,
-  Authorization/Content-Type, expose Location, allowCredentials=false.
-- API nghiệp vụ chưa triển khai vẫn denyAll kể cả ADMIN. Không tạo endpoint quản trị để demo quyền.
-- Logout D02 chỉ xóa token phía client; **không server revoke, refresh hoặc logout endpoint đã triển khai**.
-  Token cũ còn hiệu lực đến exp nếu user vẫn ACTIVE.
-- DTO chứa password/accessToken có toString redacted; error/log không echo request hoặc credential;
-  Hibernate bind logging tắt. JWT secret không dùng binding validation có thể echo giá trị lỗi.
+Dùng git show để đọc đúng byte của blob vào
+backend/build/d02-final-inputs/migrations/V1__create_users.sql (build output đã ignore).
+Không chép vào source, không viết lại SQL, không đổi checksum/version và không repair/baseline/clean.
+Flyway nhận location filesystem này qua MYSQL_TEST_MIGRATIONS_LOCATION trong process kiểm thử.
+Như vậy đối tượng xác minh là **BE HEAD nêu trên + V1 chính thức từ dev**, không phải một V1 tự dựng.
 
-## SECURITY TESTS
+## MYSQL MIGRATION: PASS
 
-Đã chạy unit và integration qua HTTP thật/Tomcat ngẫu nhiên với H2 riêng mỗi context:
+| Kiểm tra thực tế | Kết quả |
+| --- | --- |
+| Server | MySQL **8.4.11**, 127.0.0.1:3307, container QA hiện có |
+| Database kiểm thử mới | **clinic_d02_be_it_afcdd35782de**, ban đầu 0 bảng |
+| Database chia sẻ | clinic_management_db; chỉ đọc metadata, không migrate hoặc ghi fixture vào đây |
+| Preflight trước auth | MySqlMigrationTest: **1/1 PASS** |
+| Flyway lần đầu | Áp dụng đúng một V1, tạo users và flyway_schema_history trong DB cô lập |
+| Validate | Thành công |
+| Migrate lặp lại | 0 migration được thực thi |
+| Applied version/script | 1 / V1__create_users.sql |
+| Flyway checksum | **1116148885**, success=1 |
+| Sau toàn bộ test | Nội dung V1 và history giữ nguyên checksum/version/script/installed_on |
+| Database chia sẻ trước/sau | Metadata tables/columns/indexes không đổi |
 
-| Test class | Tests | Failures | Errors | Skipped |
+Credentials lấy từ environment container QA và chỉ truyền trong environment process.
+Tạo database mới và cấp quyền app user chỉ trên DB mới; không đổi mật khẩu/tài khoản QA hiện có.
+DB kiểm thử được giữ lại, không drop; chỉ có synthetic users/Flyway history phục vụ kiểm thử.
+
+## HIBERNATE VALIDATION: PASS
+
+Ứng dụng Spring Boot/Tomcat thật đã khởi động với MySQL và V1, qua cấu hình main:
+
+- spring.jpa.hibernate.ddl-auto = **validate**, không create/update schema.
+- spring.sql.init.mode = **never**; không dùng schema fixture H2 trên MySQL.
+- hibernate.jdbc.time_zone = **UTC**; session MySQL **+00:00**.
+  JDBC URL test dùng connectionTimeZone=UTC và forceConnectionTimeZoneToSession=true.
+- Flyway main migrate/validate được chạy trước JPA; profile test mysql-integration
+  không dùng bean validate-only của profile mysql-validation.
+- clean-disabled=true, baseline-on-migrate=false.
+
+Đã đối chiếu information_schema và startup JPA thành công:
+
+| Cột | Schema V1 thực tế | Mapping BE / kết quả |
+| --- | --- | --- |
+| id | BIGINT signed, NOT NULL, AUTO_INCREMENT, PRIMARY | Long + IDENTITY; API id chuỗi |
+| email | VARCHAR(254), utf8mb4_bin, NOT NULL, UNIQUE | trim/lowercase; CHECK canonical và duplicate test đạt |
+| password_hash | VARCHAR(255), NOT NULL | BCrypt; không trả hash qua API |
+| full_name | VARCHAR(120), NOT NULL | String, trim và validate DTO |
+| role | VARCHAR(20), utf8mb4_0900_bin, NOT NULL | Enum STRING/JDBC VARCHAR; 4 role, không native ENUM |
+| status | VARCHAR(16), utf8mb4_0900_bin, NOT NULL | ACTIVE/DISABLED, JDBC VARCHAR |
+| last_login_at | DATETIME(6), nullable | Instant/JDBC TIMESTAMP, UTC |
+| created_at / updated_at | DATETIME(6), NOT NULL | Instant/JDBC TIMESTAMP, UTC; BE quản lý |
+
+PK, uk_users_email, chk_users_email_canonical, chk_users_role và chk_users_status tồn tại.
+**Không phát hiện schema mismatch; không sửa User entity hoặc V1 để vượt validation.**
+
+## AUTH API TESTS: PASS qua HTTP thật + MySQL
+
+MySqlAuthIntegrationTest chạy **39 ca** kế thừa cùng bộ contract với H2, không mock repository,
+datasource, JWT decoder hoặc SecurityFilterChain. Tomcat dùng port ngẫu nhiên.
+
+| Nhóm yêu cầu | Bằng chứng đã chạy |
+| --- | --- |
+| Register PATIENT | POST register 201; PATIENT/ACTIVE, canonical email/name, BCrypt persistence, đúng 5 trường public |
+| Email trùng | 409 EMAIL_ALREADY_EXISTS; hai request đồng thời chỉ một user, một 201 + một 409 |
+| Không đăng ký ADMIN | role/status/id/passwordHash từ request bị 400; không tạo user trái phép |
+| Validation | Email/tên/password sai, thiếu, rỗng, quá dài; giới hạn 72 byte UTF-8 |
+| Login đúng | POST login 200, Bearer, expiresIn=1800, user; lastLoginAt được cập nhật |
+| Login sai / DISABLED | 401 INVALID_CREDENTIALS cùng thông điệp chung; lastLoginAt không đổi khi thất bại |
+| Me | GET me 200 với JWT hợp lệ, dữ liệu hiện tại từ DB, không passwordHash |
+| Bảo vệ dữ liệu | Auth DTO/entity không lộ hash; Cache-Control no-store, không session cookie |
+
+Test ghi/xóa user fixture chỉ nhận database loopback tên clinic_d02_be_it_* và kiểm tra lại URL
+trước khi cleanup. Guard từ chối clinic_management_db, DB không định danh và host remote;
+hai unit test mới kiểm tra cơ chế chặn này.
+
+## JWT SECURITY TESTS: PASS
+
+- JWT hợp lệ; chữ ký sai qua HTTP trả 401; expired, issuer sai, thiếu exp/sub,
+  iat tương lai hoặc lifetime quá dài đều 401.
+- Unit decoder từ chối thuật toán HS384 và unsigned JWT; HS256 hợp lệ được chấp nhận.
+- Thiếu/malformed JWT, token query/cookie không xác thực; tài khoản bị khóa/xóa sau cấp token trả 401.
+- Role hiện tại từ DB map ROLE_*. Claim role/roles/scope không nâng PATIENT lên ADMIN.
+- API chưa triển khai, kể cả với JWT ADMIN, trả **403**; anonymous trả **401**.
+- Method security được xác minh qua service fixture chỉ có trong test, không thêm endpoint quản trị.
+- CORS exact origin/header allowlist được kiểm tra: allowlist thành công, origin/header khác 403
+  CORS_REJECTED; allowCredentials không bật.
+- Register/login chạy không cần CSRF cookie/token: phù hợp Bearer-only stateless;
+  không Basic/form/cookie authentication. Health D01 vẫn 200/UP.
+- Capture log auth tests không chứa password/token/hash được sinh trong test;
+  rà soát stdout/stderr cuối không phát hiện mẫu JWT hoặc BCrypt hash.
+- Logout vẫn client-only; không tuyên bố server revoke hoặc refresh đã triển khai.
+
+## GRADLE RESULTS: PASS
+
+Chạy preflight trên DB rỗng trước, sau đó clean build + toàn bộ test:
+
+```powershell
+.\gradlew.bat --no-daemon --init-script build/d02-final-inputs/output.gradle mysqlTest --tests com.clinicmanagement.MySqlMigrationTest
+.\gradlew.bat --no-daemon --init-script build/d02-final-inputs/output.gradle clean build mysqlTest
+```
+
+Init script chỉ đặt layout.buildDirectory = build/d02-final-validation, giữ output D01/D02
+đang được process khác mở. Không dừng các process đó hoặc thay Gradle Wrapper/version.
+
+**Lần cuối: BUILD SUCCESSFUL, exit code 0.**
+
+| Bộ test cuối | Tests | Failures | Errors | Skipped |
 | --- | --- | --- | --- | --- |
 | ApiErrorHandlingTest | 4 | 0 | 0 | 0 |
 | ApplicationIntegrationTest | 5 | 0 | 0 | 0 |
-| AuthHttpIntegrationTest | 39 | 0 | 0 | 0 |
+| AuthHttpIntegrationTest — H2 | 39 | 0 | 0 | 0 |
 | CorsOriginsTest | 11 | 0 | 0 | 0 |
 | JwtConfigTest | 2 | 0 | 0 | 0 |
 | AuthServiceTest | 1 | 0 | 0 | 0 |
-| **Tổng bộ test mặc định** | **62** | **0** | **0** | **0** |
+| MySqlTestDatabaseTest | 2 | 0 | 0 | 0 |
+| **Task test** | **64** | **0** | **0** | **0** |
+| MySqlAuthIntegrationTest — HTTP/MySQL | 39 | 0 | 0 | 0 |
+| MySqlMigrationTest | 1 | 0 | 0 | 0 |
+| MySqlStartupTest — startup/schema/UTC/health | 4 | 0 | 0 | 0 |
+| **Task mysqlTest** | **44** | **0** | **0** | **0** |
+| **Tổng lần cuối** | **108** | **0** | **0** | **0** |
 
-Các kiểm tra đã thực hiện:
+Preflight 1 test đã chạy riêng trước đó, **không cộng trùng** vào tổng 108 của lần cuối.
+H2 và MySQL tái dùng 39 ca contract để tránh hai bộ test lệch nhau; kết quả mỗi DB được báo riêng.
 
-- Register PATIENT thành công, canonical email/tên, BCrypt persistence và không rò hash;
-  duplicate email, 2 request đăng ký đồng thời chỉ tạo 1 user/1 conflict.
-- Email/password/fullName sai, rỗng, thiếu, quá dài; password UTF-8 vượt 72 byte.
-- Từ chối role ADMIN/status/id/passwordHash qua payload register.
-- Login đúng/sai, email không tồn tại, DISABLED cùng thông điệp chung; lastLoginAt chỉ cập nhật khi thành công.
-- JWT hợp lệ; sai chữ ký (unit và HTTP), hết hạn, issuer sai, thiếu exp/sub, iat tương lai,
-  lifetime quá dài; từ chối HS384/unsigned JWT ở decoder.
-- Thiếu/malformed JWT trả 401; cookie/query không xác thực; user bị khóa/xóa sau khi cấp token trả 401.
-- Cả 4 role map đúng ROLE_*; kiểm tra method security trên service fixture test-only,
-  và HTTP 403 cho API chưa triển khai; claim role/roles/scope không nâng PATIENT thành ADMIN.
-- Unit test mô phỏng disable giữa BCrypt và conditional login update: không cấp token.
-  Đây không phải kiểm thử transaction/concurrency MySQL thật.
-- CORS origin/header allowlist, không cookie credentials, lỗi CORS dạng Problem Details;
-  health D01 vẫn 200; không có session cookie.
-- Capture stdout/stderr ở auth HTTP tests: không chứa password/token/hash được tạo trong test.
-  Rà soát stdout/stderr cuối không thấy mẫu JWT hoặc BCrypt hash.
-
-Fixture duy nhất: `backend/src/test/resources/fixtures/users-schema.sql`, chỉ H2/test classpath.
-Test profile tắt Flyway, SQL init fixture và JPA validate. Main vẫn ddl-auto=validate,
-Flyway enabled; không copy fixture vào migration hoặc boot JAR.
-
-## GRADLE RESULTS
-
-Lệnh yêu cầu `.\gradlew.bat --no-daemon clean build` đã được chạy nhưng **FAIL do file lock**:
-JAR D01 và mysql-application-startup.log trong backend/build đang mở bởi process khác.
-Không xóa cưỡng bức hoặc dừng process đó.
-
-Sau đó chạy đủ clean/build/test với output riêng bằng init script tạm, chỉ chứa:
-
-```groovy
-allprojects { layout.buildDirectory = layout.projectDirectory.dir('build/d02-validation') }
-```
-
-```powershell
-.\gradlew.bat --no-daemon --init-script <temporary-init-script> clean build
-```
-
-**Kết quả cuối: BUILD SUCCESSFUL, exit 0, 9 actionable tasks / 9 executed, 62 tests PASS.**
-Init script tạm được xóa sau khi chạy; không đổi build.gradle để né file lock.
-Một lần tạo init script bằng UTF-8 BOM bị Groovy từ chối; đã tạo lại dạng ASCII và chạy thành công.
-Lần test auth đầu có một assertion đọc issuer qua URL accessor không phù hợp issuer dạng chuỗi;
-đã sửa đọc claim iss và chạy lại toàn bộ bộ test thành công.
-
-Artifacts cuối, đã gitignore:
+Artifacts đã ignore:
 
 ```text
-backend/build/d02-validation/libs/clinic-management-backend-0.0.1-SNAPSHOT.jar
-backend/build/d02-validation/reports/tests/test/index.html
-backend/build/d02-validation/test-results/test/TEST-*.xml
+backend/build/d02-final-validation/reports/tests/test/index.html
+backend/build/d02-final-validation/reports/tests/mysqlTest/index.html
+backend/build/d02-final-validation/test-results/test/TEST-*.xml
+backend/build/d02-final-validation/test-results/mysqlTest/TEST-*.xml
+backend/build/d02-final-validation/libs/clinic-management-backend-0.0.1-SNAPSHOT.jar
+backend/build/d02-final-inputs/preflight-migration.xml
+backend/build/d02-final-inputs/preflight-gradle.log
+backend/build/d02-final-inputs/final-gradle.log
+backend/build/d02-final-inputs/state.json
 ```
 
-Đã kiểm tra boot JAR có OAuth2/JWT dependencies, không chứa H2, test class, fixture schema,
-application-test.yml hoặc migration SQL nghiệp vụ. Không thay JAR D01 đang chạy.
+Boot JAR không chứa H2, test class hoặc fixture. V1 dùng external location trong lần kiểm tra này;
+JAR từ riêng feature/tuan chưa tự chứa V1, cần tree tích hợp dev hoặc location migration chính thức
+khi chạy thực tế. Không phát hành/deploy JAR độc lập hoặc rollout vào DB chia sẻ trong task này.
 
-## MYSQL INTEGRATION: PENDING QA V1
+## MYSQL INTEGRATION: PASS — phạm vi kiểm thử cô lập
 
-Đã kiểm tra **chỉ đọc** metadata container QA: MySQL **8.4.11**, database clinic_management_db,
-**0 bảng**, users chưa tồn tại. Không chạy DDL hoặc ghi dữ liệu vào MySQL thật.
-BE và QA chưa có SQL V1 được cung cấp trong workspace tại thời điểm kiểm tra.
+BE D02 + V1 chính thức từ dev đã chạy Flyway, JPA và toàn bộ auth HTTP trên MySQL **8.4.11**.
+Blocker thiếu V1/users của lần báo cáo trước đã được giải quyết cho integration validation.
+Database chia sẻ clinic_management_db và các Docker volume được giữ nguyên.
 
-**mysqlTest D02 chưa chạy, không có kết quả PASS cho auth MySQL.**
-Task vẫn giữ profile mysql-validation và key test ngẫu nhiên; khi có users/V1, JPA validate
-sẽ kiểm tra mapping users thay vì chỉ startup schema rỗng như D01.
-QA V1 là điều kiện trước khi chạy mysqlTest và kiểm thử register/login/me trên MySQL test thật.
-Không dùng kết quả H2 hoặc startup MySQL D01 để kết luận auth/MySQL đã đạt.
+## REMAINING ISSUES
 
-## FE HANDOFF
+- Không còn blocker về User schema, JWT hoặc auth integration trong phạm vi D02 đã kiểm thử.
+- V1 đang ở dev, chưa trong working tree feature/tuan. Khi tích hợp, giữ đúng migration QA đã merge;
+  không thêm bản V1 thứ hai, không sửa checksum. Việc merge/commit/push do người dùng thực hiện.
+- Hai tài liệu đang sửa và .gitignore có sẵn vẫn giữ nguyên, tách khỏi 10 file của task final review.
+- Không kiểm thử FE E2E, triển khai production, refresh/revoke hoặc nghiệp vụ ngoài users/auth.
+  Các phần đó không được coi là PASS trong báo cáo này.
 
-- Xem request/response/status thực tế tại [API_CONTRACT](API_CONTRACT.md), mục Authentication D02.
-- Register không auto-login; POST login rồi dùng Authorization Bearer cho GET me.
-- expiresIn tính bằng giây, id là chuỗi; xử lý 400/401/403/409 theo code, không so chuỗi detail.
-- Không gửi role/status, cookie credentials hoặc token trong URL; không log response login.
-- Logout xóa token/danh tính khỏi client, không thông báo đã server revoke; chưa có refresh.
-- Cần cung cấp origin FE chính xác cho CORS_ALLOWED_ORIGINS. Môi trường main không mặc định localhost.
-- Runtime D01 hiện có không được thay thế trong task này; chạy bản D02 cần JWT_SECRET và users/V1 của QA.
+## FILES CHANGED — riêng lần final integration
 
-## DB HANDOFF
-
-V1 do **Database/QA** sở hữu. BE chỉ thêm User mapping, không tạo/sửa SQL V1:
-
-| Java / cột | SQL dự kiến từ QA | Nullable / ghi chú |
-| --- | --- | --- |
-| id | BIGINT signed AUTO_INCREMENT | PK, NOT NULL; API serialize chuỗi |
-| email | VARCHAR(254) | NOT NULL, UNIQUE; canonical trim/lowercase, collation binary theo QA |
-| passwordHash / password_hash | VARCHAR(255) | NOT NULL; BCrypt, không trả qua API |
-| fullName / full_name | VARCHAR(120) | NOT NULL |
-| role | VARCHAR(20) | NOT NULL, ADMIN/DOCTOR/RECEPTIONIST/PATIENT; không native ENUM |
-| status | VARCHAR(16) | NOT NULL, ACTIVE/DISABLED; không native ENUM |
-| lastLoginAt / last_login_at | DATETIME(6) UTC | Nullable |
-| createdAt / created_at | DATETIME(6) UTC | NOT NULL, BE quản lý |
-| updatedAt / updated_at | DATETIME(6) UTC | NOT NULL, BE quản lý |
-
-Hibernate enum mapping được ép JDBC VARCHAR cho đúng thiết kế QA; timestamp không mang timezone,
-JDBC time_zone=UTC. UNIQUE email là bắt buộc để bảo vệ đăng ký đồng thời, không chỉ dựa pre-check.
-Chưa tạo liên kết Patient/Doctor; đăng ký user PATIENT không tự tạo patient profile.
-QA cần cung cấp V1 có constraints/collation và test DB riêng; sau đó xác minh JPA/Flyway,
-email canonical/duplicate concurrency, BCrypt và toàn bộ HTTP auth trên MySQL.
-
-## RISKS/BLOCKERS
-
-- Auth MySQL pending vì thiếu V1/users; mapping/type/collation chưa được chứng minh trên MySQL.
-- Default clean build bị file lock môi trường; isolated clean build đã PASS, process ngoài phạm vi giữ nguyên.
-- Refresh/revoke, quản lý nhân viên/profile, rate limiting và quyền nghiệp vụ chưa thuộc phần triển khai D02 này.
-- Không có thay đổi ngoài phạm vi source phát hiện thêm; `.gitignore` có sẵn giữ nguyên.
-
-## FILES CHANGED
-
-**40 file D02: 15 sửa, 25 mới**; không tính `.gitignore` untracked có sẵn:
+**10 file: 5 sửa, 5 mới**, không tính ba file có thay đổi từ trước:
 
 ```text
 backend/README.md
 backend/build.gradle
-backend/src/main/java/com/clinicmanagement/config/CorsOrigins.java
-backend/src/main/java/com/clinicmanagement/config/JwtConfig.java
-backend/src/main/java/com/clinicmanagement/config/SecurityConfig.java
-backend/src/main/java/com/clinicmanagement/controller/AuthController.java
-backend/src/main/java/com/clinicmanagement/dto/LoginRequest.java
-backend/src/main/java/com/clinicmanagement/dto/LoginResponse.java
-backend/src/main/java/com/clinicmanagement/dto/RegisterRequest.java
-backend/src/main/java/com/clinicmanagement/dto/UserResponse.java
-backend/src/main/java/com/clinicmanagement/entity/Role.java
-backend/src/main/java/com/clinicmanagement/entity/User.java
-backend/src/main/java/com/clinicmanagement/entity/UserStatus.java
-backend/src/main/java/com/clinicmanagement/entity/package-info.java
-backend/src/main/java/com/clinicmanagement/exception/ApiProblems.java
-backend/src/main/java/com/clinicmanagement/exception/AuthApiException.java
-backend/src/main/java/com/clinicmanagement/exception/GlobalExceptionHandler.java
-backend/src/main/java/com/clinicmanagement/repository/UserRepository.java
-backend/src/main/java/com/clinicmanagement/repository/package-info.java
-backend/src/main/java/com/clinicmanagement/security/ActiveUserJwtConverter.java
-backend/src/main/java/com/clinicmanagement/security/AuthenticatedUser.java
-backend/src/main/java/com/clinicmanagement/service/AuthService.java
-backend/src/main/java/com/clinicmanagement/service/JwtTokenService.java
-backend/src/main/java/com/clinicmanagement/service/package-info.java
-backend/src/main/java/com/clinicmanagement/validation/Utf8Size.java
-backend/src/main/java/com/clinicmanagement/validation/Utf8SizeValidator.java
-backend/src/main/resources/application.yml
-backend/src/test/java/com/clinicmanagement/ApplicationIntegrationTest.java
 backend/src/test/java/com/clinicmanagement/AuthHttpIntegrationTest.java
+backend/src/test/java/com/clinicmanagement/AuthHttpTestSupport.java
+backend/src/test/java/com/clinicmanagement/MySqlAuthIntegrationTest.java
+backend/src/test/java/com/clinicmanagement/MySqlMigrationTest.java
 backend/src/test/java/com/clinicmanagement/MySqlStartupTest.java
-backend/src/test/java/com/clinicmanagement/TestSecurityProperties.java
-backend/src/test/java/com/clinicmanagement/config/CorsOriginsTest.java
-backend/src/test/java/com/clinicmanagement/config/JwtConfigTest.java
-backend/src/test/java/com/clinicmanagement/service/AuthServiceTest.java
-backend/src/test/resources/application-test.yml
-backend/src/test/resources/fixtures/users-schema.sql
-docs/API_CONTRACT.md
-docs/SCHEMA_REVIEW_D01.md
-docs/requirements/FEATURE_SCOPE.md
+backend/src/test/java/com/clinicmanagement/MySqlTestDatabase.java
+backend/src/test/java/com/clinicmanagement/MySqlTestDatabaseTest.java
 docs/D02_BE_TEST_RESULTS.md
 ```
