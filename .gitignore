@@ -1,0 +1,9 @@
+# Local environment files and credentials
+.env
+.env.*
+!.env.example
+
+# Database exports may contain personal and clinical data
+database/backups/
+*.sql.gz
+*.sql.enc
