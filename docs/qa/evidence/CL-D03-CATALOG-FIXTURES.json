@@ -1,0 +1,561 @@
+{
+  "task": "CL-D03-DB-QA FIXTURES",
+  "utc": "2026-11-20T20:51:44.399685+00:00",
+  "backend_commit": "1b20db52c6a07b611dc1893f0f9de9681d81a826",
+  "contract_sha256": "ce259391d2321c3509e8eb32999e6d67b8e020be49d7557332e864bbdf766ffb",
+  "backend_jar_sha256": "a212478d0bb8a8f086855c42f9a7b1e65a2fea94693d9a4975dbf58ecfd0cab2",
+  "migration_sha256": {
+    "V1__create_users.sql": "27043f2c2669b8b666d4c17f9be12d14cc40a7e96451ad10b2a99f3b07955edf",
+    "V2__create_specialties_and_doctors.sql": "1f1f39cdea70eff2fa1198543ffd41b62d874d629d5c530a7c1cf45f89276973"
+  },
+  "vault_target": "ClinicManagement/QA/D03Catalog/fe-acceptance",
+  "scope": "Dedicated new D03 QA stack; no shared Clinic/production/SmartExpense database accessed",
+  "public_register_used": false,
+  "production_security_modified": false,
+  "fresh_scope_created": false,
+  "previous_successful_run": {
+    "utc": "2026-11-20T20:48:18.526544+00:00",
+    "counts": {
+      "users": 7,
+      "specialties": 4,
+      "doctors": 3
+    },
+    "assertions": 99,
+    "post_create_cases": [
+      {
+        "case": "ADMIN_POST_SPECIALTY",
+        "result": "PASS",
+        "http": 201
+      },
+      {
+        "case": "ADMIN_POST_DOCTOR",
+        "result": "PASS",
+        "http": 201
+      }
+    ]
+  },
+  "flyway": {
+    "versions": [
+      "1",
+      "2"
+    ],
+    "validate": "PASS",
+    "migrations_executed_this_run": 0
+  },
+  "hibernate_validate": "PASS: real D03 Entity startup with ddl-auto=validate",
+  "result": "READY FOR FE TEST",
+  "cases": [
+    {
+      "case": "ADMIN_LOGIN",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "ADMIN_JWT",
+      "result": "PASS"
+    },
+    {
+      "case": "ADMIN_ME",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "ADMIN_ROLE_ACTIVE",
+      "result": "PASS"
+    },
+    {
+      "case": "RECEPTIONIST_LOGIN",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "RECEPTIONIST_JWT",
+      "result": "PASS"
+    },
+    {
+      "case": "RECEPTIONIST_ME",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "RECEPTIONIST_ROLE_ACTIVE",
+      "result": "PASS"
+    },
+    {
+      "case": "PATIENT_LOGIN",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "PATIENT_JWT",
+      "result": "PASS"
+    },
+    {
+      "case": "PATIENT_ME",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "PATIENT_ROLE_ACTIVE",
+      "result": "PASS"
+    },
+    {
+      "case": "DOCTOR_LINKED_LOGIN",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "DOCTOR_LINKED_JWT",
+      "result": "PASS"
+    },
+    {
+      "case": "DOCTOR_LINKED_ME",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "DOCTOR_LINKED_ROLE_ACTIVE",
+      "result": "PASS"
+    },
+    {
+      "case": "DOCTOR_ELIGIBLE_LOGIN",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "DOCTOR_ELIGIBLE_JWT",
+      "result": "PASS"
+    },
+    {
+      "case": "DOCTOR_ELIGIBLE_ME",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "DOCTOR_ELIGIBLE_ROLE_ACTIVE",
+      "result": "PASS"
+    },
+    {
+      "case": "DOCTOR_INACTIVE_LOGIN",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "DOCTOR_INACTIVE_JWT",
+      "result": "PASS"
+    },
+    {
+      "case": "DOCTOR_INACTIVE_ME",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "DOCTOR_INACTIVE_ROLE_ACTIVE",
+      "result": "PASS"
+    },
+    {
+      "case": "DOCTOR_CRUD_LOGIN",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "DOCTOR_CRUD_JWT",
+      "result": "PASS"
+    },
+    {
+      "case": "DOCTOR_CRUD_ME",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "DOCTOR_CRUD_ROLE_ACTIVE",
+      "result": "PASS"
+    },
+    {
+      "case": "ADMIN_ELIGIBLE_LIST",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "ELIGIBLE_UNLINKED_INCLUDED",
+      "result": "PASS"
+    },
+    {
+      "case": "ELIGIBLE_LINKED_AND_INACTIVE_LINKED_EXCLUDED",
+      "result": "PASS"
+    },
+    {
+      "case": "ELIGIBLE_PROJECTION_ONLY",
+      "result": "PASS"
+    },
+    {
+      "case": "ADMIN_SPECIALTY_GET",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "ADMIN_DOCTOR_GET",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "ADMIN_SPECIALTY_SEARCH",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "SPECIALTY_SEARCH_MATCH",
+      "result": "PASS"
+    },
+    {
+      "case": "ADMIN_DOCTOR_FILTER",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "DOCTOR_SPECIALTY_FILTER_MATCH",
+      "result": "PASS"
+    },
+    {
+      "case": "FIND_API_SPECIALTY_PROBE",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "ADMIN_POST_SPECIALTY_REUSED_NO_DUPLICATE",
+      "result": "PASS"
+    },
+    {
+      "case": "ADMIN_PATCH_SPECIALTY",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "FIND_API_DOCTOR_PROBE",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "ADMIN_POST_DOCTOR_REUSED_NO_DUPLICATE",
+      "result": "PASS"
+    },
+    {
+      "case": "ADMIN_PATCH_DOCTOR_ACTIVE",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "ADMIN_PATCH_DOCTOR_INACTIVE",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "ADMIN_PATCH_SPECIALTY_INACTIVE",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "DUPLICATE_SPECIALTY_409",
+      "result": "PASS",
+      "http": 409
+    },
+    {
+      "case": "DUPLICATE_LINKED_USER_409",
+      "result": "PASS",
+      "http": 409
+    },
+    {
+      "case": "DUPLICATE_DOCTOR_CODE_409",
+      "result": "PASS",
+      "http": 409
+    },
+    {
+      "case": "INACTIVE_SPECIALTY_409",
+      "result": "PASS",
+      "http": 409
+    },
+    {
+      "case": "NON_DOCTOR_USER_409",
+      "result": "PASS",
+      "http": 409
+    },
+    {
+      "case": "SPECIALTY_WITH_ACTIVE_DOCTOR_409",
+      "result": "PASS",
+      "http": 409
+    },
+    {
+      "case": "FAILED_PATCH_ROLLBACK_409",
+      "result": "PASS",
+      "http": 409
+    },
+    {
+      "case": "MISSING_FK_404",
+      "result": "PASS",
+      "http": 404
+    },
+    {
+      "case": "INVALID_SPECIALTY_400",
+      "result": "PASS",
+      "http": 400
+    },
+    {
+      "case": "FAILED_WRITES_LEAVE_CATALOG_UNCHANGED",
+      "result": "PASS"
+    },
+    {
+      "case": "TRANSACTION_ROLLBACK_AFTER_PARTIAL_DML",
+      "result": "PASS"
+    },
+    {
+      "case": "RECEPTIONIST_SPECIALTY_LIST",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "RECEPTIONIST_DOCTOR_LIST",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "RECEPTIONIST_SEES_INACTIVE",
+      "result": "PASS"
+    },
+    {
+      "case": "RECEPTIONIST_FIELDS_MINIMIZED",
+      "result": "PASS"
+    },
+    {
+      "case": "RECEPTIONIST_NO_SPECIALTY_CREATE",
+      "result": "PASS",
+      "http": 403
+    },
+    {
+      "case": "RECEPTIONIST_NO_SPECIALTY_PATCH",
+      "result": "PASS",
+      "http": 403
+    },
+    {
+      "case": "RECEPTIONIST_NO_DOCTOR_CREATE",
+      "result": "PASS",
+      "http": 403
+    },
+    {
+      "case": "RECEPTIONIST_NO_DOCTOR_PATCH",
+      "result": "PASS",
+      "http": 403
+    },
+    {
+      "case": "RECEPTIONIST_NO_ELIGIBLE_USERS",
+      "result": "PASS",
+      "http": 403
+    },
+    {
+      "case": "DOCTOR_LINKED_SPECIALTY_LIST",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "DOCTOR_LINKED_DOCTOR_LIST",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "DOCTOR_ONLY_SELF",
+      "result": "PASS"
+    },
+    {
+      "case": "DOCTOR_LINKED_NO_SPECIALTY_CREATE",
+      "result": "PASS",
+      "http": 403
+    },
+    {
+      "case": "DOCTOR_LINKED_NO_SPECIALTY_PATCH",
+      "result": "PASS",
+      "http": 403
+    },
+    {
+      "case": "DOCTOR_LINKED_NO_DOCTOR_CREATE",
+      "result": "PASS",
+      "http": 403
+    },
+    {
+      "case": "DOCTOR_LINKED_NO_DOCTOR_PATCH",
+      "result": "PASS",
+      "http": 403
+    },
+    {
+      "case": "DOCTOR_LINKED_NO_ELIGIBLE_USERS",
+      "result": "PASS",
+      "http": 403
+    },
+    {
+      "case": "PATIENT_SPECIALTY_LIST",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "PATIENT_DOCTOR_LIST",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "PATIENT_ONLY_ACTIVE_DOCTOR",
+      "result": "PASS"
+    },
+    {
+      "case": "PATIENT_FIELDS_MINIMIZED",
+      "result": "PASS"
+    },
+    {
+      "case": "PATIENT_NO_SPECIALTY_CREATE",
+      "result": "PASS",
+      "http": 403
+    },
+    {
+      "case": "PATIENT_NO_SPECIALTY_PATCH",
+      "result": "PASS",
+      "http": 403
+    },
+    {
+      "case": "PATIENT_NO_DOCTOR_CREATE",
+      "result": "PASS",
+      "http": 403
+    },
+    {
+      "case": "PATIENT_NO_DOCTOR_PATCH",
+      "result": "PASS",
+      "http": 403
+    },
+    {
+      "case": "PATIENT_NO_ELIGIBLE_USERS",
+      "result": "PASS",
+      "http": 403
+    },
+    {
+      "case": "PATIENT_SPECIALTY_VISIBILITY",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "PATIENT_ONLY_ACTIVE_SPECIALTIES",
+      "result": "PASS"
+    },
+    {
+      "case": "PATIENT_NO_INACTIVE_FILTER",
+      "result": "PASS",
+      "http": 403
+    },
+    {
+      "case": "PATIENT_INACTIVE_SPECIALTY_404",
+      "result": "PASS",
+      "http": 404
+    },
+    {
+      "case": "PATIENT_INACTIVE_DOCTOR_404",
+      "result": "PASS",
+      "http": 404
+    },
+    {
+      "case": "DOCTOR_OTHER_PROFILE_404",
+      "result": "PASS",
+      "http": 404
+    },
+    {
+      "case": "DOCTOR_INACTIVE_OWN_PROFILE",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "INACTIVE_DOCTOR_OWN_SCOPE",
+      "result": "PASS"
+    },
+    {
+      "case": "ELIGIBLE_DOCTOR_HAS_NO_PROFILE",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "ELIGIBLE_DOCTOR_EMPTY_SCOPE",
+      "result": "PASS"
+    },
+    {
+      "case": "ANONYMOUS_401",
+      "result": "PASS",
+      "http": 401
+    },
+    {
+      "case": "ANONYMOUS_ELIGIBLE_401",
+      "result": "PASS",
+      "http": 401
+    },
+    {
+      "case": "MISSING_RESOURCE_404",
+      "result": "PASS",
+      "http": 404
+    },
+    {
+      "case": "FINAL_ELIGIBLE_USERS",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "FINAL_ELIGIBLE_REMAINS_UNLINKED",
+      "result": "PASS"
+    },
+    {
+      "case": "FE_CORS_PATCH_PREFLIGHT",
+      "result": "PASS",
+      "http": 200
+    },
+    {
+      "case": "API_WRITES_CONFIRMED_IN_SAME_QA_DATABASE",
+      "result": "PASS"
+    }
+  ],
+  "counts": {
+    "users": 7,
+    "specialties": 4,
+    "doctors": 3
+  },
+  "fixture_ids": {
+    "users": {
+      "ADMIN": "1",
+      "RECEPTIONIST": "2",
+      "PATIENT": "3",
+      "DOCTOR_LINKED": "4",
+      "DOCTOR_ELIGIBLE": "5",
+      "DOCTOR_INACTIVE": "6",
+      "DOCTOR_CRUD": "7"
+    },
+    "specialties": {
+      "D03_QA_S1_ACTIVE": "1",
+      "D03_QA_S2_ACTIVE": "2",
+      "D03_QA_S3_INACTIVE": "3",
+      "D03_QA_API_PROBE": "4"
+    },
+    "doctors": {
+      "D03_QA_DOC_ACTIVE": "1",
+      "D03_QA_DOC_INACTIVE": "2",
+      "D03_QA_DOC_CRUD": "3"
+    }
+  },
+  "mysql_version": "8.4.11",
+  "database_name": "clinic_management_db",
+  "backend_database_verified": true,
+  "initializer_repeat_without_duplicates": "PASS",
+  "vault_readback_verified": true,
+  "runtime_disposition": "QA MySQL and real D03 Backend remain running; no data/database/volume deleted",
+  "existing_files_and_migrations_preserved": true,
+  "final_states": {
+    "doctors_active": 1,
+    "doctors_inactive": 2,
+    "specialties_active": 2,
+    "specialties_inactive": 2,
+    "duplicate_doctor_users": 0,
+    "active_doctors_in_inactive_specialties": 0
+  },
+  "host_vault_readback": "PASS",
+  "actual_secret_and_connection_leak_scan": "PASS",
+  "runtime_still_available_after_provision_exit": true
+}
