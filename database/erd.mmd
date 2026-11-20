@@ -1,0 +1,150 @@
+%% CL-D01-DB: proposed schema for review only; NOT an executable migration.
+%% All PK/FK IDs are signed BIGINT; nullable and CHECK details are in DATABASE_DESIGN.md.
+erDiagram
+    users ||--o| doctors : "login profile"
+    users o|--o| patients : "optional patient login"
+    specialties ||--o{ doctors : categorizes
+    doctors ||--o{ doctor_schedules : works
+    doctors ||--o{ appointments : attends
+    doctor_schedules ||--o{ appointments : "contains; composite FK with doctor_id"
+    patients ||--o{ appointments : books
+    users ||--o{ appointments : creates
+    users o|--o{ appointments : "checks in"
+    appointments ||--o| medical_records : documents
+    medical_records ||--o| prescriptions : "simulated prescription"
+    prescriptions ||--o{ prescription_items : contains
+    users ||--o{ notifications : receives
+    appointments o|--o{ notifications : references
+    users o|--o{ audit_logs : "actor or system"
+
+    users {
+        BIGINT id PK
+        VARCHAR(254) email UK "canonical; binary collation"
+        VARCHAR(255) password_hash
+        VARCHAR(120) full_name
+        VARCHAR(20) role "ADMIN RECEPTIONIST DOCTOR PATIENT"
+        VARCHAR(16) status "ACTIVE DISABLED"
+        DATETIME(6) last_login_at "nullable UTC"
+        DATETIME(6) created_at
+        DATETIME(6) updated_at
+    }
+    specialties {
+        BIGINT id PK
+        VARCHAR(32) code UK
+        VARCHAR(120) name UK
+        TEXT description "nullable"
+        BOOLEAN is_active
+        DATETIME(6) created_at
+        DATETIME(6) updated_at
+    }
+    doctors {
+        BIGINT id PK
+        BIGINT user_id FK, UK
+        BIGINT specialty_id FK
+        VARCHAR(32) doctor_code UK
+        VARCHAR(100) license_number UK "nullable; synthetic in dev"
+        TEXT biography "nullable"
+        BOOLEAN is_active
+        DATETIME(6) created_at
+        DATETIME(6) updated_at
+    }
+    patients {
+        BIGINT id PK
+        BIGINT user_id FK, UK "nullable"
+        VARCHAR(32) patient_code UK
+        VARCHAR(120) full_name
+        DATE date_of_birth "nullable"
+        VARCHAR(16) sex "nullable"
+        VARCHAR(24) phone "nullable; not unique"
+        VARCHAR(255) address "nullable"
+        BOOLEAN is_active
+        DATETIME(6) created_at
+        DATETIME(6) updated_at
+    }
+    doctor_schedules {
+        BIGINT id PK
+        BIGINT doctor_id FK "UK with starts_at ends_at; UK with id"
+        DATETIME(6) starts_at "UTC inclusive"
+        DATETIME(6) ends_at "UTC exclusive"
+        VARCHAR(16) status "OPEN CLOSED"
+        VARCHAR(64) room_label "nullable"
+        DATETIME(6) created_at
+        DATETIME(6) updated_at
+    }
+    appointments {
+        BIGINT id PK
+        VARCHAR(32) appointment_code UK
+        BIGINT patient_id FK
+        BIGINT doctor_id FK "composite FK with schedule_id"
+        BIGINT schedule_id FK
+        BIGINT created_by FK "UK with request_key"
+        VARCHAR(64) request_key "idempotency; binary collation"
+        CHAR(64) request_fingerprint "SHA256 of normalized booking fields"
+        DATETIME(6) starts_at "UTC inclusive"
+        DATETIME(6) ends_at "UTC exclusive"
+        VARCHAR(20) status
+        VARCHAR(500) reason "nullable; sensitive"
+        DATETIME(6) checked_in_at "nullable"
+        BIGINT checked_in_by FK "nullable"
+        DATETIME(6) cancelled_at "nullable"
+        VARCHAR(255) cancellation_reason "nullable"
+        DATETIME(6) created_at
+        DATETIME(6) updated_at
+    }
+    medical_records {
+        BIGINT id PK
+        BIGINT appointment_id FK, UK
+        TEXT symptoms "nullable in DRAFT"
+        TEXT diagnosis "nullable in DRAFT"
+        TEXT clinical_notes "nullable"
+        VARCHAR(16) status "DRAFT FINAL"
+        BIGINT version "optimistic concurrency"
+        DATETIME(6) finalized_at "nullable"
+        DATETIME(6) released_at "nullable; patient visibility gate"
+        DATETIME(6) created_at
+        DATETIME(6) updated_at
+    }
+    prescriptions {
+        BIGINT id PK
+        BIGINT medical_record_id FK, UK
+        BOOLEAN is_simulation "must be TRUE"
+        VARCHAR(16) status "DRAFT FINAL"
+        TEXT notes "nullable"
+        DATETIME(6) created_at
+        DATETIME(6) updated_at
+    }
+    prescription_items {
+        BIGINT id PK
+        BIGINT prescription_id FK "UK with line_no"
+        SMALLINT line_no
+        VARCHAR(160) medication_name "synthetic display text"
+        VARCHAR(120) dosage_text
+        VARCHAR(120) frequency_text
+        SMALLINT duration_days
+        DECIMAL quantity "SQL DECIMAL(10,2)"
+        VARCHAR(32) unit
+        VARCHAR(255) instructions "nullable"
+        DATETIME(6) created_at
+        DATETIME(6) updated_at
+    }
+    notifications {
+        BIGINT id PK
+        BIGINT user_id FK
+        BIGINT appointment_id FK "nullable"
+        VARCHAR(32) type
+        VARCHAR(160) title "no clinical contents"
+        VARCHAR(500) message "generic text only"
+        DATETIME(6) read_at "nullable"
+        DATETIME(6) created_at
+    }
+    audit_logs {
+        BIGINT id PK
+        BIGINT actor_user_id FK "nullable for system"
+        VARCHAR(64) action
+        VARCHAR(64) entity_type
+        BIGINT entity_id "nullable logical reference; NOT a polymorphic FK"
+        VARCHAR(64) correlation_id
+        VARCHAR(16) outcome "SUCCESS DENIED FAILED"
+        JSON metadata "nullable; allowlist only"
+        DATETIME(6) created_at
+    }
