@@ -17,6 +17,12 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 
 @RestControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
+    @ExceptionHandler(ManagementException.class)
+    ResponseEntity<ProblemDetail> handleManagement(ManagementException exception, ServletWebRequest request) {
+        return ResponseEntity.status(exception.getStatus()).body(ApiProblems.create(exception.getStatus(),
+                exception.getCode(), exception.getMessage(), request.getRequest().getRequestURI()));
+    }
+
     @ExceptionHandler(AccessDeniedException.class)
     ResponseEntity<ProblemDetail> handleAccessDenied(ServletWebRequest request) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiProblems.create(HttpStatus.FORBIDDEN,

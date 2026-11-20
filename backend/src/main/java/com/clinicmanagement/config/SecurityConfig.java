@@ -51,6 +51,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/register", "/api/v1/auth/login").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/me")
                             .hasAnyRole("ADMIN", "DOCTOR", "RECEPTIONIST", "PATIENT")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/doctors", "/api/v1/doctors/*",
+                                "/api/v1/specialties", "/api/v1/specialties/*")
+                            .hasAnyRole("ADMIN", "DOCTOR", "RECEPTIONIST", "PATIENT")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/doctors", "/api/v1/specialties").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PATCH, "/api/v1/doctors/*", "/api/v1/specialties/*").hasRole("ADMIN")
                         .anyRequest().denyAll())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .requestCache(cache -> cache.disable())
@@ -78,7 +83,7 @@ public class SecurityConfig {
     private CorsFilter corsFilter(String origins, ObjectMapper mapper) {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(CorsOrigins.parse(origins));
-        configuration.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
+        configuration.setAllowedMethods(List.of("GET", "POST", "PATCH", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("Authorization", "Content-Type"));
         configuration.setExposedHeaders(List.of("Location"));
         configuration.setAllowCredentials(false);

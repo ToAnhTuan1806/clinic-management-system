@@ -14,13 +14,13 @@ class MySqlMigrationTest {
     @Test
     void migrateV1ValidateAndRepeatWithoutChangingAppliedHistory() throws Exception {
         Flyway flyway = MySqlTestDatabase.flyway();
-        boolean fresh = flyway.info().current() == null;
+        int pending = flyway.info().pending().length;
         var result = flyway.migrate();
-        assertThat(result.migrationsExecuted).isEqualTo(fresh ? 1 : 0);
+        assertThat(result.migrationsExecuted).isEqualTo(pending);
         assertThat(flyway.validateWithResult().validationSuccessful).isTrue();
-        assertThat(flyway.info().applied()).hasSize(1);
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("1");
-        assertThat(flyway.info().current().getScript()).isEqualTo("V1__create_users.sql");
+        assertThat(java.util.Arrays.stream(flyway.info().applied())
+                .filter(info -> info.getVersion().getVersion().equals("1"))
+                .map(info -> info.getScript()).toList()).containsExactly("V1__create_users.sql");
         List<String> before = history(flyway);
         assertThat(flyway.migrate().migrationsExecuted).isZero();
         assertThat(history(flyway)).isEqualTo(before);

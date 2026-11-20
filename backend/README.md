@@ -1,4 +1,4 @@
-# Clinic Management Backend — D02
+# Clinic Management Backend — D03
 
 Java **21**, Spring Boot **4.1.3** (stable), Gradle Wrapper **9.8.1**.
 Dependency versions được quản lý bởi Spring Boot BOM; dùng Spring Web MVC, Security,
@@ -9,13 +9,13 @@ Data JPA, Bean Validation, MySQL Connector/J và Flyway (kèm module MySQL).
 ```text
 src/main/java/com/clinicmanagement/
   ClinicManagementApplication.java
-  controller/  # Auth, health và servlet error handler
+  controller/  # Auth, doctor, specialty, health và servlet error handler
   config/      # JWT, CORS, SecurityFilterChain, MySQL validate-only
   dto/         # Register/Login request, public user/token response
   exception/   # Problem Details và exception advice
   service/     # Auth transactions và token issuance
-  repository/  # UserRepository
-  entity/      # User, Role, UserStatus
+  repository/  # User/Doctor/Specialty repositories
+  entity/      # User, Doctor, Specialty, Role, UserStatus
   security/    # Current ACTIVE user và ROLE_* từ DB
   validation/  # Giới hạn UTF-8 password cho BCrypt
 src/main/resources/application.yml
@@ -23,7 +23,8 @@ src/main/resources/db/migration/
 src/test/      # HTTP/security/startup bằng H2; task MySQL riêng
 ```
 
-Chỉ triển khai users/auth. Không tạo Doctor/Patient entity, profile, dữ liệu bệnh nhân hoặc account mặc định.
+Triển khai users/auth và quản lý Doctor/Specialty. Không tạo Patient entity, dữ liệu bệnh nhân,
+staff registration public hoặc account mặc định.
 
 ## Build và test
 
@@ -36,11 +37,12 @@ Từ thư mục `backend`, PowerShell:
 Linux/macOS: `sh ./gradlew --no-daemon clean build`.
 Wrapper có distribution SHA-256 để kiểm tra bản Gradle tải về. Lần đầu cần mạng để tải dependencies.
 Test mặc định bật profile `test`, H2 in-memory riêng cho mỗi context và fixture
-`src/test/resources/fixtures/users-schema.sql`; JPA validate, Flyway tắt chỉ trong test.
+`src/test/resources/fixtures/users-schema.sql` cùng `catalog-schema.sql`; JPA validate.
+Flyway giữ enabled ở H2 với location rỗng riêng của QA, không chạy V1/V2 MySQL trên H2.
 HTTP integration chạy Tomcat thật trên port ngẫu nhiên, qua SecurityFilterChain thật.
 Key và password test được sinh ngẫu nhiên trong bộ nhớ, không dùng secret/account mặc định.
 H2 và fixture chỉ nằm trong test runtime, không có trong boot JAR; không thay thế test MySQL.
-Task mysqlTest chạy riêng Flyway/schema và cùng bộ auth HTTP trên MySQL thật.
+Task mysqlTest chuẩn bị chạy Flyway/schema và cùng bộ auth/catalog HTTP trên MySQL thật.
 Các test ghi dữ liệu chỉ nhận URL loopback có tên database `clinic_d02_be_it_*`;
 test có xóa user fixture giữa các ca, không dùng database chia sẻ.
 Xem báo cáo D02 để biết output kiểm thử cuối và provenance của V1 từ dev.
@@ -74,14 +76,19 @@ Sau khi đã inject biến, chạy:
 **Điều kiện trước khi chạy:** provision database kiểm thử mới, loopback, tên
 `clinic_d02_be_it_<unique_suffix>`; cấp quyền chỉ trên database kiểm thử và inject DB_* tương ứng.
 Không trỏ test vào clinic_management_db hoặc database có dữ liệu cần giữ.
-V1 đã có trên dev; feature/tuan hiện chưa chứa file này. Lần final review dùng bản sao nguyên byte
-từ ref dev vào build input đã ignore và cấu hình MYSQL_TEST_MIGRATIONS_LOCATION;
-không thêm/sửa migration vào source BE. Khi tree tích hợp đã có V1, có thể dùng location classpath mặc định.
+V1 hiện đã có trong workspace sau đồng bộ D02; dùng location classpath mặc định.
+MYSQL_TEST_MIGRATIONS_LOCATION chỉ dành cho test khi cần đối chiếu bản QA ngoài tree;
+không thêm/sửa migration vào source BE.
+
+**D03:** V1 hiện đã có trong workspace sau đồng bộ D02. V2 specialties/doctors chưa được QA cung cấp;
+MySQL D03 **PENDING**, chưa chạy mysqlTest cho D03. Cần V2 trước khi startup MySQL hoặc chạy suite này;
+không tạo bảng thủ công/ddl-auto=update hoặc dùng fixture H2 để thay V2.
 
 `mysqlTest` dùng profile `mysql-integration`: datasource/JPA/Flyway main, SQL init never,
 Hibernate validate, Flyway **migrate + validate** trên database cô lập. Không dùng H2 fixture.
 MySqlMigrationTest kiểm tra migrate, validate, migrate lại no-op và history bất biến;
-MySqlStartupTest kiểm tra schema/UTC/config/health; MySqlAuthIntegrationTest chạy bộ auth HTTP.
+MySqlStartupTest kiểm tra schema/UTC/config/health; MySqlAuthIntegrationTest chạy bộ auth HTTP;
+MySqlCatalogIntegrationTest tái dùng contract D03 khi có V2.
 Key/password/token test sinh trong bộ nhớ, không yêu cầu JWT_SECRET thật cho test Spring context.
 Không dùng ddl-auto=update/create hoặc tự sửa V1 để vượt lỗi. Schema mismatch phải báo BLOCKED.
 
@@ -100,7 +107,8 @@ Không chạy migrate, baseline, repair hoặc clean trong lần xác minh D01 n
 
 Sau khi app chạy, GET `http://localhost:8080/api/v1/health` phải trả
 `{"data":{"status":"UP"}}`. Đây là liveness; không cung cấp thông tin cấu hình hay readiness DB.
-Auth D02 đã có register/login/me; API nghiệp vụ khác vẫn bị khóa. Chưa có nghiệp vụ đặt lịch.
+Auth D02 có register/login/me; D03 mở thêm đúng doctor/specialty GET/POST/PATCH theo role.
+Các nghiệp vụ khác vẫn bị khóa, chưa có đặt lịch.
 
 ## JWT và FE
 
@@ -113,6 +121,28 @@ Auth D02 đã có register/login/me; API nghiệp vụ khác vẫn bị khóa. C
 - JSON field thừa bị từ chối; không nhận role/status qua register hoặc profile DTO.
   D02 chưa triển khai endpoint cập nhật profile.
 - Không log body auth, Authorization header hoặc response login; giữ bind logging tắt.
+
+## Doctor và Specialty D03
+
+- ADMIN tạo/sửa; RECEPTIONIST đọc để điều phối; DOCTOR chỉ đọc profile mình và specialty active;
+  PATIENT chỉ đọc profile public active với user ACTIVE/DOCTOR và specialty active.
+- Không hard DELETE. Specialty còn doctor active trả 409 khi bị deactivate.
+- User liên kết phải là DOCTOR/ACTIVE, chưa có profile; userId không đổi qua PATCH.
+- Code uppercase/unique, license nullable/unique; ID chuỗi, data envelope và Problem Details.
+- CORS cho phép PATCH chỉ với origin trong allowlist; các endpoint ngoài scope vẫn denyAll.
+- Endpoint ADMIN chọn user DOCTOR chưa liên kết đang chờ chốt, chưa triển khai.
+
+Kiểm thử D03 ngày 2026-11-21: clean build thành công, **96 tests / 0 failures / 0 errors / 0 skipped**,
+gồm 65 regression hiện có và 31 ca catalog H2/HTTP với bốn role, validation, duplicate, inactive,
+FK, pagination, scope dữ liệu và concurrency. Output riêng để giữ JAR đang chạy:
+
+```powershell
+.\gradlew.bat --no-daemon --init-script build/d02-final-inputs/output.gradle clean build
+```
+
+Báo cáo máy sinh ở `build/d02-final-validation/reports/tests/test/index.html`.
+Chưa có kết quả PASS cho D03 MySQL; collation, FK và transaction trên MySQL cần QA V2 và suite MySQL.
+Không tạo Markdown báo cáo D03 riêng; contract/FE/DB handoff ở API_CONTRACT.
 
 Ví dụ tạo key dev trong environment của process PowerShell, không in/lưu giá trị:
 
@@ -137,7 +167,7 @@ Không đưa secret vào Git, command-line argument, shell output hoặc tài li
 - JPA `ddl-auto=validate`, `open-in-view=false`; timestamps JDBC theo UTC.
 - Flyway enabled ở main; V1 thuộc Database/QA. BE không tạo/sửa migration hoặc schema thật.
 - Không tự baseline database có sẵn; Flyway clean bị tắt; SQL init bị tắt.
-- Security chỉ mở health/register/login/me đúng điều kiện; Basic/form/session login tắt,
+- Security chỉ mở health/register/login/me và doctor/specialty đúng điều kiện; Basic/form/session login tắt,
   không có mật khẩu sinh tự động; JWT filter nằm trong SecurityFilterChain.
 - API nghiệp vụ chưa triển khai giữ denyAll kể cả ADMIN; quyền ownership sẽ làm theo nghiệp vụ sau.
 

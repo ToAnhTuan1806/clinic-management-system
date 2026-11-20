@@ -9,6 +9,8 @@ import com.clinicmanagement.dto.RegisterRequest;
 import com.clinicmanagement.entity.Role;
 import com.clinicmanagement.entity.User;
 import com.clinicmanagement.repository.UserRepository;
+import com.clinicmanagement.repository.DoctorRepository;
+import com.clinicmanagement.repository.SpecialtyRepository;
 import com.clinicmanagement.security.ActiveUserJwtConverter;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -63,6 +65,10 @@ abstract class AuthHttpTestSupport extends TestSecurityProperties {
     @Autowired
     private UserRepository users;
     @Autowired
+    private DoctorRepository doctors;
+    @Autowired
+    private SpecialtyRepository specialties;
+    @Autowired
     private JdbcTemplate jdbc;
     @Autowired
     private PasswordEncoder passwords;
@@ -88,6 +94,8 @@ abstract class AuthHttpTestSupport extends TestSecurityProperties {
                 MySqlTestDatabase.requireIsolatedUrl(connection.getMetaData().getURL());
             }
         }
+        doctors.deleteAll();
+        specialties.deleteAll();
         users.deleteAll();
         email = UUID.randomUUID() + "@example.invalid";
         password = UUID.randomUUID().toString();
