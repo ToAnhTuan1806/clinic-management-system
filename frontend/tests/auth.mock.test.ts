@@ -1,4 +1,4 @@
-// API MOCK TESTS ONLY — no live backend requests, no approved D02 DTOs.
+// API MOCK TESTS ONLY — isolated transport fixtures, no live backend requests.
 import { afterEach, describe, expect, it } from 'vitest'
 import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import { createAuthApi } from '../src/auth/api'
@@ -251,7 +251,7 @@ describe('MOCK — auth API and transport', () => {
   })
 })
 
-describe('MOCK — FE routing policy and provisional validation', () => {
+describe('MOCK — FE routing policy and D02 validation', () => {
   it('sends PATIENT to booking and staff to dashboard', () => {
     expect(roleHome('PATIENT')).toBe('/booking')
     for (const role of ['ADMIN', 'DOCTOR', 'RECEPTIONIST'] as const)
@@ -265,10 +265,10 @@ describe('MOCK — FE routing policy and provisional validation', () => {
     expect(canAccessPath('ADMIN', '/patients')).toBe(true)
     expect(canAccessPath('PATIENT', '//other.clinic.test')).toBe(false)
   })
-  it('validates client fields; these bounds await D02 BE confirmation', () => {
+  it('validates client fields against the D02 limits', () => {
     expect(emailRules.validate('invalid')).not.toBe(true)
     expect(emailRules.validate(' demo@clinic.test ')).toBe(true)
     expect(nameRules.validate('   ')).not.toBe(true)
-    expect(registerPasswordRules.minLength.value).toBe(8)
+    expect(registerPasswordRules.minLength.value).toBe(12)
   })
 })

@@ -60,6 +60,7 @@ export async function runAuthMockQA(
   const onError = () => runtimeErrors.push('Uncaught browser error')
   page.on('pageerror', onError)
   const token = await page.evaluate(() => crypto.randomUUID())
+  const password = await page.evaluate(() => crypto.randomUUID())
   const model = {
     role: 'PATIENT',
     login: 'success',
@@ -152,7 +153,7 @@ export async function runAuthMockQA(
   }
   const fillLogin = async () => {
     await page.getByLabel('Email', { exact: true }).fill('demo@clinic.test')
-    await page.getByLabel('Mật khẩu', { exact: true }).fill('DemoOnly123')
+    await page.getByLabel('Mật khẩu', { exact: true }).fill(password)
   }
   const loginAs = async (role) => {
     model.role = role
@@ -287,7 +288,9 @@ export async function runAuthMockQA(
           .getByRole('button', { name: 'Đăng ký tài khoản', exact: true })
           .click()
         await expect(
-          page.getByText('Họ tên cần từ 2 đến 100 ký tự.', { exact: true }),
+          page.getByText('Vui lòng nhập họ tên, tối đa 120 ký tự.', {
+            exact: true,
+          }),
         ).toBeVisible()
         await expect(
           page.getByLabel('Họ và tên', { exact: true }),
@@ -302,7 +305,7 @@ export async function runAuthMockQA(
           .getByRole('button', { name: 'Đăng ký tài khoản', exact: true })
           .click()
         await expect(
-          page.getByText('Mật khẩu cần ít nhất 8 ký tự.', { exact: true }),
+          page.getByText('Mật khẩu cần ít nhất 12 ký tự.', { exact: true }),
         ).toBeVisible()
         await expect(
           page.getByText('Xác nhận mật khẩu không khớp.', { exact: true }),
@@ -313,10 +316,10 @@ export async function runAuthMockQA(
         await expect(
           page.getByText('Chỉ đăng ký PATIENT · Bệnh nhân', { exact: true }),
         ).toBeVisible()
-        await page.getByLabel('Mật khẩu', { exact: true }).fill('DemoOnly123')
+        await page.getByLabel('Mật khẩu', { exact: true }).fill(password)
         await page
           .getByLabel('Xác nhận mật khẩu', { exact: true })
-          .fill('DemoOnly123')
+          .fill(password)
       },
     )
     await check(

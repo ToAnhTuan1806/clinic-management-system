@@ -1,117 +1,128 @@
-# TASK: CL-D02-FE
+# TASK: CL-D02-FE FINAL ACCEPTANCE
 
 **BRANCH:** `feature/trang`
 
-**STATUS: READY FOR REVIEW — phạm vi Frontend và API mock. Tích hợp Backend thật đang chờ contract D02.**
+**STATUS: READY FOR COMMIT**
 
-## AUTH UI
+Nghiệm thu auth D02 với đủ PATIENT, ADMIN, DOCTOR và RECEPTIONIST qua Backend/MySQL QA thật: **32/32 nhóm scenario PASS** qua Playwright MCP. **21/21 unit/contract/mock tests PASS** được báo riêng. Không commit hoặc push.
 
-- Hoàn thiện Login và thêm Register với shadcn Form/Input/Button/Alert, React Hook Form; lỗi theo trường, hiện/ẩn mật khẩu, loading, aria-busy, focus, Enter và khóa double submit.
-- Public Register chỉ có tài khoản PATIENT, không chọn role nhân viên; encoder whitelist không nhận role/confirmPassword.
-- Chỉ điều hướng sau khi nhận/kiểm tra response hợp lệ; không có thông báo đăng nhập thành công giả, nút bỏ qua auth hoặc tài khoản mặc định.
-- Giữ màu sắc, typography, responsive, Theme Light/Dark/System và reduced motion của D01. Không khởi tạo lại React hoặc xóa scaffold D01.
+## BACKEND CONNECTION
 
-## API INTEGRATION
+PASS. FE Vite `http://127.0.0.1:5173`, mock tắt, kết nối Backend D02 trong stack QA cô lập fixture `83710bc5bb2e`. Đã đọc lại `docs/API_CONTRACT.md`; không đổi endpoint/envelope. Health 200; không lấy health làm bằng chứng DB sẵn sàng duy nhất.
 
-Đã chuẩn bị đúng `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `GET /api/v1/auth/me`, envelope `data`, Problem Details theo status/code/errors, Bearer interceptor, timeout và thông báo lỗi an toàn.
+PowerShell host đọc Windows Credential Manager theo quyền tài khoản được cấp. Sandbox riêng không thấy vault; bước này đã chạy thành công trên host. Đối chiếu label/network/container/loopback port, DB config, dedicated MySQL volume, CORS và JAR SHA-256 với artifact QA. Backend artifact từ commit `ba0941f96a79453f03ecf80e235f303bcde0f8d4`; không tuyên bố rebuild artifact đó từ HEAD FE.
 
-**Chưa tích hợp Backend thật.** Đã đọc contract mới nhất qua GitHub trên `dev` và `feature/tuan`: cả hai vẫn D01, auth PROPOSED, chưa có DTO/validation D02. Vì vậy không tự suy đoán wire schema cho production. `backendAuthContract` để null; profile mặc định dừng trước khi gửi request và báo dịch vụ chưa sẵn sàng. Schema fixture được cô lập trong adapter **MOCK ONLY**, chỉ bật ở development có cờ riêng và không nằm trong artifact production.
+SELECT chỉ đọc xác minh ba staff đúng email fixture, id, role, ACTIVE và BCrypt cost 12; Login và ME được đối chiếu cùng id/role. Không in các giá trị credential/hash. Flyway vẫn `1 / V1__create_users.sql / 1116148885 / success 1`; SHA-256 V1 trong workspace không đổi. Không sửa Backend/DB/Docker/V1, không SQL gán role hoặc sửa secret, không ghi vào DB dùng chung.
 
-[Nguồn contract, schema fixture và checklist sau merge](auth-contract-status.md).
+## PATIENT / ADMIN / DOCTOR / RECEPTIONIST
 
-## ROLE ROUTING
+| Role         | HTTP thật                                                   | Điều hướng và quyền FE đã kiểm tra                             | Kết quả       |
+| ------------ | ----------------------------------------------------------- | -------------------------------------------------------------- | ------------- |
+| PATIENT      | Register 201, duplicate 409, sai password 401; Login/ME 200 | `/booking`; `/dashboard` bị chặn                               | 7/7 nhóm PASS |
+| ADMIN        | Login 200, Bearer ME 200, id/role khớp DB                   | Dashboard quản trị; patients được vào, medical-records bị chặn | 6/6 nhóm PASS |
+| DOCTOR       | Login 200, Bearer ME 200, id/role khớp DB                   | Dashboard bác sĩ; medical-records được vào, patients bị chặn   | 6/6 nhóm PASS |
+| RECEPTIONIST | Login 200, Bearer ME 200, id/role khớp DB                   | Dashboard lễ tân; patients được vào, medical-records bị chặn   | 6/6 nhóm PASS |
 
-- AuthProvider/Context và session store quản lý token/user chỉ trong memory; reload yêu cầu đăng nhập lại. Không lưu JWT/user vào localStorage hoặc sessionStorage.
-- Chỉ thiết lập phiên sau login và `/auth/me` thành công; role lấy từ user response được decoder kiểm tra, không tự giải mã JWT để cấp quyền.
-- ProtectedRoute kiểm tra auth, RoleGuard kiểm tra quyền tại URL; Sidebar dùng cùng policy.
-- PATIENT về `/booking`; ADMIN/DOCTOR/RECEPTIONIST về dashboard có nội dung/layout theo role. Phân hệ chưa có nghiệp vụ giữ DEMO.
-- 401 của phiên hiện tại xóa user/token rồi về Login; 403 giữ phiên và báo thiếu quyền. Response 401 cũ không làm mất phiên mới. Logout xóa auth state và abort login đang chờ.
-- RoleGuard là kiểm soát trải nghiệm phía FE; quyền/ownership/phân công tại API thật vẫn bắt buộc. Ma trận hiện tại ưu tiên quyền tối thiểu, cần đối chiếu D02 BE.
+Mỗi role đã kiểm tra ProtectedRoute sau logout, RoleGuard với URL SPA trực tiếp, thông báo thiếu quyền và link quay về đúng không gian, API 403 giữ phiên, JWT sai 401 xóa phiên, mobile menu/focus/Light/Dark và logout. Các màn nghiệp vụ vẫn placeholder DEMO.
 
-## LINT/BUILD
+Luồng PATIENT hiện tại tạo **một** tài khoản QA synthetic qua Register thật trong stack staff cô lập; không có thông tin bệnh nhân thật. Ba staff đã provision được giữ nguyên role/status/credential; login chỉ có thể cập nhật timestamps theo contract. Không xóa tài khoản QA.
 
-Đã chạy trong `frontend/`: `npm run lint`, `npm run build`, `npm run format:check` — **PASS**, exit 0. Lint không lỗi/cảnh báo. `npm run test:mock` — **16/16 PASS**.
+## JWT SECURITY
+
+PASS thêm 4 nhóm security và 3 nhóm public regression:
+
+- JWT sai signature cho cả bốn role, JWT ký hợp lệ nhưng đã hết hạn cho ba staff: ME thật trả 401 INVALID_ACCESS_TOKEN; FE xóa token/user, về Login. Token hết hạn được tạo trong RAM PowerShell bằng key QA hiện hữu, không sửa secret/clock và không chờ 30 phút.
+- Sửa role trong state FE thành ADMIN vẫn nhận ME từ server là PATIENT; API `/users` trả 403. FE state có thể bị sửa bởi người dùng, quyền và identity trên Backend không đổi. D02 API ngoài auth vẫn denyAll kể cả ADMIN; đây không phải bằng chứng quyền nghiệp vụ/ownership đã triển khai.
+- Token chỉ ở memory; localStorage chỉ có theme, sessionStorage trống; logout và reload xóa phiên. Logout client-only, không có revoke/refresh endpoint.
+- Form validation, lỗi UTF-8 password, hiện/ẩn password, Enter/focus; loading/reduced-motion và khóa double submit; offline thật và khôi phục kết nối đều đạt.
+- Đã rà credential/key/token/hash trong source/docs/tests FE, log text của phiên QA và log Backend QA. Không thấy giá trị nhạy cảm. Inputs được mask trong screenshot; không bật trace/HAR/video. Cuối test auth state rỗng, QA handoff không còn trong window; Chrome QA riêng được đóng sau kiểm tra.
 
 ## PLAYWRIGHT MCP
 
-**Đã kết nối và thực thi**, Chromium. **15 nhóm kịch bản API MOCK PASS**, gồm validation, password visibility, đăng ký PATIENT, sai thông tin, unauthorized redirect, role routing, 401/403, logout/reload, mobile navigation, Light/Dark/System, keyboard/focus, network errors và reduced motion. Không có uncaught runtime error; không có request ngoài fixture.
+**32/32 nhóm PASS, uncaught runtime errors = 0.** Google Chrome headless `157.0.8103.79`, Playwright MCP điều khiển qua loopback CDP. HTTP thật tới đúng Backend QA; không `route.fulfill`, không mock response. Ca loading chỉ giữ request rồi `route.continue()`; offline là lỗi mạng trình duyệt thật.
 
-Production preview kiểm chứng mock tắt, route bảo vệ chuyển Login, form auth không gửi request khi contract thiếu; console 0 lỗi/cảnh báo. Đây không phải kiểm thử Backend thật.
+Desktop 1440px, mobile 390px, form 320/768/1440px; Light/Dark, focus trap, Escape, return focus và route focus đã kiểm tra. Có **21 screenshots mới**, cùng 14 ảnh PATIENT lịch sử được giữ riêng.
 
-## SCREENSHOTS
+[Bằng chứng và cách chạy an toàn](qa/d02-real/README.md) · [JSON nghiệm thu hiện tại](qa/d02-real/staff/results.json).
 
-7 ảnh chụp đã xem trực tiếp, không chứa token hoặc thông tin bệnh nhân thật. [Ảnh và báo cáo chi tiết](qa/d02/README.md); [kết quả mock dạng JSON](qa/d02/mock-results.json). Source test được lưu để chạy lại bằng MCP hoặc wrapper CLI; không tuyên bố đã chạy Playwright CLI.
+## UNIT / CONTRACT TESTS — LINT / BUILD / FORMAT
 
-## REAL BACKEND TEST
+| Gate                   | Kết quả thực thi                                                            |
+| ---------------------- | --------------------------------------------------------------------------- |
+| `npm run lint`         | PASS, exit 0, không cảnh báo                                                |
+| `npm run build`        | PASS, exit 0                                                                |
+| `npm run format:check` | PASS, exit 0                                                                |
+| `npm run test`         | PASS, 21/21 tests, 2 files; unit/contract/mock, không phải HTTP integration |
 
-**NOT RUN / BLOCKED** — chưa có schema auth D02 trong contract dev, chưa xác minh các API auth thật. Không dùng kết quả mock để tuyên bố tích hợp thành công. Checklist kiểm thử lại sau khi BE merge đã được ghi trong tài liệu contract.
+Build ban đầu bị sandbox từ chối ghi cache TypeScript; chạy lại trên host đã thành công. Đã bỏ biến không dùng trong runner. Chỉ sửa harness QA về quoting/readiness khi khởi động, chờ route/focus và đọc log đang mở; các phase cuối đều đã chạy đạt. Không cần sửa ứng dụng hoặc nới contract/quyền để vượt test trong đợt acceptance này.
 
-## RISKS/BLOCKERS
+## BLOCKERS / GIỚI HẠN
 
-- Cần BE chốt DTO, schema login token/user/register, code lỗi và validation để điền adapter thật; hiện profile mặc định chưa đăng nhập/đăng ký được.
-- Giới hạn đăng ký FE 2–100 ký tự cho họ tên, password 8–128 và email tối đa 254 là tạm thời; chưa tuyên bố khớp Bean Validation BE.
-- Cần xác nhận CORS/CSRF/Bearer transport, ma trận quyền và ownership với BE. Logout hiện chỉ phía client, chưa có revoke server.
-- Chưa QA Firefox/Safari, thiết bị thật hoặc screen reader. Không tuyên bố chứng nhận WCAG.
+Không còn blocker trong phạm vi FE D02 đã yêu cầu. Chưa QA Firefox/Safari, thiết bị thật hoặc screen reader; chưa chờ expiration tự nhiên 30 phút. Business API/ownership và server revoke nằm ngoài D02. Kết quả 15 nhóm PATIENT lịch sử và mock được giữ tách riêng, không cộng vào 32 nhóm hiện tại.
 
-Chỉ thay đổi `frontend/`. `.gitignore` gốc là file untracked có sẵn lúc bắt đầu, không sửa. Không thao tác Backend/DB/Docker; không tạo/chuyển nhánh/worktree, commit, push, pull, fetch Git, merge, rebase hoặc reset.
+HEAD vẫn `07b821f9a85547db76370be9c62655785fe22bc3`. Working tree đã có thay đổi D02 trước đợt này và được giữ nguyên. Chỉ sửa file thuộc `frontend/`; không commit, push, fetch, pull, merge, rebase, reset hoặc đổi nhánh/worktree.
 
 ## FILES CHANGED
 
-Danh sách 56 file FE thay đổi, tính từ gốc repository; không tính .gitignore gốc có sẵn hoặc artifact bị ignore:
+Trong đợt staff acceptance: cập nhật 4 tài liệu (`README.md`, báo cáo này, `auth-contract-status.md`, `qa/d02-real/README.md`); thêm runner, PowerShell host helper, JSON kết quả và 21 ảnh dưới `qa/d02-real/staff/`. Các source/contract và bằng chứng PATIENT từ đợt trước được giữ lại.
+
+Toàn bộ 58 file FE đang thay đổi/chưa track so với HEAD (gồm thay đổi có sẵn):
 
 - frontend/.env.example
-- frontend/.gitignore
-- frontend/.prettierignore
-- frontend/docs/auth-contract-status.md
-- frontend/docs/CL-D02-FE.md
-- frontend/docs/design-system.md
-- frontend/docs/qa/d02/admin-dashboard-light.png
-- frontend/docs/qa/d02/login-loading-desktop.png
-- frontend/docs/qa/d02/login-validation-desktop.png
-- frontend/docs/qa/d02/mock-results.json
-- frontend/docs/qa/d02/patient-booking-mobile.png
-- frontend/docs/qa/d02/patient-navigation-mobile.png
-- frontend/docs/qa/d02/README.md
-- frontend/docs/qa/d02/register-mobile-dark.png
-- frontend/docs/qa/d02/role-forbidden.png
-- frontend/docs/third-party-notices.md
-- frontend/package.json
-- frontend/package-lock.json
-- frontend/playwright.config.ts
 - frontend/README.md
-- frontend/src/app.tsx
+- frontend/docs/CL-D02-FE.md
+- frontend/docs/auth-contract-status.md
+- frontend/docs/design-system.md
+- frontend/docs/qa/d02/README.md
 - frontend/src/auth/api.ts
 - frontend/src/auth/config.ts
-- frontend/src/auth/context.ts
 - frontend/src/auth/errors.ts
-- frontend/src/auth/guards.tsx
-- frontend/src/auth/http.ts
-- frontend/src/auth/provider.tsx
-- frontend/src/auth/session-store.ts
 - frontend/src/auth/types.ts
-- frontend/src/auth/use-submission.ts
 - frontend/src/auth/validation.ts
-- frontend/src/components/auth/auth-feedback.tsx
 - frontend/src/components/auth/auth-layout.tsx
-- frontend/src/components/auth/password-input.tsx
-- frontend/src/components/auth/session-card.tsx
-- frontend/src/components/layout/header.tsx
-- frontend/src/components/layout/main-layout.tsx
-- frontend/src/components/layout/sidebar.tsx
-- frontend/src/components/ui/alert.tsx
-- frontend/src/components/ui/form.tsx
-- frontend/src/lib/api-client.ts
-- frontend/src/lib/navigation.ts
-- frontend/src/pages/booking.tsx
-- frontend/src/pages/dashboard.tsx
-- frontend/src/pages/forbidden.tsx
-- frontend/src/pages/login.tsx
-- frontend/src/pages/not-found.tsx
 - frontend/src/pages/register.tsx
-- frontend/src/pages/settings.tsx
-- frontend/src/testing/mock-auth-contract.ts
-- frontend/src/vite-env.d.ts
 - frontend/tests/auth.mock.test.ts
-- frontend/tests/e2e/auth.mock.spec.ts
 - frontend/tests/e2e/auth-mock-runner.mjs
-- frontend/vitest.config.ts
+- frontend/docs/qa/d02-real/README.md
+- frontend/docs/qa/d02-real/duplicate-email-real.png
+- frontend/docs/qa/d02-real/invalid-jwt-401-real.png
+- frontend/docs/qa/d02-real/login-error-real.png
+- frontend/docs/qa/d02-real/login-final-real.png
+- frontend/docs/qa/d02-real/login-loading-real.png
+- frontend/docs/qa/d02-real/mobile-navigation-real.png
+- frontend/docs/qa/d02-real/offline-error-ui.png
+- frontend/docs/qa/d02-real/patient-booking-real.png
+- frontend/docs/qa/d02-real/patient-role-guard-real.png
+- frontend/docs/qa/d02-real/permission-403-real.png
+- frontend/docs/qa/d02-real/register-loading-real.png
+- frontend/docs/qa/d02-real/register-success-real.png
+- frontend/docs/qa/d02-real/register-validation-desktop.png
+- frontend/docs/qa/d02-real/results.json
+- frontend/docs/qa/d02-real/settings-mobile-dark-real.png
+- frontend/docs/qa/d02-real/staff/admin-desktop-real.png
+- frontend/docs/qa/d02-real/staff/admin-mobile-dark.png
+- frontend/docs/qa/d02-real/staff/admin-mobile-navigation.png
+- frontend/docs/qa/d02-real/staff/admin-role-guard.png
+- frontend/docs/qa/d02-real/staff/doctor-desktop-real.png
+- frontend/docs/qa/d02-real/staff/doctor-mobile-dark.png
+- frontend/docs/qa/d02-real/staff/doctor-mobile-navigation.png
+- frontend/docs/qa/d02-real/staff/doctor-role-guard.png
+- frontend/docs/qa/d02-real/staff/expired-jwt-login.png
+- frontend/docs/qa/d02-real/staff/final-public-login.png
+- frontend/docs/qa/d02-real/staff/patient-desktop-real.png
+- frontend/docs/qa/d02-real/staff/patient-mobile-dark.png
+- frontend/docs/qa/d02-real/staff/patient-mobile-navigation.png
+- frontend/docs/qa/d02-real/staff/patient-role-guard.png
+- frontend/docs/qa/d02-real/staff/public-validation.png
+- frontend/docs/qa/d02-real/staff/real-login-loading.png
+- frontend/docs/qa/d02-real/staff/real-network-error.png
+- frontend/docs/qa/d02-real/staff/receptionist-desktop-real.png
+- frontend/docs/qa/d02-real/staff/receptionist-mobile-dark.png
+- frontend/docs/qa/d02-real/staff/receptionist-mobile-navigation.png
+- frontend/docs/qa/d02-real/staff/receptionist-role-guard.png
+- frontend/docs/qa/d02-real/staff/results.json
+- frontend/src/auth/backend-contract.ts
+- frontend/tests/auth-contract.test.ts
+- frontend/tests/e2e/real-auth-runner.mjs
+- frontend/tests/e2e/staff-acceptance-runner.mjs
+- frontend/tests/runtime/Staff-Acceptance-Host.ps1

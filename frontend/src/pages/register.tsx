@@ -114,7 +114,7 @@ export default function Register() {
                     />
                   </FormControl>
                   <FormDescription className="sr-only">
-                    Nhập từ 2 đến 100 ký tự.
+                    Nhập họ tên không rỗng, tối đa 120 ký tự.
                   </FormDescription>
                   <FormMessage role="alert" />
                 </FormItem>
@@ -154,7 +154,9 @@ export default function Register() {
                   <FormControl>
                     <PasswordInput {...field} autoComplete="new-password" />
                   </FormControl>
-                  <FormDescription>Từ 8 đến 128 ký tự.</FormDescription>
+                  <FormDescription>
+                    Từ 12 đến 72 ký tự, tối đa 72 byte UTF-8.
+                  </FormDescription>
                   <FormMessage role="alert" />
                 </FormItem>
               )}

@@ -47,7 +47,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
           <Badge variant="secondary" className="mb-5 w-fit">
             {isAuthMock
               ? 'DEMO · API MOCK · Không phải Backend thật'
-              : 'Chưa kết nối dịch vụ xác thực'}
+              : 'ClinicOS · Đăng nhập an toàn'}
           </Badge>
           {children}
         </div>

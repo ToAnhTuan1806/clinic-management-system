@@ -1,7 +1,7 @@
 import type { AxiosInstance } from 'axios'
 import { apiClient } from '@/lib/api-client'
 import { backendAuthContract, isAuthMock } from './config'
-import { contractUnavailable, normalizeAuthError } from './errors'
+import { normalizeAuthError } from './errors'
 import type { AuthContract, LoginInput, RegisterInput } from './types'
 
 export function createAuthApi(client: AxiosInstance, contract: AuthContract) {
@@ -43,7 +43,6 @@ async function getApi() {
     const { mockAuthContract } = await import('@/testing/mock-auth-contract')
     return createAuthApi(apiClient, mockAuthContract)
   }
-  if (!backendAuthContract) throw contractUnavailable()
   return createAuthApi(apiClient, backendAuthContract)
 }
 export const authApi = {

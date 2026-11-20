@@ -1,7 +1,7 @@
 export const roles = ['ADMIN', 'DOCTOR', 'RECEPTIONIST', 'PATIENT'] as const
 export type Role = (typeof roles)[number]
 
-// Internal FE models, not a claim about the unconfirmed backend DTOs.
+// Internal FE models; the D02 wire DTO is checked by backend-contract.ts.
 export interface AuthUser {
   id: string
   fullName: string

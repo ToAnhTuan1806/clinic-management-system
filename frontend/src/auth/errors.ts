@@ -24,12 +24,6 @@ export class AuthApiError extends Error {
     this.fields = fields
   }
 }
-export const contractUnavailable = () =>
-  new AuthApiError(
-    'Dịch vụ xác thực chưa sẵn sàng. Vui lòng thử lại sau.',
-    0,
-    'AUTH_CONTRACT_UNAVAILABLE',
-  )
 export const invalidAuthResponse = () =>
   new AuthApiError(
     'Phản hồi xác thực không hợp lệ. Vui lòng thử lại sau.',

@@ -1,0 +1,597 @@
+{
+  "task": "CL-D02-FE FINAL ACCEPTANCE",
+  "status": "READY FOR COMMIT",
+  "branch": "feature/trang",
+  "head": "07b821f9a85547db76370be9c62655785fe22bc3",
+  "completedAtUTC": "2026-11-20 17:23:32 UTC",
+  "fixtureId": "83710bc5bb2e",
+  "source": "REAL GOOGLE CHROME / PLAYWRIGHT MCP / REAL D02 HTTP / ISOLATED QA MYSQL",
+  "mockUsed": false,
+  "counts": {
+    "scenarioGroups": 32,
+    "passed": 32,
+    "uncaughtErrors": 0,
+    "screenshots": 21,
+    "unitContractMockTests": 21
+  },
+  "runtime": {
+    "browser": "157.0.8103.79",
+    "driver": "Playwright MCP connected over loopback CDP to dedicated incognito headless Google Chrome",
+    "frontendOrigin": "http://127.0.0.1:5173",
+    "backendSourceCommit": "ba0941f96a79453f03ecf80e235f303bcde0f8d4",
+    "backendJarSha256": "c2bce75de74bddc28fcf698d6b9f7f73b9a55681448e68bb3c54a05f405bc07e",
+    "qaDatabaseVerified": true,
+    "isolatedVolumeVerified": true,
+    "staffRoleIdAndActiveStatusMatched": true,
+    "bcryptCost": 12,
+    "flywayChecksumBeforeAfter": 1116148885,
+    "sourceV1Sha256": "3F773EF22764A9025703401C3C53AD3F8BF2E5D5D097891ACF5DC5D02BEEFAFB",
+    "sourceV1Unchanged": true,
+    "corsOriginVerified": true,
+    "backendAndDatabaseSourceModified": false
+  },
+  "security": {
+    "browserVersion": "157.0.8103.79",
+    "qaMemoryAbsent": true,
+    "authEmpty": true,
+    "storageSafe": true,
+    "publicPath": "/login",
+    "credentialValuesRecorded": false,
+    "credentialsWrittenToDisk": false,
+    "secretAuditPassed": true,
+    "secretAuditScope": "Exact fixture credentials and secrets, JWT and BCrypt patterns in FE source/docs/tests, own text logs, and QA Backend container log; screenshot inputs masked",
+    "vaultReadOnly": true,
+    "staffFixtureUnchanged": true,
+    "signedExpiredJwtTested": true,
+    "frontendRoleTamperingDidNotChangeServerIdentity": true
+  },
+  "qualityGates": {
+    "lint": {
+      "result": "PASS",
+      "exitCode": 0,
+      "warnings": 0
+    },
+    "build": {
+      "result": "PASS",
+      "exitCode": 0
+    },
+    "formatCheck": {
+      "result": "PASS",
+      "exitCode": 0
+    },
+    "unitContractMock": {
+      "result": "PASS",
+      "exitCode": 0,
+      "files": 2,
+      "tests": 21,
+      "realIntegrationEvidence": false
+    }
+  },
+  "phases": [
+    {
+      "source": "REAL CHROME + REAL D02 HTTP + QA MYSQL",
+      "phase": "PATIENT",
+      "fixtureId": "83710bc5bb2e",
+      "checks": [
+        {
+          "label": "PATIENT register 201, duplicate 409, wrong login 401 on the staff QA stack",
+          "result": "PASS",
+          "source": "REAL HTTP + QA MYSQL"
+        },
+        {
+          "label": "PATIENT: Login 200, Bearer me 200, ACTIVE role matches database and correct home",
+          "result": "PASS",
+          "source": "REAL HTTP + QA MYSQL"
+        },
+        {
+          "label": "PATIENT: allowed route works, forbidden direct SPA route shows RoleGuard 403",
+          "result": "PASS",
+          "source": "REAL HTTP + QA MYSQL"
+        },
+        {
+          "label": "PATIENT: real denyAll API 403 keeps session and shows missing permission",
+          "result": "PASS",
+          "source": "REAL HTTP + QA MYSQL"
+        },
+        {
+          "label": "PATIENT: invalid JWT gets real 401, clears state and redirects",
+          "result": "PASS",
+          "source": "REAL HTTP + QA MYSQL"
+        },
+        {
+          "label": "PATIENT: logout clears client auth and ProtectedRoute blocks reuse",
+          "result": "PASS",
+          "source": "REAL HTTP + QA MYSQL"
+        },
+        {
+          "label": "PATIENT: mobile navigation, keyboard focus and Light/Dark",
+          "result": "PASS",
+          "source": "REAL HTTP + QA MYSQL"
+        }
+      ],
+      "http": [
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/register",
+          "status": 201
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/register",
+          "status": 409
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/login",
+          "status": 401
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/login",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/patients",
+          "status": 403
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 401
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/login",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/login",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 200
+        }
+      ],
+      "uncaughtErrors": 0,
+      "credentialValuesRecorded": false,
+      "mockUsed": false
+    },
+    {
+      "source": "REAL CHROME + REAL D02 HTTP + QA MYSQL",
+      "phase": "ADMIN",
+      "fixtureId": "83710bc5bb2e",
+      "checks": [
+        {
+          "label": "ADMIN: Login 200, Bearer me 200, ACTIVE role matches database and correct home",
+          "result": "PASS",
+          "source": "REAL HTTP + QA MYSQL"
+        },
+        {
+          "label": "ADMIN: allowed route works, forbidden direct SPA route shows RoleGuard 403",
+          "result": "PASS",
+          "source": "REAL HTTP + QA MYSQL"
+        },
+        {
+          "label": "ADMIN: real denyAll API 403 keeps session and shows missing permission",
+          "result": "PASS",
+          "source": "REAL HTTP + QA MYSQL"
+        },
+        {
+          "label": "ADMIN: invalid JWT gets real 401, clears state and redirects",
+          "result": "PASS",
+          "source": "REAL HTTP + QA MYSQL"
+        },
+        {
+          "label": "ADMIN: logout clears client auth and ProtectedRoute blocks reuse",
+          "result": "PASS",
+          "source": "REAL HTTP + QA MYSQL"
+        },
+        {
+          "label": "ADMIN: mobile navigation, keyboard focus and Light/Dark",
+          "result": "PASS",
+          "source": "REAL HTTP + QA MYSQL"
+        }
+      ],
+      "http": [
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/login",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/patients",
+          "status": 403
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 401
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/login",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/login",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 200
+        }
+      ],
+      "uncaughtErrors": 0,
+      "credentialValuesRecorded": false,
+      "mockUsed": false
+    },
+    {
+      "source": "REAL CHROME + REAL D02 HTTP + QA MYSQL",
+      "phase": "DOCTOR",
+      "fixtureId": "83710bc5bb2e",
+      "checks": [
+        {
+          "label": "DOCTOR: Login 200, Bearer me 200, ACTIVE role matches database and correct home",
+          "result": "PASS",
+          "source": "REAL HTTP + QA MYSQL"
+        },
+        {
+          "label": "DOCTOR: allowed route works, forbidden direct SPA route shows RoleGuard 403",
+          "result": "PASS",
+          "source": "REAL HTTP + QA MYSQL"
+        },
+        {
+          "label": "DOCTOR: real denyAll API 403 keeps session and shows missing permission",
+          "result": "PASS",
+          "source": "REAL HTTP + QA MYSQL"
+        },
+        {
+          "label": "DOCTOR: invalid JWT gets real 401, clears state and redirects",
+          "result": "PASS",
+          "source": "REAL HTTP + QA MYSQL"
+        },
+        {
+          "label": "DOCTOR: logout clears client auth and ProtectedRoute blocks reuse",
+          "result": "PASS",
+          "source": "REAL HTTP + QA MYSQL"
+        },
+        {
+          "label": "DOCTOR: mobile navigation, keyboard focus and Light/Dark",
+          "result": "PASS",
+          "source": "REAL HTTP + QA MYSQL"
+        }
+      ],
+      "http": [
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/login",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/patients",
+          "status": 403
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 401
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/login",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/login",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 200
+        }
+      ],
+      "uncaughtErrors": 0,
+      "credentialValuesRecorded": false,
+      "mockUsed": false
+    },
+    {
+      "source": "REAL CHROME + REAL D02 HTTP + QA MYSQL",
+      "phase": "RECEPTIONIST",
+      "fixtureId": "83710bc5bb2e",
+      "checks": [
+        {
+          "label": "RECEPTIONIST: Login 200, Bearer me 200, ACTIVE role matches database and correct home",
+          "result": "PASS",
+          "source": "REAL HTTP + QA MYSQL"
+        },
+        {
+          "label": "RECEPTIONIST: allowed route works, forbidden direct SPA route shows RoleGuard 403",
+          "result": "PASS",
+          "source": "REAL HTTP + QA MYSQL"
+        },
+        {
+          "label": "RECEPTIONIST: real denyAll API 403 keeps session and shows missing permission",
+          "result": "PASS",
+          "source": "REAL HTTP + QA MYSQL"
+        },
+        {
+          "label": "RECEPTIONIST: invalid JWT gets real 401, clears state and redirects",
+          "result": "PASS",
+          "source": "REAL HTTP + QA MYSQL"
+        },
+        {
+          "label": "RECEPTIONIST: logout clears client auth and ProtectedRoute blocks reuse",
+          "result": "PASS",
+          "source": "REAL HTTP + QA MYSQL"
+        },
+        {
+          "label": "RECEPTIONIST: mobile navigation, keyboard focus and Light/Dark",
+          "result": "PASS",
+          "source": "REAL HTTP + QA MYSQL"
+        }
+      ],
+      "http": [
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/login",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/patients",
+          "status": 403
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 401
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/login",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/login",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 200
+        }
+      ],
+      "uncaughtErrors": 0,
+      "credentialValuesRecorded": false,
+      "mockUsed": false
+    },
+    {
+      "source": "REAL CHROME + REAL D02 HTTP + QA MYSQL",
+      "phase": "security",
+      "fixtureId": "83710bc5bb2e",
+      "checks": [
+        {
+          "label": "Signed expired JWT is rejected by real Backend for each staff role; FE clears auth",
+          "result": "PASS",
+          "source": "REAL HTTP + QA MYSQL"
+        },
+        {
+          "label": "Changing frontend role cannot elevate Backend identity or permissions",
+          "result": "PASS",
+          "source": "REAL HTTP + QA MYSQL"
+        },
+        {
+          "label": "Token, credentials and password hashes are absent from persistent storage and displayed text",
+          "result": "PASS",
+          "source": "REAL HTTP + QA MYSQL"
+        },
+        {
+          "label": "Reload drops the real staff session; public auth remains responsive in Light/Dark",
+          "result": "PASS",
+          "source": "REAL HTTP + QA MYSQL"
+        }
+      ],
+      "http": [
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/login",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 401
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/login",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 401
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/login",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 401
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/login",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/users",
+          "status": 403
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/login",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/login",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 200
+        }
+      ],
+      "uncaughtErrors": 0,
+      "credentialValuesRecorded": false,
+      "mockUsed": false
+    },
+    {
+      "source": "REAL CHROME + REAL D02 HTTP + QA MYSQL",
+      "phase": "public-regression",
+      "fixtureId": "83710bc5bb2e",
+      "checks": [
+        {
+          "label": "Login/Register client validation, password visibility and keyboard work without invalid API requests",
+          "result": "PASS",
+          "source": "REAL HTTP + QA MYSQL"
+        },
+        {
+          "label": "Reduced-motion loading and double-submit lock preserve one real Login request",
+          "result": "PASS",
+          "source": "REAL HTTP + QA MYSQL"
+        },
+        {
+          "label": "Real browser offline error is retryable; online recovery reaches the QA Backend",
+          "result": "PASS",
+          "source": "REAL HTTP + QA MYSQL"
+        }
+      ],
+      "http": [
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/login",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/health",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/login",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 200
+        }
+      ],
+      "uncaughtErrors": 0,
+      "credentialValuesRecorded": false,
+      "mockUsed": false
+    }
+  ],
+  "limitations": [
+    "Only auth endpoints are implemented in D02; other APIs denyAll even for ADMIN. These 403 tests do not verify business authorization or data ownership.",
+    "Expired JWTs were signed with the existing QA key in authorized PowerShell memory; did not wait 30 minutes, alter secrets or change server clock.",
+    "Client logout does not revoke an existing server token.",
+    "Chrome headless only; Firefox, Safari, physical devices and screen readers not tested.",
+    "Historical PATIENT run in ../results.json is separate and not counted as current staff acceptance.",
+    "One synthetic PATIENT was registered through real API on isolated staff QA stack; no SQL role changes."
+  ]
+}
