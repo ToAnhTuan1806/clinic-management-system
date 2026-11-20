@@ -2,6 +2,7 @@ import {
   CalendarDays,
   ClipboardList,
   LayoutDashboard,
+  Layers2,
   Settings2,
   Stethoscope,
   UsersRound,
@@ -27,6 +28,14 @@ export const navigation = [
     title: 'Đội ngũ bác sĩ',
     icon: Stethoscope,
     description: 'Quản lý đội ngũ và thông tin chuyên môn tại một nơi.',
+  },
+  {
+    path: '/specialties',
+    roles: everyone,
+    label: 'Chuyên khoa',
+    title: 'Chuyên khoa',
+    icon: Layers2,
+    description: 'Danh mục chuyên khoa và trạng thái phục vụ.',
   },
   {
     path: '/patients',

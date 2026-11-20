@@ -21,6 +21,7 @@ const Register = lazy(() => import('@/pages/register'))
 const Booking = lazy(() => import('@/pages/booking'))
 const Forbidden = lazy(() => import('@/pages/forbidden'))
 const NotFound = lazy(() => import('@/pages/not-found'))
+const Directory = lazy(() => import('@/pages/directory'))
 
 function RouteEffects() {
   const { pathname } = useLocation()
@@ -86,6 +87,16 @@ export default function App() {
                               <Settings />
                             ) : item.path === '/booking' ? (
                               <Booking />
+                            ) : item.path === '/doctors' ||
+                              item.path === '/specialties' ? (
+                              <Directory
+                                key={item.path}
+                                kind={
+                                  item.path === '/doctors'
+                                    ? 'doctors'
+                                    : 'specialties'
+                                }
+                              />
                             ) : (
                               <ModulePlaceholder />
                             )

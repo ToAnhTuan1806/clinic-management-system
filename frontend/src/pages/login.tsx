@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { Link, useLocation } from 'react-router'
 import { ArrowRight, LoaderCircle } from 'lucide-react'
@@ -33,6 +33,10 @@ export default function Login() {
   const { pending, run } = useSubmission()
   const [error, setError] = useState<string | null>(null)
   const feedback = useRef<HTMLDivElement>(null)
+  // Focus only after the disabled fieldset has been enabled in the DOM.
+  useEffect(() => {
+    if (error && !pending) feedback.current?.focus()
+  }, [error, pending])
   return (
     <AuthLayout>
       <h1 className="text-3xl font-semibold">Chào mừng trở lại</h1>
@@ -80,7 +84,6 @@ export default function Login() {
                         type: 'server',
                         message: problem.fields[field],
                       })
-                  requestAnimationFrame(() => feedback.current?.focus())
                 }
               })()
             })

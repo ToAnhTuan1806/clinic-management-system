@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { Link, useNavigate } from 'react-router'
 import { ArrowRight, LoaderCircle, UserRoundCheck } from 'lucide-react'
@@ -39,6 +39,9 @@ export default function Register() {
   const { pending, run } = useSubmission()
   const [error, setError] = useState<string | null>(null)
   const feedback = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (error && !pending) feedback.current?.focus()
+  }, [error, pending])
   return (
     <AuthLayout>
       <h1 className="text-3xl font-semibold">Tạo tài khoản bệnh nhân</h1>
@@ -91,7 +94,6 @@ export default function Register() {
                         type: 'server',
                         message: problem.fields[field],
                       })
-                  requestAnimationFrame(() => feedback.current?.focus())
                 }
               })()
             })
