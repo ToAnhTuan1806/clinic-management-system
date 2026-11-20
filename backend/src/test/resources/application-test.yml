@@ -5,3 +5,8 @@ spring:
     username: sa
     password: ""
     driver-class-name: org.h2.Driver
+  flyway:
+    # H2 tests cover HTTP/security only; authoritative V1 checks run on real MySQL.
+    # Keep Flyway enabled with an intentionally empty, test-only location.
+    locations: classpath:db/h2-scaffold-only
+    fail-on-missing-locations: false

@@ -71,9 +71,12 @@ class ApplicationIntegrationTest {
     }
 
     @Test
-    void flywayStartsAndNoDomainMigrationIsInvented() {
+    void h2ScaffoldUsesAnEmptyFlywayLocationWhileMySqlValidatesV1Separately() {
         assertThat(flyway.getConfiguration().isCleanDisabled()).isTrue();
         assertThat(flyway.getConfiguration().isBaselineOnMigrate()).isFalse();
+        assertThat(flyway.getConfiguration().getLocations()).hasSize(1);
+        assertThat(flyway.getConfiguration().getLocations()[0].getDescriptor())
+                .isEqualTo("classpath:db/h2-scaffold-only");
         assertThat(flyway.info().pending()).isEmpty();
         assertThat(flyway.info().applied()).isEmpty();
     }

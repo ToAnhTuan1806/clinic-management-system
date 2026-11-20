@@ -1,7 +1,9 @@
 # Thiết kế database sơ bộ — CL-D01-DB
 
 Ngày: 2026-11-20 (Asia/Bangkok). Nhánh yêu cầu: `feature/quynh`.
-Trạng thái: **PROPOSED / chờ Backend review**, chưa có SQL nghiệp vụ được áp dụng.
+Trạng thái D02: **V1 users đã kiểm thử trên MySQL QA cô lập, READY FOR REVIEW**;
+chưa áp dụng trên Clinic dùng chung. Các bảng ngoài users vẫn PROPOSED.
+Kết quả và BE handoff mới nhất ở mục 13; các mục D01 giữ ngữ cảnh thiết kế ban đầu.
 
 ## 1. Phạm vi và giả định cần review
 
@@ -52,7 +54,9 @@ tính, khóa user/patient và ghi audit; không dò ghép theo số điện tho�
 Role ADMIN/RECEPTIONIST không mặc nhiên có profile Doctor/Patient. Role, trạng thái và
 quan hệ liên kết là ràng buộc nhiều bảng do service thực thi trong transaction có khóa
 user, vì FK đơn không kiểm tra role. Luồng đổi role phải giữ bất biến này. Backend
-cần chốt đa vai trò trước khi mở rộng, không tự thêm bảng roles trong D01.
+cần review riêng trước khi mở rộng đa vai trò; **D02 đã chốt một User có một role**,
+PATIENT tự đăng ký, public API không cấp/đổi role. Profile Doctor/Patient chưa triển khai
+D02; không tự liên kết theo email/phone. Quan hệ đề xuất vẫn giữ cho D03/D04.
 
 ## 4. Từ điển dữ liệu
 
@@ -302,7 +306,9 @@ và quy trình xử lý sự cố cần đơn vị vận hành chốt; đây kh�
 
 - Đích: `backend/src/main/resources/db/migration`. D01 không tạo SQL nghiệp vụ, seed
   tự động hoặc script trong `/docker-entrypoint-initdb.d` trước Backend xác nhận.
-- Tên `V<NNN>__<mo_ta_snake_case>.sql` với version duy nhất tăng dần do Backend cấp;
+- Tên chốt D02: `V<integer>__<mo_ta_snake_case>.sql`, bắt đầu duy nhất
+  `V1__create_users.sql`, sau đó V2, V3; không tạo V001 cùng version V1.
+  Version duy nhất tăng dần được phối hợp với Backend;
   hai dấu gạch dưới; không sửa/đổi tên version đã áp dụng, thay bằng migration tiến mới.
   Repeatable chỉ dành cho đối tượng phù hợp sau review, không tạo bảng nghiệp vụ bằng R__.
 - Thứ tự phụ thuộc: users + specialties → doctors + patients → doctor_schedules →
@@ -389,33 +395,106 @@ phù hợp các key nói trên, kể cả patient chưa có user và đơn DRAFT
 - Chưa kiểm thử ghi dữ liệu nghiệp vụ, quyền API, migration hay backup/restore; bảng probe
   persistence chỉ nằm ở instance thử nghiệm riêng, không phải schema Clinic được duyệt.
 
-## 12. Đối chiếu FR-01–FR-14: chờ nguồn đặc tả
+## 12. Đối chiếu FR-01–FR-14 sau đồng bộ đầu vào D02
 
-Workspace hiện chỉ có README gốc và các tài liệu/cấu hình D01; tìm kiếm trong các file
-đó chưa thấy định nghĩa FR-01–FR-14. Không tự gán số FR cho danh sách chức năng trong
-task trước vì không có bằng chứng số hiệu tương ứng. Đã yêu cầu đường dẫn/link hoặc
-nội dung đặc tả; chưa nhận được tại thời điểm cập nhật báo cáo.
+Đã có và đọc [FEATURE_SCOPE](../requirements/FEATURE_SCOPE.md),
+[API_CONTRACT](../API_CONTRACT.md), [SCHEMA_REVIEW_D01](../SCHEMA_REVIEW_D01.md).
+Blocker thiếu nguồn của D01 đã được giải quyết. Mapping dưới đây là review phạm vi,
+**không phải kết quả kiểm thử API hoặc phê duyệt toàn bộ 11 bảng**.
 
-| FR | Nội dung chuẩn | Ánh xạ bảng/ràng buộc/QA | Kết quả |
+| FR | Nội dung | Nền dữ liệu / QA | Trạng thái và gap |
 | --- | --- | --- | --- |
-| FR-01 | Chưa được cung cấp | Chưa thể xác định | BLOCKED |
-| FR-02 | Chưa được cung cấp | Chưa thể xác định | BLOCKED |
-| FR-03 | Chưa được cung cấp | Chưa thể xác định | BLOCKED |
-| FR-04 | Chưa được cung cấp | Chưa thể xác định | BLOCKED |
-| FR-05 | Chưa được cung cấp | Chưa thể xác định | BLOCKED |
-| FR-06 | Chưa được cung cấp | Chưa thể xác định | BLOCKED |
-| FR-07 | Chưa được cung cấp | Chưa thể xác định | BLOCKED |
-| FR-08 | Chưa được cung cấp | Chưa thể xác định | BLOCKED |
-| FR-09 | Chưa được cung cấp | Chưa thể xác định | BLOCKED |
-| FR-10 | Chưa được cung cấp | Chưa thể xác định | BLOCKED |
-| FR-11 | Chưa được cung cấp | Chưa thể xác định | BLOCKED |
-| FR-12 | Chưa được cung cấp | Chưa thể xác định | BLOCKED |
-| FR-13 | Chưa được cung cấp | Chưa thể xác định | BLOCKED |
-| FR-14 | Chưa được cung cấp | Chưa thể xác định | BLOCKED |
+| FR-01 | Xác thực/phân quyền | users; V1; 46 DB/Flyway checks; Postman AUTH-D02 | DB users tested; Auth API/role/ownership/JWT PENDING |
+| FR-02 | Hồ sơ cá nhân | users.full_name; AUTH-D02-13/14, AUTH-02 | Chưa có profile API; contact/phone mở rộng chưa có trong V1 |
+| FR-03 | Bác sĩ | doctors.user_id UNIQUE/FK, specialty_id; CRUD-02 | D03/D04, chưa tạo bảng/profile |
+| FR-04 | Chuyên khoa | specialties.code/name UNIQUE; CRUD-01 | PROPOSED, chưa migration |
+| FR-05 | Bệnh nhân | patients.code/user_id UNIQUE, nullable login; CRUD-03, ACL | D03/D04; không tự liên kết email/phone |
+| FR-06 | Lịch làm việc | doctor_schedules; SCH-01/02 | PROPOSED; cần chốt slot tính động, thời lượng và payload |
+| FR-07 | Đặt/đổi/hủy | appointments, khóa bác sĩ; APT-01–07 | PROPOSED; BOOKED vs PENDING/CONFIRMED, slotId và conflict code còn mở |
+| FR-08 | Xác nhận/check-in | appointments.checked_in_by/at; CHK-01/02 | PROPOSED; bổ sung/duyệt bước confirmation và quyền actor trước migration |
+| FR-09 | Hồ sơ khám | medical_records.appointment_id UNIQUE; MED-01/02 | PROPOSED; tạo từ CHECKED_IN vs IN_PROGRESS và release cần chốt |
+| FR-10 | Lịch sử khám | record → appointment → patient/doctor; ACL-01–04 | PROPOSED; phạm vi bác sĩ đọc lịch sử khác bác sĩ và release còn mở |
+| FR-11 | Đơn mô phỏng | prescriptions + items, simulation CHECK; MED-03 | PROPOSED; không kê đơn pháp lý/bán thuốc/tồn kho |
+| FR-12 | Dashboard | Aggregate appointments/patients theo quyền và UTC | Chưa triển khai; cần thêm test đối soát số đếm, không có doanh thu |
+| FR-13 | Thông báo | notifications owner; ACL/APT | PROPOSED; cần chốt dedup event key trước rollout, không gửi clinical payload |
+| FR-14 | Báo cáo/audit | audit_logs + aggregate, ACL-04 | PROPOSED; append-only, retention và export cần chốt; V1 chưa có audit table |
 
-Theo phạm vi D01 đã được cung cấp (chưa phải traceability theo FR), thiết kế có nền
-tảng cho authentication/role qua users, chuyên khoa/bác sĩ/bệnh nhân qua ba bảng profile,
-lịch/booking/check-in qua doctor_schedules và appointments, hồ sơ/đơn mô phỏng qua
-medical_records/prescriptions/prescription_items, thông báo và audit qua hai bảng còn lại.
-Thanh toán/QR vẫn ngoài D01. Khi có FR chuẩn, cần ánh xạ từng acceptance criterion tới
-cột/key/quy tắc service và test ID; đánh dấu gap trước khi Backend chốt migration.
+FR-15 thanh toán/QR vẫn ngoài D01–D15. Các khác biệt lịch khám/bệnh án được ghi trong
+SCHEMA_REVIEW_D01 không bị tự giải quyết bằng V1 users.
+
+## 13. CL-D02-DB — V1 users, kết quả thực tế và BE handoff
+
+### Phê chuẩn phạm vi D02 và version
+
+Yêu cầu CL-D02-DB cho phép Database/QA chuẩn bị duy nhất
+[V1__create_users.sql](../../backend/src/main/resources/db/migration/V1__create_users.sql)
+và chạy trên database thử nghiệm riêng. Quyết định này thay thế điều kiện chưa được tạo
+V1 trong tài liệu D01 **riêng cho users**; không phải phê duyệt chạy trên Clinic dùng chung.
+Không có V001, bảng profile, payment/QR, seed admin hay tài khoản mật khẩu mặc định.
+
+### Schema đã được xác minh trên instance QA
+
+| Cột | Kiểu thực tế | Null/default | Ghi chú |
+| --- | --- | --- | --- |
+| id | BIGINT signed | NOT NULL AUTO_INCREMENT | PRIMARY KEY |
+| email | VARCHAR(254), utf8mb4_bin | NOT NULL, không default | uk_users_email UNIQUE, chk_users_email_canonical |
+| password_hash | VARCHAR(255) | NOT NULL, không default | BE hash; DB không tự kiểm chứng thuật toán hash |
+| full_name | VARCHAR(120) | NOT NULL, không default | Unicode utf8mb4; @NotBlank/độ dài do BE validate |
+| role | VARCHAR(20), utf8mb4_0900_bin | NOT NULL, không default | chk_users_role: ADMIN/DOCTOR/RECEPTIONIST/PATIENT |
+| status | VARCHAR(16), utf8mb4_0900_bin | NOT NULL, không default | chk_users_status: ACTIVE/DISABLED |
+| last_login_at | DATETIME(6) | NULL, mặc định NULL | Cập nhật sau login thành công bởi BE |
+| created_at | DATETIME(6) | NOT NULL, không default | BE cấp UTC |
+| updated_at | DATETIME(6) | NOT NULL, không default | BE cấp UTC; không có ON UPDATE ngầm |
+
+InnoDB; table charset utf8mb4, collation utf8mb4_0900_ai_ci. Ba CHECK đều ENFORCED.
+role/status dùng binary NO PAD để không nhận lowercase hoặc khoảng trắng thừa.
+Email binary + CHECK so byte với LOWER(TRIM(email)) chặn uppercase, khoảng trắng đầu/cuối
+và chuỗi rỗng; UNIQUE bảo vệ giá trị canonical. BE phải canonicalize trước lookup/insert
+(trim + lowercase Locale.ROOT cho miền email được hỗ trợ) và bắt duplicate race thành 409.
+Không dùng mặc định accent-insensitive của bảng để gộp hai địa chỉ khác dấu.
+Policy Unicode/IDN email và giới hạn password cần BE chốt; kiểm thử canonical hiện có
+ASCII và ký tự Unicode của full_name, không tuyên bố mọi Unicode case-fold tương đương Java.
+
+CHECK email không thay validation định dạng email; NOT NULL không thay @NotBlank;
+DB cho phép ADMIN để provision nội bộ sau review, public API phải ép role PATIENT.
+Password hash/timestamps không được ghi bằng giá trị mặc định. D02 chưa có FK nghiệp vụ.
+
+### Evidence thực tế
+
+Nguồn máy đọc được: [CL-D02-DB.json](../qa/evidence/CL-D02-DB.json).
+Project QA `clinic-d02-db-f5df4c1242`, host port `63493`, volume riêng
+`clinic-d02-db-f5df4c1242_clinic_mysql_data`; đã dừng container sau test và giữ volume.
+Shared Clinic trước/sau vẫn 0 bảng/0 constraint, metadata container không đổi.
+Không kết nối database SmartExpense; không xóa database/volume.
+
+- Boot JAR build thành công, dùng đúng BOM BE: Flyway core/mysql **12.4.0**, Java 21.
+- **46/46 PASS** trên MySQL 8.4: schema 9 cột, signed BIGINT/PK/auto increment,
+  UNIQUE, 3 CHECK enforced, NOT NULL, UTC/DATETIME(6), Unicode roundtrip, không seed/FK.
+- Flyway lần đầu applied **1**, version **1**; lần hai applied **0**, validate thành công,
+  một history row SQL, script/checksum không đổi. Flyway checksum **1116148885**.
+- SHA-256 V1: `27043f2c2669b8b666d4c17f9be12d14cc40a7e96451ad10b2a99f3b07955edf`.
+  Không sửa migration sau khi đã áp dụng ở instance QA.
+- Test fixture đều synthetic, rollback về users 0 hàng; không seed tài khoản đăng nhập.
+- Postman/Newman **5 request / 15 assertion PASS** cho scaffold; **14 ca Auth PENDING**.
+  401 denyAll không phải bằng chứng register/login/JWT/role đã hoạt động.
+
+### Điều kiện bàn giao BE và phạm vi chưa triển khai
+
+Chưa có User Entity, Auth Service/Controller/DTO trong source đã đồng bộ; compatibility
+JPA với User Entity là **PENDING**, không suy ra từ việc app không có entity boot được.
+Không sửa Service/Controller/Entity của BE. BE cần:
+
+1. Mapping Long signed BIGINT + IDENTITY, field lengths/naming như bảng; enum STRING
+   đúng bốn role/hai status; datetime precision 6 và UTC, lastLoginAt nullable.
+2. DTO không trả passwordHash; register chỉ PATIENT/ACTIVE; không nhận role/status/id/hash
+   hoặc tự tạo/link Doctor/Patient profile. Lookup email cùng canonicalization như insert.
+3. Hash password, giới hạn/validation DTO, xử lý 1062 an toàn; quản lý createdAt/updatedAt;
+   disabled không đăng nhập; lastLoginAt chỉ khi thành công.
+4. Chốt JWT transport, response/token field, expiry, CSRF/CORS và API status; provision
+   fixture disabled/token sai chữ ký/hết hạn và hai account để chạy 14 ca Postman.
+5. Review V1 trước bất kỳ default startup/migrate nào vào shared Clinic. Giữ
+   ddl-auto=validate, clean-disabled=true, baseline-on-migrate=false; không repair/clean
+   hoặc sửa V1 đã áp dụng. Rollout/backup shared DB vẫn chưa được chạy trong D02.
+
+Quan hệ Doctor/Patient trong ERD giữ nguyên cho D03/D04; 10 bảng ngoài users và các
+FK/booking/concurrency/medical authorization/audit/backup-restore vẫn chưa triển khai.
