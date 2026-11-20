@@ -9,6 +9,8 @@ import java.net.http.HttpResponse;
 import java.util.Map;
 import jakarta.persistence.EntityManagerFactory;
 import com.clinicmanagement.entity.User;
+import com.clinicmanagement.entity.Specialty;
+import com.clinicmanagement.entity.Doctor;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -76,8 +78,10 @@ class ApplicationIntegrationTest extends TestSecurityProperties {
 
     @Test
     void jpaValidatesTheTestOnlyUserFixture() {
-        assertThat(entityManagerFactory.getMetamodel().getEntities()).hasSize(1);
+        assertThat(entityManagerFactory.getMetamodel().getEntities()).hasSize(3);
         assertThat(entityManagerFactory.getMetamodel().entity(User.class).getName()).isEqualTo("User");
+        assertThat(entityManagerFactory.getMetamodel().entity(Specialty.class).getName()).isEqualTo("Specialty");
+        assertThat(entityManagerFactory.getMetamodel().entity(Doctor.class).getName()).isEqualTo("Doctor");
     }
 
     @Test
