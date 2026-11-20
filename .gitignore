@@ -23,3 +23,8 @@ database/qa/__pycache__/
 
 # Optional local backend configuration can contain credentials
 backend/src/main/resources/application-local.yml
+
+# Frontend local tool caches
+.npm-cache/
+frontend/npm-cache/
+.playwright-mcp/
