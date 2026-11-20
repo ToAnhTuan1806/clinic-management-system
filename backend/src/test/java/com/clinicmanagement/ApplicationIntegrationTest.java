@@ -9,6 +9,7 @@ import java.net.http.HttpResponse;
 import java.util.Map;
 import jakarta.persistence.EntityManagerFactory;
 import com.clinicmanagement.entity.User;
+import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -34,6 +35,8 @@ class ApplicationIntegrationTest extends TestSecurityProperties {
     private ObjectMapper mapper;
     @Autowired
     private EntityManagerFactory entityManagerFactory;
+    @Autowired
+    private Flyway flyway;
     @Autowired
     private WebApplicationContext context;
 
@@ -75,6 +78,17 @@ class ApplicationIntegrationTest extends TestSecurityProperties {
     void jpaValidatesTheTestOnlyUserFixture() {
         assertThat(entityManagerFactory.getMetamodel().getEntities()).hasSize(1);
         assertThat(entityManagerFactory.getMetamodel().entity(User.class).getName()).isEqualTo("User");
+    }
+
+    @Test
+    void h2ScaffoldUsesAnEmptyFlywayLocationWhileMySqlValidatesV1Separately() {
+        assertThat(flyway.getConfiguration().isCleanDisabled()).isTrue();
+        assertThat(flyway.getConfiguration().isBaselineOnMigrate()).isFalse();
+        assertThat(flyway.getConfiguration().getLocations()).hasSize(1);
+        assertThat(flyway.getConfiguration().getLocations()[0].getDescriptor())
+                .isEqualTo("classpath:db/h2-scaffold-only");
+        assertThat(flyway.info().pending()).isEmpty();
+        assertThat(flyway.info().applied()).isEmpty();
     }
 
     private void assertProblem(HttpResponse<String> response, String code, String path) throws Exception {
