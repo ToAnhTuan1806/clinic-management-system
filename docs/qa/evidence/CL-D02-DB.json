@@ -1,0 +1,115 @@
+{
+  "task": "CL-D02-DB",
+  "utc": "2026-11-20T14:06:10.363003+00:00",
+  "branch": "feature/quynh",
+  "project": "clinic-d02-db-f5df4c1242",
+  "host_port": 63493,
+  "migration": "V1__create_users.sql",
+  "migration_sha256": "27043f2c2669b8b666d4c17f9be12d14cc40a7e96451ad10b2a99f3b07955edf",
+  "auth_integration": "PENDING: no User entity or Auth controller in current BE",
+  "engine": "29.9.2|linux",
+  "compose": "5.6.1",
+  "shared_clinic_metadata_before": [
+    "0",
+    "0"
+  ],
+  "shared_mysql_health": "healthy",
+  "test_container": "cb4a7a596024",
+  "test_volume": "clinic-d02-db-f5df4c1242_clinic_mysql_data",
+  "test_mysql_health": "healthy",
+  "flyway_library": [
+    "flyway-core-12.4.0.jar",
+    "flyway-mysql-12.4.0.jar"
+  ],
+  "database_checks": [
+    "PASS DB-ENGINE",
+    "PASS DB-FRESH",
+    "PASS FLYWAY-FIRST",
+    "PASS FLYWAY-VALIDATE",
+    "PASS FLYWAY-SECOND-NOOP",
+    "PASS FLYWAY-HISTORY",
+    "FLYWAY_HISTORY=1:V1__create_users.sql:1116148885:1",
+    "PASS SCHEMA-TABLES",
+    "PASS SCHEMA-ENGINE",
+    "PASS SCHEMA-COLLATION",
+    "PASS SCHEMA-EXACT-COLUMNS",
+    "PASS SCHEMA-EMAIL-COLLATION",
+    "PASS SCHEMA-ENUM-COLLATIONS",
+    "PASS SCHEMA-PK",
+    "PASS SCHEMA-UNIQUE-EMAIL",
+    "PASS SCHEMA-CHECKS-ENFORCED",
+    "PASS SCHEMA-NO-FK-YET",
+    "PASS SCHEMA-NO-SEED",
+    "PASS DB-STRICT-MODE",
+    "PASS DB-UTC",
+    "PASS DATA-ALL-ROLES-STATUSES",
+    "PASS DATA-ID-GENERATED",
+    "PASS DATA-NULL-LAST-LOGIN",
+    "PASS DATA-UTC-MICROSECONDS",
+    "PASS DATA-UTF8MB4",
+    "PASS DATA-LAST-LOGIN-PRECISION",
+    "PASS REJECT-DUPLICATE-EMAIL",
+    "PASS REJECT-UPPERCASE-EMAIL",
+    "PASS REJECT-PADDED-EMAIL",
+    "PASS REJECT-EMPTY-EMAIL",
+    "PASS REJECT-INVALID-ROLE",
+    "PASS REJECT-LOWERCASE-ROLE",
+    "PASS REJECT-PADDED-ROLE",
+    "PASS REJECT-INVALID-STATUS",
+    "PASS REJECT-LOWERCASE-STATUS",
+    "PASS REJECT-PADDED-STATUS",
+    "PASS REJECT-NULL-EMAIL",
+    "PASS REJECT-NULL-PASSWORD_HASH",
+    "PASS REJECT-NULL-FULL_NAME",
+    "PASS REJECT-NULL-ROLE",
+    "PASS REJECT-NULL-STATUS",
+    "PASS REJECT-NULL-CREATED_AT",
+    "PASS REJECT-NULL-UPDATED_AT",
+    "PASS REJECT-DUPLICATE-PK",
+    "PASS REQUIRE-TIMESTAMPS",
+    "PASS DATA-FIXTURES-ROLLED-BACK",
+    "PASS FLYWAY-FINAL-VALIDATE",
+    "VALIDATION_SUMMARY passed=46 failed=0"
+  ],
+  "postman": {
+    "requests": {
+      "total": 5,
+      "pending": 0,
+      "failed": 0
+    },
+    "assertions": {
+      "total": 15,
+      "pending": 0,
+      "failed": 0
+    },
+    "failure_count": 0,
+    "folder": "01 Available scaffold",
+    "auth_integration_pending_cases": 14
+  },
+  "shared_clinic_metadata_after": [
+    "0",
+    "0"
+  ],
+  "shared_clinic_unchanged": true,
+  "result": "DATABASE_AND_SCAFFOLD_PASS_AUTH_INTEGRATION_PENDING",
+  "resource_disposition": "QA container stopped; container and volume retained; no database/volume deleted",
+  "migration_unchanged": true,
+  "h2_scaffold_tests": {
+    "tests": 9,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "postman_default_auth_guard": {
+    "result": "PASS",
+    "http_requests_sent": 0,
+    "integration_cases_still_pending": 14
+  },
+  "migration_static_review": {
+    "only_create_users": true,
+    "no_seed_or_credentials": true,
+    "no_duplicate_V001": true,
+    "sha256_unchanged": true
+  },
+  "be_service_controller_entity_unchanged": true
+}

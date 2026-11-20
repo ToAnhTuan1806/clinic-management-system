@@ -2,7 +2,7 @@
 
 Ngày: 2026-11-20 (Asia/Bangkok). Đây là kế hoạch cho giai đoạn triển khai và kiểm tra
 cấu hình/runtime D01; chưa có backend/frontend/migration để xác nhận kết quả nghiệp vụ.
-**Kết quả mới nhất ở mục 5**; mục 4 giữ lịch sử lần kiểm tra đầu, không mô tả trạng thái hiện tại.
+**Kết quả mới nhất D02 ở mục 6**; mục 4/5 giữ lịch sử D01, không mô tả trạng thái D02 hiện tại.
 Tham chiếu: [DATABASE_DESIGN.md](../database/DATABASE_DESIGN.md),
 [hướng dẫn dev](../../database/README.md), [ERD](../../database/erd.mmd).
 
@@ -204,7 +204,7 @@ API/UI, chống overlap dưới tải, phân quyền bệnh án, constraint th�
 backup/restore vẫn **NOT RUN** vì chưa có backend/schema được duyệt; persistence probe
 không thay thế các kiểm thử đó.
 
-### Báo cáo hiện tại
+### Báo cáo D01 tại thời điểm đó (đã được cập nhật bởi D02 ở mục 6)
 
 - **DOCKER ENGINE:** PASS.
 - **MYSQL HEALTH:** PASS — Clinic hiện có và instance test khởi động thành công, MySQL 8.4.11.
@@ -213,3 +213,119 @@ không thay thế các kiểm thử đó.
 - **SCHEMA REVIEW:** Hoàn thành review ERD/UNIQUE/FK ở mức tài liệu; chưa có schema nghiệp vụ triển khai.
 - **BLOCKERS:** Thiếu đặc tả FR-01–FR-14; Backend chưa phê duyệt schema cho migration.
 - **STATUS:** BLOCKED cho toàn bộ task do chưa thể hoàn tất traceability FR; Docker runtime validation đã PASS.
+
+## 6. CL-D02-DB — users V1 & Auth Security QA
+
+### Đầu vào, quyết định và phạm vi
+
+Đã xác minh branch `feature/quynh`, Git status sạch lúc bắt đầu D02; không tạo/chuyển
+nhánh/worktree, không commit/push/pull/fetch/merge/rebase/reset. Đã đọc đủ:
+FEATURE_SCOPE.md, API_CONTRACT.md, SCHEMA_REVIEW_D01.md, DATABASE_DESIGN.md, erd.mmd.
+Nguồn FR-01–FR-14 nay đã có; blocker thiếu nguồn D01 đã được gỡ, mapping ở mục 12
+[DATABASE_DESIGN.md](../database/DATABASE_DESIGN.md).
+
+Yêu cầu D02 chốt một User/một role ADMIN/DOCTOR/RECEPTIONIST/PATIENT; public register
+chỉ PATIENT, không tự đổi role hay link patient theo email/phone. Chưa triển khai
+Doctor/Patient profile; ERD giữ quan hệ đề xuất cho D03/D04. Các khác biệt về slot,
+appointment status/release bệnh án vẫn chờ review riêng, không đưa vào V1.
+
+Migration duy nhất:
+[V1__create_users.sql](../../backend/src/main/resources/db/migration/V1__create_users.sql).
+Chưa có V1 trước task này; không sửa migration đã áp dụng, không tạo V001.
+Quyền chạy migration lần này chỉ áp dụng instance QA mới; **chưa migrate Clinic dùng chung**.
+
+### Môi trường và cách kiểm tra
+
+Evidence đã lọc thông tin nhạy cảm: [CL-D02-DB.json](evidence/CL-D02-DB.json).
+Java 21, Spring Boot 4.1.3; Flyway core/mysql **12.4.0** lấy từ boot JAR/BOM BE,
+không dùng phiên bản Flyway tự chọn khác với BE.
+
+| Mục | Kết quả thực tế |
+| --- | --- |
+| Docker Engine/Compose | **PASS** — Engine 29.9.2 Linux, Compose 5.6.1; config --quiet thành công |
+| Clinic MySQL có sẵn | **PASS** — healthy, chỉ đọc metadata trước/sau; không restart/recreate/migrate |
+| Instance QA | Project clinic-d02-db-f5df4c1242, container cb4a7a596024, loopback host 63493, named volume riêng clinic-d02-db-f5df4c1242_clinic_mysql_data |
+| MySQL QA | **PASS** — 8.4.x, healthy; schema mới hoàn toàn trước migrate; session UTC, strict mode |
+| Build | **PASS** — gradlew --no-daemon bootJar |
+| SQL/Flyway validation | **PASS — 46/46**, qua Java harness/JDBC thật, chi tiết các PASS ID trong evidence |
+| Flyway lần đầu | **PASS** — migrationsExecuted=1, version 1, script V1__create_users.sql |
+| Flyway lần hai | **PASS** — migrationsExecuted=0, history SQL vẫn 1 row, checksum không đổi, validate thành công |
+| Checksum | Flyway 1116148885; SHA-256 27043f2c2669b8b666d4c17f9be12d14cc40a7e96451ad10b2a99f3b07955edf; V1 không bị sửa sau apply |
+| Postman scaffold | **PASS — 5 request, 15 assertion**, không lỗi, chạy bằng Newman trên boot JAR + MySQL QA đã migrate |
+| Guard Auth collection | **PASS** — runAuthTests mặc định false gửi 0 HTTP request khi chọn folder PENDING; không tính thành Auth API PASS |
+| H2 HTTP/security regression | **PASS — 9 test**, 0 failure/error/skipped, sau khi tách Flyway location H2 khỏi migration MySQL |
+| Migration static review | **PASS** — một CREATE TABLE users; không seed/admin/password thật, không IF NOT EXISTS che drift, không payment/QR, không câu lệnh xóa/clean/repair/baseline |
+| Shared Clinic | **UNCHANGED** — trước/sau 0 bảng, 0 constraint; ID/status/StartedAt/RestartCount/mount container không đổi |
+| Kết thúc QA | Đã dừng app process và container QA; giữ container/volume/schema/history; không xóa DB/volume và không kết nối database SmartExpense |
+
+Runner: [validate_d02.py](../../database/qa/validate_d02.py),
+harness: [D02DatabaseValidation.java](../../database/qa/D02DatabaseValidation.java).
+Runner chỉ dùng `.env.example` không chứa secret, password ngẫu nhiên trong environment
+tiến trình/container; không đọc/in .env thật, không đưa credential vào URL/argv/evidence.
+Docker vẫn giữ environment trong metadata container; không in metadata chứa credential.
+
+### Schema và các ca SQL đã chạy
+
+Schema QA sau migrate có đúng `users` và `flyway_schema_history`; users có đúng **9 cột**
+theo yêu cầu, BIGINT signed/IDENTITY, InnoDB/utf8mb4. Không có FK hay bảng profile khác.
+Metadata xác nhận email UNIQUE, ba CHECK ENFORCED, độ dài/nullable/precision đúng.
+
+- Insert đủ bốn role và ACTIVE/DISABLED; ID auto increment, last_login_at NULL hợp lệ,
+  full_name Unicode có ký tự bốn byte roundtrip, DATETIME(6) giữ microsecond và UTC.
+- Email duplicate bị chặn bằng 1062; uppercase/padded/rỗng bị CHECK canonical chặn 3819.
+  UNIQUE so email canonical binary, không theo accent-insensitive của table default.
+- Role/status ngoài danh sách, lowercase hoặc khoảng trắng dư bị CHECK chặn 3819.
+- NULL vào email/hash/name/role/status/created_at/updated_at bị chặn 1048;
+  duplicate PK bị chặn 1062; bỏ timestamps bắt buộc bị chặn 1364.
+- Tất cả fixture được rollback; users cuối test 0 hàng. Hash fixture chỉ là text synthetic
+  không dùng đăng nhập; đây không phải kiểm thử thuật toán băm password của BE.
+
+Không sửa V1 sau khi chạy trên QA. Muốn thay đổi sau review phải phối hợp version mới,
+không dùng sửa checksum/repair để bỏ qua lịch sử đã áp dụng.
+
+### H2 regression: nguyên nhân và xử lý giới hạn ở QA
+
+Lần chạy đầu `gradlew test` thất bại 5/9 do profile H2 cố migrate SQL MySQL (collation/
+engine syntax); các test context không boot được. Đã cập nhật riêng application-test.yml
+để Flyway vẫn enabled nhưng đọc location trống `classpath:db/h2-scaffold-only` và test
+xác nhận đúng location. Không tạo SQL thay thế cho H2, không sửa main application.yml
+hoặc logic Service/Controller/Entity; test HTTP/security và error handling sau đó 9/9 PASS.
+H2 không còn được dùng làm bằng chứng V1; 46 checks trên MySQL thật là validation chính.
+
+### Auth API: kết quả khả dụng và các ca còn chờ
+
+Hiện source BE chỉ có health/error handler, không có User Entity, Auth Controller/Service,
+request DTO, JWT hay account fixture thật. **Không kết luận toàn bộ Auth API PASS.**
+
+Collection: [CL-D02-Auth.postman_collection.json](postman/CL-D02-Auth.postman_collection.json).
+Hướng dẫn và 14 case chi tiết: [postman/README.md](postman/README.md).
+
+| Nhóm | Trạng thái |
+| --- | --- |
+| Health public, anonymous GET users/auth-me/profile, malformed bearer boundary | **PASS** — scaffold 5 request/15 assertion; 401 có thể do denyAll trước routing |
+| Register PATIENT; email trùng; email/password sai; giả mạo ADMIN | **PENDING** — chưa có Auth API/DTO; DB CHECK role không thay quyền register |
+| Login đúng/sai; disabled account | **PENDING** — cần BE hash/authentication/status checks |
+| JWT thiếu/sai chữ ký/hết hạn trên API tích hợp | **PENDING** — chưa có JWT filter/transport; cần token fixture ký thật để chứng minh expiry |
+| Wrong role 403 / authenticated access | **PENDING** — cần principal thật, denyAll không chứng minh role matrix |
+| Không passwordHash, không lộ account khác với principal thật | **PENDING** — global no-hash check đã pass trên scaffold nhưng response chưa có account |
+| Compatibility với User Entity | **PENDING** — Entity chưa có; startup hiện tại không chứng minh mapping users |
+
+Collection không chứa credential thật. Folder Auth có opt-in, biến local synthetic và
+fixture trống; thiếu fixture phải skip/PENDING. DTO/status (đặc biệt data.accessToken,
+register response, disabled response) là đề xuất QA cần BE review trước khi chạy tích hợp.
+
+### BE handoff / kết luận D02
+
+- Review V1 trước default startup/migrate shared Clinic; giữ ddl-auto=validate,
+  clean-disabled=true, baseline-on-migrate=false. Không chạy mysqlTest profile validate
+  trên shared DB rỗng rồi tự migrate để “sửa” pending V1.
+- Implement mapping enum STRING/Long IDENTITY/UTC timestamps theo mục 13 tài liệu thiết kế;
+  DB không tự hash password, tự điền timestamps hay xác minh quyền public register.
+- Chốt canonicalization/Unicode email, password policy, DTO/token/CSRF/CORS và lỗi 409/401/403.
+  Provision fixture QA riêng và chạy lại 14 ca Auth sau BE D02; không tự tạo admin mặc định.
+- Chưa triển khai các bảng/FK Doctor/Patient, lịch/booking/record/đơn/notification/audit;
+  chưa chạy test business concurrency, backup/restore hoặc rollout shared database.
+
+**STATUS: READY FOR REVIEW** cho V1 users, DB validation và bộ Auth QA bàn giao.
+Không có blocker runtime D02; các ca Auth/JPA và chạy shared DB vẫn chờ Backend/review
+theo phạm vi cho phép PENDING trong task, không được tính PASS.

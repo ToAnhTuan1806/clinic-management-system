@@ -1,0 +1,739 @@
+{
+  "info": {
+    "name": "Clinic CL-D02-DB Auth Security QA",
+    "description": "Only folder 01 is executable against D01 scaffold. Folder 02 is PENDING until BE D02 contract/integration. All state-changing requests require explicit opt-in on a disposable QA backend. Never run against shared Clinic/SmartExpense. No real credentials are stored in this collection.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8080"
+    },
+    {
+      "key": "runAuthTests",
+      "value": "false"
+    },
+    {
+      "key": "malformedToken",
+      "value": "not-a-jwt"
+    },
+    {
+      "key": "disabledEmail",
+      "value": ""
+    },
+    {
+      "key": "disabledPassword",
+      "value": ""
+    },
+    {
+      "key": "wrongSignatureToken",
+      "value": ""
+    },
+    {
+      "key": "expiredToken",
+      "value": ""
+    },
+    {
+      "key": "otherUserId",
+      "value": ""
+    },
+    {
+      "key": "patientUserId",
+      "value": ""
+    }
+  ],
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "let body; try { body=pm.response.json(); } catch (_) { body=null; }",
+          "function safeKeys(x) { if (!x || typeof x !== \"object\") return true; return Object.keys(x).every(k => ![\"password\",\"passwordhash\"].includes(k.replace(/_/g,\"\").toLowerCase()) && safeKeys(x[k])); }",
+          "pm.test(\"No password or passwordHash fields\", function () { pm.expect(safeKeys(body)).to.eql(true); });",
+          "const password=pm.variables.get(\"qaPassword\");",
+          "if (password) pm.test(\"No echoed password\", function () { pm.expect(pm.response.text().includes(password)).to.eql(false); });"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "01 Available scaffold",
+      "description": "Boundary tests only. A 401 here does not prove JWT validation or role enforcement.",
+      "item": [
+        {
+          "name": "SCF-01 Public health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json, application/problem+json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/health"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Expected HTTP status\", function () { pm.expect(pm.response.code).to.eql(200); });",
+                  "pm.test(\"Liveness envelope\", function () { pm.expect(pm.response.json()).to.eql({data:{status:\"UP\"}}); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "SCF-02 Anonymous users denied",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json, application/problem+json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/users"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Expected HTTP status\", function () { pm.expect(pm.response.code).to.eql(401); });",
+                  "pm.test(\"Problem Details status matches HTTP\", function () { const p=pm.response.json(); pm.expect(p.status).to.eql(pm.response.code); pm.expect(p.code).to.eql(\"AUTHENTICATION_REQUIRED\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "SCF-03 Anonymous identity denied",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json, application/problem+json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/auth/me"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Expected HTTP status\", function () { pm.expect(pm.response.code).to.eql(401); });",
+                  "pm.test(\"Problem Details status matches HTTP\", function () { const p=pm.response.json(); pm.expect(p.status).to.eql(pm.response.code); pm.expect(p.code).to.eql(\"AUTHENTICATION_REQUIRED\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "SCF-04 Malformed bearer denied (boundary only, not JWT validation)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json, application/problem+json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{malformedToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/auth/me"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Expected HTTP status\", function () { pm.expect(pm.response.code).to.eql(401); });",
+                  "pm.test(\"Problem Details status matches HTTP\", function () { const p=pm.response.json(); pm.expect(p.status).to.eql(pm.response.code); pm.expect(p.code).to.eql(\"AUTHENTICATION_REQUIRED\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "SCF-05 Anonymous profile denied",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json, application/problem+json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/me/profile"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Expected HTTP status\", function () { pm.expect(pm.response.code).to.eql(401); });",
+                  "pm.test(\"Problem Details status matches HTTP\", function () { const p=pm.response.json(); pm.expect(p.status).to.eql(pm.response.code); pm.expect(p.code).to.eql(\"AUTHENTICATION_REQUIRED\"); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 PENDING BE D02 integration",
+      "description": "Proposed DTO/status assumptions must be reviewed with BE. Signed expired/wrong-signature fixtures and disabled/other-account fixtures are externally provisioned on isolated QA only. Missing fixture requests are skipped, never counted PASS.",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (pm.collectionVariables.get(\"runAuthTests\") !== \"true\") { pm.execution.skipRequest(); }",
+              "if (!pm.variables.get(\"qaEmail\")) {",
+              "  pm.variables.set(\"qaEmail\", \"d02-\" + pm.variables.replaceIn(\"{{$guid}}\") + \"@example.test\");",
+              "  pm.variables.set(\"qaPassword\", \"Qa!\" + pm.variables.replaceIn(\"{{$guid}}\") + \"aA9\");",
+              "}"
+            ]
+          }
+        }
+      ],
+      "item": [
+        {
+          "name": "AUTH-D02-01 Register PATIENT",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json, application/problem+json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/auth/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\": \"{{qaEmail}}\", \"password\": \"{{qaPassword}}\", \"fullName\": \"QA Synthetic Patient\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Expected HTTP status\", function () { pm.expect(pm.response.code).to.eql(201); });",
+                  "pm.test(\"Public role is PATIENT\", function () { pm.expect(pm.response.json().data.role).to.eql(\"PATIENT\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "AUTH-D02-02 Duplicate email",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json, application/problem+json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/auth/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\": \"{{qaEmail}}\", \"password\": \"{{qaPassword}}\", \"fullName\": \"QA Duplicate\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Expected HTTP status\", function () { pm.expect(pm.response.code).to.eql(409); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "AUTH-D02-03 Invalid email",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json, application/problem+json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/auth/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\": \"not-an-email\", \"password\": \"{{qaPassword}}\", \"fullName\": \"QA Invalid\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Expected HTTP status\", function () { pm.expect(pm.response.code).to.eql(400); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "AUTH-D02-04 Empty password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json, application/problem+json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/auth/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\": \"invalid-{{qaEmail}}\", \"password\": \"\", \"fullName\": \"QA Invalid\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Expected HTTP status\", function () { pm.expect(pm.response.code).to.eql(400); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "AUTH-D02-05 Register cannot grant ADMIN",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json, application/problem+json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/auth/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\": \"spoof-{{qaEmail}}\", \"password\": \"{{qaPassword}}\", \"fullName\": \"QA Spoof\", \"role\": \"ADMIN\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Reject role input or force PATIENT\", function () { pm.expect([400,201].includes(pm.response.code)).to.eql(true); if(pm.response.code===201) pm.expect(pm.response.json().data.role).to.eql(\"PATIENT\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "AUTH-D02-06 Login correct",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json, application/problem+json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\": \"{{qaEmail}}\", \"password\": \"{{qaPassword}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Expected HTTP status\", function () { pm.expect(pm.response.code).to.eql(200); });",
+                  "pm.test(\"Token contract (proposed)\", function () { const token=pm.response.json().data.accessToken; pm.expect(typeof token === \"string\" && token.length > 0).to.eql(true); if(typeof token === \"string\") pm.variables.set(\"qaPatientToken\",token); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "AUTH-D02-07 Login wrong password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json, application/problem+json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\": \"{{qaEmail}}\", \"password\": \"wrong-{{qaPassword}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Expected HTTP status\", function () { pm.expect(pm.response.code).to.eql(401); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "AUTH-D02-08 Disabled account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json, application/problem+json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\": \"{{disabledEmail}}\", \"password\": \"{{disabledPassword}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.variables.get(\"disabledEmail\")) pm.execution.skipRequest();",
+                  "if (!pm.variables.get(\"disabledPassword\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Expected HTTP status\", function () { pm.expect(pm.response.code).to.eql(401); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "AUTH-D02-09 Missing JWT",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json, application/problem+json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/auth/me"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Expected HTTP status\", function () { pm.expect(pm.response.code).to.eql(401); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "AUTH-D02-10 Wrong-signature JWT",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json, application/problem+json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{wrongSignatureToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/auth/me"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.variables.get(\"wrongSignatureToken\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Expected HTTP status\", function () { pm.expect(pm.response.code).to.eql(401); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "AUTH-D02-11 Expired signed JWT",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json, application/problem+json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{expiredToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/auth/me"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.variables.get(\"expiredToken\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Expected HTTP status\", function () { pm.expect(pm.response.code).to.eql(401); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "AUTH-D02-12 Wrong role ADMIN endpoint",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json, application/problem+json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{qaPatientToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/users"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.variables.get(\"qaPatientToken\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Expected HTTP status\", function () { pm.expect(pm.response.code).to.eql(403); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "AUTH-D02-13 Identity has no hash",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json, application/problem+json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{qaPatientToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/auth/me"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.variables.get(\"qaPatientToken\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Expected HTTP status\", function () { pm.expect(pm.response.code).to.eql(200); });",
+                  "pm.test(\"Identity role\", function () { pm.expect(pm.response.json().data.role).to.eql(\"PATIENT\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "AUTH-D02-14 Other account query cannot change identity",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json, application/problem+json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{qaPatientToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/auth/me?userId={{otherUserId}}"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.variables.get(\"qaPatientToken\")) pm.execution.skipRequest();",
+                  "if (!pm.variables.get(\"otherUserId\")) pm.execution.skipRequest();",
+                  "if (!pm.variables.get(\"patientUserId\")) pm.execution.skipRequest();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Expected HTTP status\", function () { pm.expect(pm.response.code).to.eql(200); });",
+                  "pm.test(\"Identity remains self\", function () { pm.expect(String(pm.response.json().data.id) === String(pm.variables.get(\"patientUserId\"))).to.eql(true); pm.expect(String(pm.response.json().data.id) === String(pm.variables.get(\"otherUserId\"))).to.eql(false); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

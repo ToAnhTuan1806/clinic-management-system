@@ -7,3 +7,8 @@
 database/backups/
 *.sql.gz
 *.sql.enc
+
+# Local backend build products and QA interpreter cache
+backend/.gradle/
+backend/build/
+database/qa/__pycache__/
