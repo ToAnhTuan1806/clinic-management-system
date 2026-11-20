@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { LoaderCircle } from 'lucide-react'
 import { useSubmission } from '@/auth/use-submission'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
   Form,
@@ -15,26 +16,24 @@ import {
 } from '@/components/ui/form'
 import { DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import {
+  codeRule,
+  nameRule,
+  validId,
   DirectoryError,
   directoryMessage,
   type DirectoryGateway,
   type DirectoryItem,
   type DirectoryKind,
+  type DoctorDraft,
+  type SpecialtyDraft,
   type DoctorUser,
+  type Page,
   type Specialty,
 } from '@/directory/model'
 
 export const selectClass =
   'h-11 w-full min-w-0 rounded-lg border border-input bg-background px-3 text-sm text-foreground disabled:opacity-50'
-const textAreaClass =
-  'min-h-28 w-full rounded-lg border border-input bg-background p-3 text-sm'
-interface Values {
-  name: string
-  description: string
-  userId: string
-  specialtyId: string
-  biography: string
-}
+type Values = DoctorDraft & SpecialtyDraft
 export function DirectoryEditor({
   kind,
   item,
@@ -49,12 +48,15 @@ export function DirectoryEditor({
   onBusy: (busy: boolean) => void
 }) {
   const doctors = kind === 'doctors'
-  const doctor = item && 'userId' in item ? item : undefined
-  const specialty = item && 'name' in item ? item : undefined
+  const doctor = item && 'doctorCode' in item ? item : undefined
+  const specialty = item && 'code' in item ? item : undefined
   const form = useForm<Values>({
     defaultValues: {
+      code: specialty?.code ?? '',
       name: specialty?.name ?? '',
       description: specialty?.description ?? '',
+      doctorCode: doctor?.doctorCode ?? '',
+      licenseNumber: doctor?.licenseNumber ?? '',
       userId: doctor?.userId ?? '',
       specialtyId: doctor?.specialtyId ?? '',
       biography: doctor?.biography ?? '',
@@ -62,53 +64,112 @@ export function DirectoryEditor({
   })
   const { pending, run } = useSubmission()
   const [lookup, setLookup] = useState<{
-    attempt: number
-    options: { specialties: Specialty[]; users: DoctorUser[] } | null
+    key: string
+    specialties: Specialty[]
+    users: Page<DoctorUser>
     error: string | null
-  } | null>(
-    doctors
-      ? null
-      : { attempt: 0, options: { specialties: [], users: [] }, error: null },
-  )
+  } | null>(null)
+  const [candidateQuery, setCandidateQuery] = useState({
+    search: '',
+    page: 0,
+    pageSize: 20,
+  })
+  const [chosenUser, setChosenUser] = useState<DoctorUser | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const feedback = useRef<HTMLDivElement>(null)
   const [retry, setRetry] = useState(0)
-  const options = lookup?.attempt === retry ? lookup.options : null
-  const lookupError = lookup?.attempt === retry ? lookup.error : null
+  const lookupKey = JSON.stringify([retry, candidateQuery])
+  const options = lookup?.key === lookupKey ? lookup : null
+  const loaded = !doctors || (!!options && !options.error)
   useEffect(() => {
     onBusy(pending)
     return () => onBusy(false)
   }, [pending, onBusy])
   useEffect(() => {
+    if (error && !pending) feedback.current?.focus()
+  }, [error, pending])
+  useEffect(() => {
     if (!doctors) return
     const controller = new AbortController()
     void Promise.all([
       gateway.specialtyOptions(controller.signal, true),
-      doctor ? Promise.resolve([]) : gateway.doctorUsers(controller.signal),
+      doctor
+        ? Promise.resolve({ items: [], page: 0, pageSize: 20, total: 0 })
+        : gateway.doctorUsers(controller.signal, candidateQuery),
     ])
       .then(([specialties, users]) => {
         if (!controller.signal.aborted)
           setLookup({
-            attempt: retry,
+            key: lookupKey,
+            specialties: specialties.filter((value) => value.active),
+            users,
             error: null,
-            options: {
-              specialties: specialties.filter((value) => value.active),
-              users: users.filter(
-                (value) =>
-                  value.active && value.role === 'DOCTOR' && !value.linked,
-              ),
-            },
           })
       })
       .catch((failure) => {
         if (!controller.signal.aborted)
           setLookup({
-            attempt: retry,
-            options: null,
+            key: lookupKey,
+            specialties: [],
+            users: { items: [], page: 0, pageSize: 20, total: 0 },
             error: directoryMessage(failure),
           })
       })
     return () => controller.abort()
-  }, [doctors, doctor, gateway, retry])
+  }, [doctors, doctor, gateway, lookupKey, candidateQuery])
+  const textField = (
+    name:
+      | 'code'
+      | 'name'
+      | 'description'
+      | 'doctorCode'
+      | 'licenseNumber'
+      | 'biography',
+    label: string,
+    max: number,
+    area = false,
+  ) => (
+    <FormField
+      key={name}
+      control={form.control}
+      name={name}
+      rules={{
+        validate: (value) =>
+          name === 'code' || name === 'doctorCode'
+            ? codeRule(value)
+            : name === 'name'
+              ? nameRule(value)
+              : value.length <= max || `Tối đa ${max} ký tự.`,
+      }}
+      render={({ field }) => (
+        <FormItem>
+          <FormLabel>{label}</FormLabel>
+          <FormControl>
+            {area ? (
+              <textarea
+                {...field}
+                maxLength={max}
+                className="min-h-28 w-full rounded-lg border border-input bg-background p-3 text-sm"
+              />
+            ) : (
+              <Input
+                {...field}
+                maxLength={max}
+                className="h-11"
+                autoComplete="off"
+              />
+            )}
+          </FormControl>
+          <FormMessage role="alert" />
+        </FormItem>
+      )}
+    />
+  )
+  const candidates = options?.users.items ?? []
+  const choices =
+    chosenUser && !candidates.some((value) => value.id === chosenUser.id)
+      ? [chosenUser, ...candidates]
+      : candidates
   return (
     <>
       <DialogTitle className="pr-8 text-xl font-semibold">
@@ -117,12 +178,12 @@ export function DirectoryEditor({
       <DialogDescription className="mt-2 text-sm text-muted-foreground">
         {gateway.mode === 'mock'
           ? 'DEMO · Thay đổi chỉ trong bộ nhớ kiểm thử, không gửi Backend.'
-          : 'Nhập thông tin và kiểm tra trước khi lưu.'}
+          : 'Kiểm tra thông tin trước khi lưu.'}
       </DialogDescription>
-      {lookupError && (
-        <Alert className="mt-5" role="alert">
+      {options?.error && (
+        <Alert role="alert" className="mt-5">
           <AlertDescription>
-            {lookupError}
+            {options.error}
             <Button
               type="button"
               variant="outline"
@@ -133,7 +194,7 @@ export function DirectoryEditor({
           </AlertDescription>
         </Alert>
       )}
-      {doctors && !options && !lookupError && (
+      {doctors && !options && (
         <p role="status" className="mt-5 text-sm text-muted-foreground">
           Đang tải chuyên khoa và tài khoản bác sĩ…
         </p>
@@ -155,6 +216,8 @@ export function DirectoryEditor({
                       {
                         userId: values.userId,
                         specialtyId: values.specialtyId,
+                        doctorCode: values.doctorCode,
+                        licenseNumber: values.licenseNumber,
                         biography: values.biography,
                       },
                       signal,
@@ -162,35 +225,72 @@ export function DirectoryEditor({
                   else
                     await gateway.saveSpecialty(
                       item?.id,
-                      { name: values.name, description: values.description },
+                      {
+                        code: values.code,
+                        name: values.name,
+                        description: values.description,
+                      },
                       signal,
                     )
                   if (!signal.aborted) onSaved()
                 } catch (failure) {
                   if (signal.aborted) return
                   setError(directoryMessage(failure))
-                  if (failure instanceof DirectoryError)
+                  if (failure instanceof DirectoryError) {
                     for (const [key, message] of Object.entries(failure.fields))
-                      form.setError(
-                        key as keyof Values,
-                        { type: 'server', message },
-                        { shouldFocus: true },
+                      form.setError(key as keyof Values, {
+                        type: 'server',
+                        message,
+                      })
+                    if (
+                      ['USER_ALREADY_LINKED', 'USER_NOT_ELIGIBLE'].includes(
+                        failure.code,
                       )
+                    ) {
+                      setChosenUser(null)
+                      form.setValue('userId', '')
+                      setRetry((value) => value + 1)
+                    }
+                  }
                 }
               })()
             })
           }}
         >
-          <fieldset
-            disabled={pending || (doctors && !options)}
-            className="space-y-5"
-          >
+          <fieldset disabled={pending} className="space-y-5">
             {doctors ? (
               <>
+                {!doctor && (
+                  <div className="space-y-2">
+                    <Label htmlFor="eligible-search">
+                      Tìm tài khoản bác sĩ
+                    </Label>
+                    <Input
+                      id="eligible-search"
+                      type="search"
+                      maxLength={120}
+                      className="h-11"
+                      placeholder="Họ tên hoặc email…"
+                      value={candidateQuery.search}
+                      onChange={(event) =>
+                        setCandidateQuery((current) => ({
+                          ...current,
+                          search: event.target.value,
+                          page: 0,
+                        }))
+                      }
+                    />
+                  </div>
+                )}
                 <FormField
                   control={form.control}
                   name="userId"
-                  rules={{ required: 'Vui lòng chọn tài khoản bác sĩ hợp lệ.' }}
+                  rules={{
+                    validate: (value) =>
+                      !!doctor ||
+                      validId(value) ||
+                      'Vui lòng chọn tài khoản bác sĩ hợp lệ.',
+                  }}
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Tài khoản bác sĩ</FormLabel>
@@ -198,7 +298,15 @@ export function DirectoryEditor({
                         <select
                           {...field}
                           className={selectClass}
-                          disabled={!!doctor}
+                          disabled={!!doctor || !loaded}
+                          onChange={(event) => {
+                            field.onChange(event)
+                            setChosenUser(
+                              choices.find(
+                                (value) => value.id === event.target.value,
+                              ) ?? null,
+                            )
+                          }}
                         >
                           <option value="">Chọn tài khoản DOCTOR</option>
                           {doctor ? (
@@ -206,9 +314,10 @@ export function DirectoryEditor({
                               {doctor.fullName}
                             </option>
                           ) : (
-                            options?.users.map((user) => (
-                              <option key={user.id} value={user.id}>
-                                {user.fullName}
+                            choices.map((value) => (
+                              <option key={value.id} value={value.id}>
+                                {value.fullName}
+                                {value.email ? ` · ${value.email}` : ''}
                               </option>
                             ))
                           )}
@@ -216,33 +325,97 @@ export function DirectoryEditor({
                       </FormControl>
                       <p className="text-xs text-muted-foreground">
                         {doctor
-                          ? 'Tài khoản đã liên kết với hồ sơ này.'
-                          : 'Chỉ tài khoản DOCTOR hoạt động và chưa liên kết.'}
+                          ? 'Tài khoản đã liên kết, không thể thay đổi.'
+                          : 'Chỉ tài khoản DOCTOR ACTIVE chưa có hồ sơ bác sĩ.'}
                       </p>
                       <FormMessage role="alert" />
-                      {options && !doctor && !options.users.length && (
+                      {options && !doctor && !options.users.items.length && (
                         <p role="status" className="text-sm">
-                          Chưa có tài khoản bác sĩ khả dụng.
+                          Không có tài khoản bác sĩ khả dụng. Cần tài khoản
+                          DOCTOR ACTIVE chưa liên kết.
                         </p>
                       )}
                     </FormItem>
                   )}
                 />
+                {!doctor && options && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                    <p role="status">
+                      {options.users.total} tài khoản · Trang{' '}
+                      {candidateQuery.page + 1}/
+                      {Math.max(
+                        1,
+                        Math.ceil(
+                          options.users.total / candidateQuery.pageSize,
+                        ),
+                      )}
+                    </p>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        aria-label="Tài khoản trang trước"
+                        disabled={!loaded || candidateQuery.page === 0}
+                        onClick={() =>
+                          setCandidateQuery((current) => ({
+                            ...current,
+                            page: current.page - 1,
+                          }))
+                        }
+                      >
+                        Trước
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        aria-label="Tài khoản trang sau"
+                        disabled={
+                          !loaded ||
+                          (candidateQuery.page + 1) * candidateQuery.pageSize >=
+                            options.users.total
+                        }
+                        onClick={() =>
+                          setCandidateQuery((current) => ({
+                            ...current,
+                            page: current.page + 1,
+                          }))
+                        }
+                      >
+                        Sau
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => setRetry((value) => value + 1)}
+                      >
+                        Tải lại lựa chọn
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                {textField('doctorCode', 'Mã bác sĩ', 32)}
+                {textField('licenseNumber', 'Số giấy phép', 100)}
                 <FormField
                   control={form.control}
                   name="specialtyId"
                   rules={{
-                    required: 'Vui lòng chọn chuyên khoa đang hoạt động.',
                     validate: (value) =>
-                      !!options?.specialties.some(
-                        (option) => option.id === value,
-                      ) || 'Vui lòng chọn chuyên khoa đang hoạt động.',
+                      (validId(value) &&
+                        (doctor?.specialtyId === value ||
+                          !!options?.specialties.some(
+                            (option) => option.id === value,
+                          ))) ||
+                      'Vui lòng chọn chuyên khoa đang hoạt động.',
                   }}
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Chuyên khoa</FormLabel>
                       <FormControl>
-                        <select {...field} className={selectClass}>
+                        <select
+                          {...field}
+                          className={selectClass}
+                          disabled={!loaded}
+                        >
                           <option value="">
                             Chọn chuyên khoa đang hoạt động
                           </option>
@@ -250,13 +423,13 @@ export function DirectoryEditor({
                             !options?.specialties.some(
                               (value) => value.id === doctor.specialtyId,
                             ) && (
-                              <option value={doctor.specialtyId} disabled>
-                                {doctor.specialtyName} · Ngừng hoạt động
+                              <option value={doctor.specialtyId}>
+                                {doctor.specialtyName} · Chuyên khoa hiện tại
                               </option>
                             )}
                           {options?.specialties.map((value) => (
                             <option key={value.id} value={value.id}>
-                              {value.name}
+                              {value.code} · {value.name}
                             </option>
                           ))}
                         </select>
@@ -264,71 +437,37 @@ export function DirectoryEditor({
                       <FormMessage role="alert" />
                       {options && !options.specialties.length && (
                         <p role="status" className="text-sm">
-                          Chưa có chuyên khoa hoạt động. Hãy tạo hoặc bật chuyên
-                          khoa trước.
+                          Chưa có chuyên khoa hoạt động để tạo hoặc chuyển hồ
+                          sơ.
                         </p>
                       )}
                     </FormItem>
                   )}
                 />
-                <FormField
-                  control={form.control}
-                  name="biography"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Giới thiệu chuyên môn</FormLabel>
-                      <FormControl>
-                        <textarea {...field} className={textAreaClass} />
-                      </FormControl>
-                      <FormMessage role="alert" />
-                    </FormItem>
-                  )}
-                />
+                {textField('biography', 'Giới thiệu chuyên môn', 5000, true)}
               </>
             ) : (
               <>
-                <FormField
-                  control={form.control}
-                  name="name"
-                  rules={{
-                    validate: (value) =>
-                      !!value.trim() || 'Vui lòng nhập tên chuyên khoa.',
-                  }}
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Tên chuyên khoa</FormLabel>
-                      <FormControl>
-                        <Input {...field} className="h-11" autoComplete="off" />
-                      </FormControl>
-                      <FormMessage role="alert" />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="description"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Mô tả</FormLabel>
-                      <FormControl>
-                        <textarea {...field} className={textAreaClass} />
-                      </FormControl>
-                      <FormMessage role="alert" />
-                    </FormItem>
-                  )}
-                />
+                {textField('code', 'Mã chuyên khoa', 32)}
+                {textField('name', 'Tên chuyên khoa', 120)}
+                {textField('description', 'Mô tả', 5000, true)}
               </>
             )}
           </fieldset>
           {error && (
-            <Alert variant="destructive" role="alert">
+            <Alert
+              ref={feedback}
+              tabIndex={-1}
+              variant="destructive"
+              role="alert"
+            >
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
           <Button
             type="submit"
             className="h-11 w-full"
-            disabled={pending || !options || gateway.mode === 'pending'}
+            disabled={pending || !loaded || gateway.mode === 'pending'}
           >
             {pending && (
               <LoaderCircle

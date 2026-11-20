@@ -1,8 +1,8 @@
-// Production UI test with MOCK D02 auth transport only. NO real Backend evidence.
-// Build with VITE_API_BASE_URL=http://127.0.0.1:59999, QA flags=true, then preview on 5177.
+// Production bundle + MOCK HTTP only. Verifies QA flags cannot enable directory fixtures.
+// Build API origin 59999, AUTH_MOCK=true/DIRECTORY_MOCK=true, preview 5177.
 export async function runDirectoryPendingQA(page) {
-  const requests = []
-  const token = crypto.randomUUID()
+  const requests = [],
+    token = crypto.randomUUID()
   const user = {
     id: '1',
     role: 'ADMIN',
@@ -12,16 +12,24 @@ export async function runDirectoryPendingQA(page) {
   }
   const pattern = 'http://127.0.0.1:59999/api/v1/**'
   await page.route(pattern, async (route) => {
-    const path = new URL(route.request().url()).pathname
+    const url = new URL(route.request().url()),
+      path = url.pathname
     requests.push(path)
     const data =
       path === '/api/v1/auth/login'
         ? { accessToken: token, tokenType: 'Bearer', expiresIn: 1800, user }
-        : user
+        : path === '/api/v1/auth/me'
+          ? user
+          : {
+              items: [],
+              page: Number(url.searchParams.get('page') ?? 0),
+              size: Number(url.searchParams.get('size') ?? 20),
+              totalElements: 0,
+              totalPages: 0,
+            }
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      headers: { 'Access-Control-Allow-Origin': 'http://127.0.0.1:5177' },
       body: JSON.stringify({ data }),
     })
   })
@@ -34,43 +42,65 @@ export async function runDirectoryPendingQA(page) {
       .getByRole('heading', { name: 'Tổng quan phòng khám', level: 1 })
       .waitFor()
     if (await page.getByText('API MOCK', { exact: true }).count())
-      throw new Error('Production auth mock unexpectedly enabled')
+      throw new Error('Production auth mock enabled')
     for (const kind of ['doctors', 'specialties']) {
       await page.evaluate((path) => {
         history.pushState(null, '', path)
         dispatchEvent(new PopStateEvent('popstate'))
       }, '/' + kind)
       await page
-        .getByRole('heading', { name: 'Danh mục chưa sẵn sàng', exact: true })
+        .getByRole('heading', {
+          name:
+            kind === 'doctors'
+              ? 'Không tìm thấy bác sĩ'
+              : 'Không tìm thấy chuyên khoa',
+          exact: true,
+        })
         .waitFor()
       const add = page.getByRole('button', {
         name: kind === 'doctors' ? 'Thêm bác sĩ' : 'Thêm chuyên khoa',
         exact: true,
       })
-      if (!(await add.isDisabled()))
-        throw new Error('Unconfigured production mutation enabled')
+      if (await add.isDisabled())
+        throw new Error('Configured real adapter unexpectedly disabled')
       if (await page.getByText('DEMO · Bác sĩ 01', { exact: true }).count())
-        throw new Error('Production demo data unexpectedly visible')
+        throw new Error('Production directory mock enabled')
     }
     if (
-      requests.some(
-        (path) => !['/api/v1/auth/login', '/api/v1/auth/me'].includes(path),
-      )
+      !requests.includes('/api/v1/doctors') ||
+      !requests.includes('/api/v1/specialties')
     )
-      throw new Error('Unapproved D03 API was called')
+      throw new Error('Approved D03 API was not called')
+    await page.unroute(pattern)
+    await page.context().setOffline(true)
+    try {
+      await page
+        .getByLabel('Tìm kiếm chuyên khoa', { exact: true })
+        .fill('offline')
+      await page
+        .getByRole('heading', { name: 'Không thể tải danh mục', exact: true })
+        .waitFor()
+      if (
+        await page.getByText('DEMO · Nội tổng quát 1', { exact: true }).count()
+      )
+        throw new Error('Real failure fell back to mock')
+    } finally {
+      await page.context().setOffline(false)
+    }
     await page.getByRole('button', { name: 'Đăng xuất', exact: true }).click()
     await page
       .getByRole('heading', { name: 'Chào mừng trở lại', level: 1 })
       .waitFor()
     return {
-      source: 'PRODUCTION UI WITH MOCK D02 AUTH ONLY — NO REAL BACKEND',
+      source: 'PRODUCTION BUNDLE + MOCK HTTP; NOT REAL BACKEND',
       result: 'PASS',
-      d03Requests: 0,
+      approvedD03RequestsObserved: true,
       mockDirectoryEnabled: false,
-      unconfiguredMutationsDisabled: true,
+      noMockFallbackOnFailure: true,
       screenshotsCreated: 0,
     }
   } finally {
     await page.unroute(pattern)
+    await page.context().setOffline(false)
   }
 }

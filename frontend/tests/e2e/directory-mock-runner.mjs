@@ -1,5 +1,8 @@
 // MOCK UI acceptance only. Does not call D03 HTTP endpoints or create screenshots.
-export async function runDirectoryMock(page, { phase = 'all' } = {}) {
+export async function runDirectoryMock(
+  page,
+  { phase = 'all', wire = false } = {},
+) {
   await page.bringToFront()
   page.setDefaultTimeout(8000)
   const checks = []
@@ -53,7 +56,7 @@ export async function runDirectoryMock(page, { phase = 'all' } = {}) {
     await page.evaluate(async (value) => {
       const store = await import('/src/auth/session-store.ts')
       store.establishSession(store.beginAuthentication(), crypto.randomUUID(), {
-        id: 'demo-doctor-user-1',
+        id: '1001',
         fullName: 'DEMO UI QA',
         email: 'demo@example.invalid',
         role: value,
@@ -109,7 +112,11 @@ export async function runDirectoryMock(page, { phase = 'all' } = {}) {
         .count()
         .then((count) => count === 0),
     )
-    await visible(page.getByText('DEMO · Đã lưu thay đổi.', { exact: true }))
+    await visible(
+      page.getByText(wire ? 'Đã lưu thay đổi.' : 'DEMO · Đã lưu thay đổi.', {
+        exact: true,
+      }),
+    )
   }
   try {
     await page.setViewportSize({ width: 1440, height: 1000 })
@@ -152,13 +159,16 @@ export async function runDirectoryMock(page, { phase = 'all' } = {}) {
           .getByRole('button', { name: 'Lưu thông tin', exact: true })
           .click()
         await visible(
-          page.getByText('Vui lòng nhập tên chuyên khoa.', { exact: true }),
+          page.getByText('Vui lòng nhập tên chuyên khoa, tối đa 120 ký tự.', {
+            exact: true,
+          }),
         )
         await wait(() =>
           dialog()
-            .getByLabel('Tên chuyên khoa')
+            .getByLabel('Mã chuyên khoa')
             .evaluate((element) => element === document.activeElement),
         )
+        await dialog().getByLabel('Mã chuyên khoa').fill('QA_UI_NEW')
         await dialog()
           .getByLabel('Tên chuyên khoa')
           .fill('DEMO QA Chuyên khoa mới')
@@ -228,6 +238,7 @@ export async function runDirectoryMock(page, { phase = 'all' } = {}) {
         await page
           .getByRole('button', { name: 'Thêm chuyên khoa', exact: true })
           .click()
+        await dialog().getByLabel('Mã chuyên khoa').fill('QA_UI_NEW')
         await dialog()
           .getByLabel('Tên chuyên khoa')
           .fill('DEMO QA Chuyên khoa mới')
@@ -235,7 +246,9 @@ export async function runDirectoryMock(page, { phase = 'all' } = {}) {
           .getByRole('button', { name: 'Lưu thông tin', exact: true })
           .click()
         await visible(
-          page.getByText('Tên chuyên khoa đã tồn tại.', { exact: true }),
+          page
+            .getByText('Tên chuyên khoa đã tồn tại.', { exact: true })
+            .first(),
         )
         assert(
           (await dialog().getByLabel('Tên chuyên khoa').inputValue()) ===
@@ -255,6 +268,7 @@ export async function runDirectoryMock(page, { phase = 'all' } = {}) {
         await page
           .getByRole('button', { name: 'Thêm chuyên khoa', exact: true })
           .click()
+        await dialog().getByLabel('Mã chuyên khoa').fill('QA_UI_BUSY')
         await dialog().getByLabel('Tên chuyên khoa').fill('DEMO QA busy')
         await page.evaluate(() => {
           let release
@@ -311,7 +325,10 @@ export async function runDirectoryMock(page, { phase = 'all' } = {}) {
             .then((count) => count === 0),
         )
         await visible(
-          page.getByText('DEMO · Đã lưu thay đổi.', { exact: true }),
+          page.getByText(
+            wire ? 'Đã lưu thay đổi.' : 'DEMO · Đã lưu thay đổi.',
+            { exact: true },
+          ),
         )
       },
     )
@@ -325,9 +342,7 @@ export async function runDirectoryMock(page, { phase = 'all' } = {}) {
           .click()
         await loaded('doctors')
         assert((await region('doctors').getByRole('listitem').count()) === 2)
-        await page
-          .getByLabel('Chuyên khoa', { exact: true })
-          .selectOption('demo-specialty-1')
+        await page.getByLabel('Chuyên khoa', { exact: true }).selectOption('1')
         await loaded('doctors')
         assert((await region('doctors').getByRole('listitem').count()) === 3)
         await page.getByLabel('Chuyên khoa', { exact: true }).selectOption('')
@@ -361,22 +376,23 @@ export async function runDirectoryMock(page, { phase = 'all' } = {}) {
         )
         assert(
           (await dialog()
-            .getByLabel('Tài khoản bác sĩ')
+            .getByLabel('Tài khoản bác sĩ', { exact: true })
             .locator('option')
             .count()) === 4,
         )
         assert(
           (await dialog()
             .getByLabel('Chuyên khoa', { exact: true })
-            .locator('option[value="demo-specialty-3"]')
+            .locator('option[value="3"]')
             .count()) === 0,
         )
         await dialog()
-          .getByLabel('Tài khoản bác sĩ')
-          .selectOption('demo-doctor-user-13')
+          .getByLabel('Tài khoản bác sĩ', { exact: true })
+          .selectOption('1013')
+        await dialog().getByLabel('Mã bác sĩ').fill('QA_UI_DR_13')
         await dialog()
           .getByLabel('Chuyên khoa', { exact: true })
-          .selectOption('demo-specialty-1')
+          .selectOption('1')
         await dialog()
           .getByLabel('Giới thiệu chuyên môn')
           .fill('DEMO QA bác sĩ tạo mới')
@@ -401,13 +417,17 @@ export async function runDirectoryMock(page, { phase = 'all' } = {}) {
               .getByRole('button', { name: 'Lưu thông tin', exact: true })
               .isDisabled()),
         )
-        assert(await dialog().getByLabel('Tài khoản bác sĩ').isDisabled())
+        assert(
+          await dialog()
+            .getByLabel('Tài khoản bác sĩ', { exact: true })
+            .isDisabled(),
+        )
         await dialog()
           .getByLabel('Giới thiệu chuyên môn')
           .fill('DEMO QA bác sĩ đã sửa')
         await dialog()
           .getByLabel('Chuyên khoa', { exact: true })
-          .selectOption('demo-specialty-2')
+          .selectOption('2')
         await save()
         await loaded('doctors')
         await page
@@ -665,7 +685,9 @@ export async function runDirectoryMock(page, { phase = 'all' } = {}) {
     )
     assert(errors.length === 0)
     return {
-      source: 'MOCK ONLY — NO D03 BACKEND HTTP',
+      source: wire
+        ? 'MOCK HTTP WITH REAL FE AXIOS ADAPTER — NO BACKEND'
+        : 'MOCK ONLY — NO D03 BACKEND HTTP',
       checks,
       count: checks.length,
       runtimeErrors: errors.length,

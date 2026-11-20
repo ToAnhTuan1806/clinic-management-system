@@ -4,36 +4,62 @@ React + TypeScript + Vite, Tailwind CSS v4, shadcn/ui, Lucide, React Router, Axi
 
 **Auth D02 đã nghiệm thu đủ bốn role qua HTTP/MySQL thật: READY FOR COMMIT.** Playwright MCP đạt 32/32 nhóm scenario với PATIENT/ADMIN/DOCTOR/RECEPTIONIST; 21/21 unit/contract/mock tests được báo riêng. Xem [trạng thái contract](docs/auth-contract-status.md) và [QA thật](docs/qa/d02-real/README.md).
 
-## CL-D03-FE — Doctor & Specialty UI
+## CL-D03-FE — Final real API integration
 
-**STATUS: BLOCKED cho tích hợp thật.** UI và mock QA đã hoàn thiện; `docs/API_CONTRACT.md` vẫn là D02, doctors/specialties còn PROPOSED. Chưa có DTO, giới hạn validation, pagination/filter/status API và endpoint chọn user DOCTOR đã chốt. Không gọi endpoint suy đoán hoặc gửi view model tạm như DTO được duyệt. Cần contract và Backend D03 thật trước merge.
+**STATUS: READY FOR COMMIT — final real acceptance ngày 21/11/2026.** Đã kiểm chứng đủ ADMIN, RECEPTIONIST, DOCTOR và PATIENT bằng Chrome qua Playwright MCP, Backend D03 và MySQL QA thật. Contract đọc từ `docs/API_CONTRACT.md`, nhánh `feature/trang`, HEAD `3d7c43d645f101d56af952a0a654335fb44ed677`; không commit hoặc đổi nhánh. Fixture blocker cũ đã được QA giải quyết.
 
-- `/specialties`: danh sách, tìm tên, lọc active/inactive, phân trang, chi tiết, thêm/sửa và xác nhận bật/tắt. Không hard delete.
-- `/doctors`: danh sách, tìm tên, lọc chuyên khoa/trạng thái, phân trang, chi tiết, thêm/sửa giới thiệu và chuyên khoa. Mock chỉ cho chọn user DOCTOR active/chưa liên kết và specialty active.
-- ADMIN quản lý; RECEPTIONIST xem danh mục; DOCTOR chỉ thấy hồ sơ liên kết tài khoản của mình (policy FE tạm, chờ BE xác nhận); PATIENT chỉ thấy doctor và specialty active. Giữ ProtectedRoute/RoleGuard; FE và mock không thay bảo mật Backend.
-- Kế thừa theme/shadcn, dùng Radix cho modal/confirm, không animation mới. Loading/empty/error/success rõ ràng; khóa double submit và đóng form khi đang lưu, hủy stale requests, hỗ trợ keyboard/focus và responsive.
-- Validation hiện chỉ tối thiểu: tên chuyên khoa không rỗng, chọn user/specialty còn hợp lệ. Các trường name/description/userId/specialtyId/biography là **view model FE tạm**, chưa phải DTO/validation Backend D03. Không cho đổi tài khoản đã liên kết trong bản UI tạm; tên bác sĩ lấy từ tài khoản.
-- Mặc định gateway pending, không HTTP hoặc DEMO fallback, khóa mutation và báo chưa kết nối. Mock chỉ opt-in khi DEV và `VITE_DIRECTORY_MOCK=true`; dữ liệu DEMO ở memory. Production loại fixtures/fault hooks kể cả khi cờ QA bật.
+### Đã triển khai
 
-Từ `frontend/`, mở UI QA bằng PowerShell:
+- Axios thật cho GET list/detail, POST và PATCH doctor/specialty cùng GET `/api/v1/doctors/eligible-users`. Dùng `apiClient` và interceptor Auth D02; không fallback sang mock khi HTTP lỗi.
+- Tách DTO chính thức khỏi view model: ID signed BIGINT giữ dạng string, success `data`, list `data.items/page/size/totalElements/totalPages`; query chỉ `q/isActive/specialtyId/page/size`, không sort tùy ý.
+- Form specialty có code/name/description; doctor có user, specialty, doctorCode/licenseNumber/biography. Validation code 1–32 theo pattern chính thức, name 1–120, license tối đa 100, text tối đa 5000, q tối đa 120. Chuỗi rỗng clear optional text; code/license được canonical khi gửi.
+- PATCH doctor chỉ gửi specialtyId/doctorCode/licenseNumber/biography, status action chỉ gửi isActive. Không gửi userId/fullName/role/status trong PATCH. Không tạo staff, cấp role hoặc hard delete.
+- GET chi tiết lấy bản mới nhất trước xem/sửa. Eligible-users có q và phân trang; lựa chọn hết hiệu lực được xử lý 409 và tải lại. Tài khoản đã liên kết không đổi; chỉ chọn specialty active khi tạo/chuyển. Cho giữ nguyên specialty hiện tại khi chỉ sửa thông tin theo policy D03.
+- ADMIN quản lý; RECEPTIONIST chỉ đọc; DOCTOR chỉ hồ sơ liên kết mình và specialties active; PATIENT chỉ active. Decoder kiểm tra projection theo role và không đưa userId/license nội bộ vào view PATIENT/RECEPTIONIST.
+- Giữ layout/theme/ProtectedRoute/RoleGuard, keyboard/focus, loading/empty/error/success, modal confirmation và abort/stale session handling. Lỗi 400/401/403/404 và các mã 409 có thông báo an toàn, không echo raw detail hoặc giá trị bị từ chối.
 
-```powershell
-$env:VITE_AUTH_MOCK = 'true'
-$env:VITE_DIRECTORY_MOCK = 'true'
-npm.cmd run dev -- --host 127.0.0.1 --port 5176 --strictPort
-```
+### Kết quả thực thi — tách nguồn bằng chứng
 
-Auth mock không tự tạo tài khoản. [Runner D03](tests/e2e/directory-mock-runner.mjs) thiết lập auth state synthetic và gateway DEMO; [runner D02](tests/e2e/auth-mock-runner.mjs) intercept auth HTTP. Cả hai đã chạy qua Playwright MCP. Wrapper CLI `npm run test:e2e:mock` dùng cổng 5174 khi Chromium được cài; screenshot/trace/video off. CLI wrapper chưa được chạy trong đợt này.
+| Nguồn                                        | Kết quả                                                                                                             | Phạm vi / giới hạn                                                                                                                |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Unit/contract/mock, chạy lại lượt này        | **60/60 PASS**, 4 files: 21 D02 + 14 gateway mock + 25 D03 contract                                                 | Transport giả lập, không dùng làm bằng chứng tích hợp thật                                                                        |
+| Real browser + HTTP/MySQL D03, chạy lượt này | **25/25 nhóm PASS**: baseline/roles 11, ADMIN 8, security/UI/Auth regression 6                                      | Chrome thật, adapter thật, cả hai mock flags=false, không fulfill response                                                        |
+| Real HTTP bên trong 25 nhóm trên             | **190 phản hồi**: 189 qua browser và 1 qua APIRequestContext; đủ 9 API D03, 200/201 và negative 400/401/403/404/409 | Không cộng lại thành nhóm test mới. DELETE bị từ chối 403 qua APIRequestContext thật vì CORS trình duyệt không cho DELETE         |
+| D03 gateway MOCK, lịch sử                    | **15/15 nhóm PASS**                                                                                                 | Không chạy lại UI mock lượt này; dữ liệu DEMO trong RAM                                                                           |
+| D03 HTTP MOCK, lịch sử                       | **17/17 nhóm PASS** gồm 2 nhóm bổ sung 409/404                                                                      | Không phải Backend thật                                                                                                           |
+| Production + HTTP MOCK, lịch sử              | PASS: fixture bị loại khỏi bundle, không fallback mock                                                              | Không chạy lại lượt nghiệm thu này                                                                                                |
+| PATIENT real D03, lịch sử                    | **9/9 nhóm PASS** trên catalog rỗng cũ                                                                              | Đã bổ sung positive catalog/scope trong lượt 25 nhóm hiện tại                                                                     |
+| Auth real D02, lịch sử                       | **29/29 nhóm PASS** trên stack D02/V1 riêng                                                                         | Lượt hiện tại chạy regression Login/ME, guards, logout/reload/JWT/network/theme trên D03; không tuyên bố chạy lại toàn bộ 29 nhóm |
 
-**Kết quả:** 35/35 unit/contract/mock tests (21 D02 + 14 D03); 15/15 nhóm D03 MOCK UI; 15/15 nhóm Auth D02 MOCK regression; 0 uncaught runtime errors trong các lượt đạt. Đây là nhóm assertion, không phải 30 Playwright Test cases độc lập. [Bằng chứng JSON](docs/qa/d03-results.json). Không tạo screenshot mới.
+Không cộng MOCK vào REAL hoặc cộng HTTP vào số nhóm browser. Các con số real là nhóm assertion trong runner chạy qua Playwright MCP, không phải Playwright Test CLI. Không có uncaught runtime error, console error bất thường hoặc credential/token/hash được phát hiện trong console; các lỗi network/status chủ động tạo cho negative tests được phân biệt. Host audit log cũng đạt. 100 assertions do QA bàn giao là bằng chứng của QA, không tính vào kết quả FE. `docs/qa/d03-results.json` là kết quả MOCK lịch sử 35 tests, giữ nguyên. Không tạo Markdown/report, screenshot, video, trace hoặc HAR mới.
 
-[Production pending runner](tests/e2e/directory-pending-runner.mjs) PASS qua MCP: build với mock flags=true vẫn không có directory mock, khóa mutation và không gửi HTTP D03. Ca này **chỉ mock D02 auth transport** tới origin QA 59999, không phải Backend thật. Đã rà bundle loại fixtures/fault hooks D03.
+### Runtime QA thật và bảo vệ fixture
 
-Đã sửa focus regression D02 khi lỗi Login trả nhanh: focus thông báo sau pending=false/fieldset được bật trong DOM, áp dụng Login/Register; sau đó UI Auth D02 chạy lại đủ 15 nhóm PASS. Sửa focus đóng modal D03 và assumption của harness về deep-link redirect; không đổi routing D02 để test đạt. Một lượt unit chạy cùng cờ browser QA=true đã lỗi `window is not defined`; chạy lại với cờ mock=false đã đạt. Không lấy lượt lỗi làm PASS.
+QA source là project `clinic-d03-fixtures-8c29ba1f8e6b`, volume riêng, MySQL **8.4.11**, Backend D03 commit `1b20db52c6a07b611dc1893f0f9de9681d81a826`. Đối chiếu JAR SHA-256 `a212478d0bb8a8f086855c42f9a7b1e65a2fea94693d9a4975dbf58ecfd0cab2` và nội dung migration trong artifact với workspace (chuẩn hóa CRLF/LF). V1 checksum **1116148885**, V2 **196944325**, success cả hai. Không sửa Backend hoặc migration.
 
-Lint/build/format/test đều PASS. Unit Node dùng mock=false; flags=true chỉ dành cho Vite/browser QA. 401/403/network của D03 hiện là mock fault injection. **Real D03: NOT TESTED**, chưa nghiệm thu DTO/validation hay quyền/ownership server.
+Credential handoff qua Windows Credential Manager target `ClinicManagement/QA/D03Catalog/fe-acceptance`, đọc bằng PowerShell host cùng tài khoản Windows. Không sửa vault hoặc đưa credentials vào VITE_*, file, log/report. Nếu host không đọc được vault, helper dừng với `HOST_VAULT_UNAVAILABLE`; không dùng mock thay thế.
 
-Files D03: `.env.example`, `README.md`, `playwright.config.ts`, `src/app.tsx`, `src/lib/navigation.ts`, `src/vite-env.d.ts`, `src/pages/{directory,login,register}.tsx`, `src/components/ui/dialog.tsx`, `src/components/directory/editor.tsx`, `src/directory/{model,gateway}.ts`, `src/testing/directory-mock.ts`, `tests/directory.mock.test.ts`, `tests/e2e/{directory-mock-runner,directory-pending-runner}.mjs`, `tests/e2e/directory.mock.spec.ts`, `docs/qa/d03-results.json`. Giữ nguyên thay đổi/bằng chứng D02 sẵn có; không sửa BE/DB/migration hoặc thực hiện Git mutation.
+[Host helper](tests/runtime/D03-Acceptance-Host.ps1) xác minh container labels, dedicated volume, artifact và baseline **7 users / 4 specialties / 3 doctors**, eligible user **ID 5**. Vì API không có unlink/hard delete để hoàn trả user eligible duy nhất, toàn bộ POST/PATCH thành công chạy trên **MySQL copy cô lập** từ snapshot QA, cùng JAR D03 đã pin. Dump/import truyền trong RAM, không xuất dump/password hash ra file, log hoặc report. Source chỉ SELECT và consistent read; không gán role, sửa fixture hoặc gọi write API vào source.
+
+Mỗi lượt chạy dùng volume/network/container riêng có ownership label, Backend `mysql-validation` (không migrate), JWT key process riêng, Vite `127.0.0.1:5180`, Google Chrome headless/incognito qua CDP loopback. Sau chạy, đối chiếu fingerprint catalog source và counts không đổi, ID 5 vẫn eligible, history V1/V2 giữ nguyên. Bản copy sau nghiệm thu có **7 users / 11 specialties / 4 doctors**, ID 5 đã liên kết và không còn eligible đúng contract. Dữ liệu bổ sung đều synthetic qua API thật. Runtime copy/Vite/Chrome được dừng; giữ nguyên các volume, không xóa database/volume. QA source tiếp tục hoạt động.
+
+Các nhóm real đã xác minh: CRUD specialty/doctor qua form và confirm; duplicate code/name/license, user linked/ineligible, specialty inactive và chặn deactivate khi có doctor active; GET detail trước sửa, PATCH không đổi userId; eligible search/page và biến mất sau POST; RECEPTIONIST read-only/minimized fields; DOCTOR chỉ profile mình (kể cả inactive), profile khác 404 và eligible doctor scope rỗng; PATIENT chỉ catalog active, public fields và inactive query 403. Có HTTP 400/401/403/404/409 thật, loading/empty/network retry, chống double submit và stale response, focus/modal/mobile navigation, desktop/tablet/mobile, Light/Dark, logout/reload không lưu JWT.
+
+Không phát hiện lỗi ứng dụng FE cần sửa trong lượt retest. Runner được sửa locator nút xóa để phân biệt “Xóa bộ lọc”, reset bộ lọc trước pagination và tách DELETE server denial khỏi CORS preflight của trình duyệt. Đây là sửa harness; không sửa response/API để đạt PASS.
+
+### Chạy FE và kiểm tra
+
+Từ `frontend/`, cấu hình `VITE_API_BASE_URL` bằng origin D03 thực tế, `VITE_AUTH_MOCK=false`, `VITE_DIRECTORY_MOCK=false`; CORS BE phải khớp origin FE. Không đưa secret vào VITE_*. Khi origin chưa cấu hình gateway báo pending; khi đã cấu hình luôn dùng adapter thật.
+
+Mock chỉ opt-in ở DEV bằng hai cờ QA. `npm run test:e2e:mock` giữ screenshot/trace/video off. [Gateway UI runner](tests/e2e/directory-mock-runner.mjs), [HTTP mock fixture](tests/e2e/directory-http-mock-runner.mjs), [production runner](tests/e2e/directory-pending-runner.mjs), [PATIENT real runner lịch sử](tests/e2e/directory-real-patient-runner.mjs).
+
+[Final real runner](tests/e2e/d03-real-acceptance-runner.mjs) export `runD03Acceptance(page, { phase })`, chạy lần lượt `baseline`, `admin`, `security` trên Chrome của host helper qua Playwright MCP/CDP. Chu trình host: `VerifySource` → `StartClone` → ba phase → `Verify` / `Audit` → `Cleanup`. Không khởi chạy runner vào source hoặc chạy lại phase ADMIN trên copy đã tiêu thụ eligible fixture; tạo copy mới từ source được bảo vệ. Ca loading/stale chỉ giữ rồi continue request thật; network error dùng offline thực. Sau reload cuối cùng, auth memory và credential handoff đều biến mất; storage chỉ còn theme.
+
+`npm run lint`, `npm run build`, `npm run format:check`, `npm run test`: **PASS trong lượt này**. Unit Node dùng hai mock flags=false; test 60/60 giữ đủ 35 tests ban đầu và thêm 25 contract tests. Không commit/push/fetch/pull/merge/rebase/reset/đổi nhánh/worktree. Giữ nguyên thay đổi D02/D03 chưa commit; không tạo Markdown mới.
+
+Files bổ sung/cập nhật trong lượt **final acceptance retest**: `README.md`, `tests/e2e/d03-real-acceptance-runner.mjs`, `tests/runtime/D03-Acceptance-Host.ps1`. Không sửa app source trong lượt này. Các file integration dưới đây đã thay đổi từ trước và được giữ nguyên.
+
+Files của lượt integration: `README.md`, `src/auth/errors.ts`, `src/directory/{model,gateway,api}.ts`, `src/components/directory/{editor,record}.tsx`, `src/pages/directory.tsx`, `src/testing/directory-mock.ts`, `tests/{directory.mock,directory.contract}.test.ts`, `tests/e2e/{directory-mock-runner,directory-http-mock-runner,directory-pending-runner,directory-real-patient-runner}.mjs`, `tests/runtime/{D03-Runtime.ps1,d03-build.gradle}`. Thay đổi/bằng chứng D02 đã có trước lượt này được giữ nguyên.
 
 ## Chạy và kiểm tra
 
@@ -91,7 +117,7 @@ $env:VITE_AUTH_MOCK = 'false'
 npm.cmd run dev -- --host 127.0.0.1 --port 5175 --strictPort
 ```
 
-Backend phải kết nối đúng DB QA Clinic, không sử dụng mù quáng DB_* toàn máy hoặc tự migrate schema. Đợt acceptance staff hiện tại dùng Vite 5173 và stack QA cô lập fixture `83710bc5bb2e`, đã đối chiếu JAR/DB/roles/V1. Credential lấy từ Windows Credential Manager qua PowerShell host, chỉ handoff trong RAM Chrome; xem cách chạy an toàn và bằng chứng trong báo cáo QA thật.
+Backend phải kết nối đúng DB QA Clinic, không sử dụng mù quáng DB_* toàn máy hoặc tự migrate schema. Đợt acceptance staff D02 lịch sử dùng Vite 5173 và stack QA cô lập fixture `83710bc5bb2e`, đã đối chiếu JAR/DB/roles/V1. D03 final acceptance dùng source fixture và bản copy nêu ở phần D03 phía trên. Credential lấy từ Windows Credential Manager qua PowerShell host, chỉ handoff trong RAM Chrome.
 
 ## Tài liệu bàn giao
 

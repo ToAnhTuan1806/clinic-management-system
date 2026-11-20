@@ -1,0 +1,4 @@
+// Read Backend sources without writing Backend build outputs or project caches.
+allprojects {
+    layout.buildDirectory = file(new File(rootDir.parentFile, 'frontend/test-results/d03-runtime/backend-build'))
+}

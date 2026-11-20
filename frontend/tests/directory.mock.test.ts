@@ -23,7 +23,7 @@ const query: DirectoryQuery = {
   specialtyId: '',
 }
 const signal = () => new AbortController().signal
-function login(role: Role, id = 'demo-doctor-user-1') {
+function login(role: Role, id = '1001') {
   establishSession(beginAuthentication(), crypto.randomUUID(), {
     id,
     role,
@@ -44,18 +44,24 @@ describe('D03 pending connection — no invented API contract', () => {
       gateway.doctorUsers(signal()),
       gateway.saveSpecialty(
         undefined,
-        { name: 'DEMO', description: '' },
+        { code: 'QA_NEW', name: 'DEMO', description: '' },
         signal(),
       ),
       gateway.saveDoctor(
         undefined,
-        { userId: 'demo', specialtyId: 'demo', biography: '' },
+        {
+          doctorCode: 'QA_NEW_DR',
+          licenseNumber: '',
+          userId: 'demo',
+          specialtyId: 'demo',
+          biography: '',
+        },
         signal(),
       ),
       gateway.setActive('doctors', 'demo', false, signal()),
     ])
       await expect(operation).rejects.toMatchObject({
-        code: 'D03_CONTRACT_PENDING',
+        code: 'API_NOT_CONFIGURED',
       })
   })
 })
@@ -65,7 +71,7 @@ describe('D03 MOCK — UI gateway behavior, not Backend permissions', () => {
     const gateway = createDirectoryMock({ latency: 0 })
     await gateway.saveSpecialty(
       undefined,
-      { name: ' DEMO QA new ', description: ' Test ' },
+      { code: 'QA_NEW', name: ' DEMO QA new ', description: ' Test ' },
       signal(),
     )
     const created = (
@@ -81,7 +87,7 @@ describe('D03 MOCK — UI gateway behavior, not Backend permissions', () => {
     })
     await gateway.saveSpecialty(
       created.id,
-      { name: 'DEMO QA edited', description: '' },
+      { code: 'QA_NEW', name: 'DEMO QA edited', description: '' },
       signal(),
     )
     await gateway.setActive('specialties', created.id, false, signal())
@@ -98,11 +104,13 @@ describe('D03 MOCK — UI gateway behavior, not Backend permissions', () => {
   it('validates required names and duplicates on create and edit', async () => {
     login('ADMIN')
     const gateway = createDirectoryMock({ latency: 0 })
-    expect(validateSpecialty({ name: '  ', description: '' }).name).toBeTruthy()
+    expect(
+      validateSpecialty({ code: 'QA_NEW', name: '  ', description: '' }).name,
+    ).toBeTruthy()
     await expect(
       gateway.saveSpecialty(
         undefined,
-        { name: ' ', description: '' },
+        { code: 'QA_NEW', name: ' ', description: '' },
         signal(),
       ),
     ).rejects.toMatchObject({ status: 400 })
@@ -110,14 +118,14 @@ describe('D03 MOCK — UI gateway behavior, not Backend permissions', () => {
     await expect(
       gateway.saveSpecialty(
         undefined,
-        { name: rows[0].name, description: '' },
+        { code: 'QA_NEW', name: rows[0].name, description: '' },
         signal(),
       ),
     ).rejects.toMatchObject({ status: 409 })
     await expect(
       gateway.saveSpecialty(
         rows[1].id,
-        { name: rows[0].name, description: '' },
+        { code: 'QA_NEW', name: rows[0].name, description: '' },
         signal(),
       ),
     ).rejects.toMatchObject({ status: 409 })
@@ -143,18 +151,16 @@ describe('D03 MOCK — UI gateway behavior, not Backend permissions', () => {
     expect(
       (
         await gateway.listDoctors(
-          { ...query, specialtyId: 'demo-specialty-1', active: 'active' },
+          { ...query, specialtyId: '1', active: 'active' },
           signal(),
         )
-      ).items.every(
-        (item) => item.active && item.specialtyId === 'demo-specialty-1',
-      ),
+      ).items.every((item) => item.active && item.specialtyId === '1'),
     ).toBe(true)
   })
   it('offers only active unlinked DOCTOR users and active specialty choices for editing', async () => {
     login('ADMIN')
     const gateway = createDirectoryMock({ latency: 0 })
-    const users = await gateway.doctorUsers(signal())
+    const users = (await gateway.doctorUsers(signal())).items
     expect(users).toHaveLength(3)
     expect(
       users.every(
@@ -175,9 +181,11 @@ describe('D03 MOCK — UI gateway behavior, not Backend permissions', () => {
   it('creates and edits a doctor using eligible user/specialty options, prevents duplicate linking', async () => {
     login('ADMIN')
     const gateway = createDirectoryMock({ latency: 0 })
-    const user = (await gateway.doctorUsers(signal()))[0]
+    const user = (await gateway.doctorUsers(signal())).items[0]
     const choices = await gateway.specialtyOptions(signal(), true)
     const draft = {
+      doctorCode: 'QA_NEW_DR',
+      licenseNumber: '',
       userId: user.id,
       specialtyId: choices[0].id,
       biography: 'DEMO biography',
@@ -210,26 +218,44 @@ describe('D03 MOCK — UI gateway behavior, not Backend permissions', () => {
     const gateway = createDirectoryMock({ latency: 0 })
     expect(
       Object.keys(
-        validateDoctor({ userId: '', specialtyId: '', biography: '' }),
+        validateDoctor({
+          doctorCode: 'QA_NEW_DR',
+          licenseNumber: '',
+          userId: '',
+          specialtyId: '',
+          biography: '',
+        }),
       ),
     ).toHaveLength(2)
     await expect(
       gateway.saveDoctor(
         undefined,
-        { userId: 'unknown', specialtyId: 'demo-specialty-3', biography: '' },
+        {
+          doctorCode: 'QA_NEW_DR',
+          licenseNumber: '',
+          userId: 'unknown',
+          specialtyId: '3',
+          biography: '',
+        },
         signal(),
       ),
     ).rejects.toMatchObject({
       status: 400,
       fields: { userId: expect.any(String), specialtyId: expect.any(String) },
     })
-    const specialty = (await gateway.specialtyOptions(signal(), true))[0]
-    const user = (await gateway.doctorUsers(signal()))[0]
+    const specialty = (await gateway.specialtyOptions(signal(), true)).at(-1)!
+    const user = (await gateway.doctorUsers(signal())).items[0]
     await gateway.setActive('specialties', specialty.id, false, signal())
     await expect(
       gateway.saveDoctor(
         undefined,
-        { userId: user.id, specialtyId: specialty.id, biography: '' },
+        {
+          doctorCode: 'QA_NEW_DR',
+          licenseNumber: '',
+          userId: user.id,
+          specialtyId: specialty.id,
+          biography: '',
+        },
         signal(),
       ),
     ).rejects.toMatchObject({ status: 400 })
@@ -242,19 +268,25 @@ describe('D03 MOCK — UI gateway behavior, not Backend permissions', () => {
       await expect(
         gateway.saveSpecialty(
           undefined,
-          { name: 'DEMO', description: '' },
+          { code: 'QA_NEW', name: 'DEMO', description: '' },
           signal(),
         ),
       ).rejects.toMatchObject({ status: 403 })
       await expect(
         gateway.saveDoctor(
           undefined,
-          { userId: '', specialtyId: '', biography: '' },
+          {
+            doctorCode: 'QA_NEW_DR',
+            licenseNumber: '',
+            userId: '',
+            specialtyId: '',
+            biography: '',
+          },
           signal(),
         ),
       ).rejects.toMatchObject({ status: 403 })
       await expect(
-        gateway.setActive('doctors', 'demo-doctor-1', false, signal()),
+        gateway.setActive('doctors', '1', false, signal()),
       ).rejects.toMatchObject({ status: 403 })
       await expect(gateway.doctorUsers(signal())).rejects.toMatchObject({
         status: 403,
@@ -270,7 +302,7 @@ describe('D03 MOCK — UI gateway behavior, not Backend permissions', () => {
       (await gateway.listDoctors(query, signal())).items.map(
         (item) => item.userId,
       ),
-    ).toEqual(['demo-doctor-user-1'])
+    ).toEqual(['1001'])
     login('DOCTOR', 'unlinked')
     expect((await gateway.listDoctors(query, signal())).total).toBe(0)
   })
@@ -299,17 +331,14 @@ describe('D03 MOCK — UI gateway behavior, not Backend permissions', () => {
     const controller = new AbortController()
     const aborted = gateway.saveSpecialty(
       undefined,
-      { name: 'DEMO cancelled', description: '' },
+      { code: 'QA_NEW', name: 'DEMO cancelled', description: '' },
       controller.signal,
     )
     controller.abort()
-    await expect(aborted).rejects.toMatchObject({ name: 'AbortError' })
-    const loggedOut = gateway.setActive(
-      'doctors',
-      'demo-doctor-1',
-      false,
-      signal(),
-    )
+    await expect(aborted).rejects.toMatchObject({
+      name: 'AbortError',
+    })
+    const loggedOut = gateway.setActive('doctors', '1', false, signal())
     clearSession()
     await expect(loggedOut).rejects.toMatchObject({ status: 401 })
     login('ADMIN')

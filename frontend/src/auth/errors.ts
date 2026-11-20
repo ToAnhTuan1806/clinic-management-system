@@ -1,11 +1,31 @@
 import axios from 'axios'
 
-export type AuthField = 'fullName' | 'email' | 'password' | 'confirmPassword'
+export type AuthField =
+  | 'fullName'
+  | 'email'
+  | 'password'
+  | 'confirmPassword'
+  | 'code'
+  | 'name'
+  | 'description'
+  | 'doctorCode'
+  | 'licenseNumber'
+  | 'biography'
+  | 'userId'
+  | 'specialtyId'
 const fieldMessages: Record<AuthField, string> = {
   fullName: 'Họ tên không đáp ứng yêu cầu. Vui lòng kiểm tra lại.',
   email: 'Email không hợp lệ hoặc không đáp ứng yêu cầu.',
   password: 'Mật khẩu không đáp ứng yêu cầu.',
   confirmPassword: 'Xác nhận mật khẩu không khớp.',
+  code: 'Mã chuyên khoa không hợp lệ.',
+  name: 'Tên chuyên khoa không hợp lệ.',
+  description: 'Mô tả không hợp lệ.',
+  doctorCode: 'Mã bác sĩ không hợp lệ.',
+  licenseNumber: 'Số giấy phép không hợp lệ.',
+  biography: 'Giới thiệu không hợp lệ.',
+  userId: 'Tài khoản bác sĩ không hợp lệ.',
+  specialtyId: 'Chuyên khoa không hợp lệ.',
 }
 export class AuthApiError extends Error {
   readonly status: number
@@ -64,7 +84,7 @@ export function normalizeAuthError(error: unknown): AuthApiError {
         fields[field] = fieldMessages[field]
       }
     }
-  if (status === 409) {
+  if (status === 409 && code === 'EMAIL_ALREADY_EXISTS') {
     fields.email = 'Email này đã được sử dụng. Vui lòng dùng email khác.'
     return new AuthApiError(fields.email, status, code, fields)
   }

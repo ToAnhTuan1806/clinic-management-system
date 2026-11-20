@@ -1,14 +1,17 @@
 import { DirectoryError, type DirectoryGateway } from './model'
+import { apiClient } from '@/lib/api-client'
+import { createDirectoryApi } from './api'
 
-// D02 contract has no implemented D03 API. Do not guess URLs or send draft DTOs.
-// Future real adapter must use apiClient/D02 interceptors and verified wire decoders.
+// Only an unconfigured API origin is pending. A failed real request never falls back to mock.
 const unavailable = async (): Promise<never> => {
-  throw new DirectoryError('D03_CONTRACT_PENDING')
+  throw new DirectoryError('API_NOT_CONFIGURED')
 }
 export const pendingDirectoryGateway: DirectoryGateway = {
   mode: 'pending',
   listSpecialties: unavailable,
   listDoctors: unavailable,
+  getDoctor: unavailable,
+  getSpecialty: unavailable,
   specialtyOptions: unavailable,
   doctorUsers: unavailable,
   saveSpecialty: unavailable,
@@ -19,4 +22,6 @@ export const isDirectoryMock =
   import.meta.env.DEV && import.meta.env.VITE_DIRECTORY_MOCK === 'true'
 export const directoryGateway: DirectoryGateway = isDirectoryMock
   ? (await import('@/testing/directory-mock')).createDirectoryMock()
-  : pendingDirectoryGateway
+  : apiClient.defaults.baseURL
+    ? createDirectoryApi(apiClient)
+    : pendingDirectoryGateway

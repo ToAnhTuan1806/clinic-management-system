@@ -18,14 +18,10 @@ import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { LoadingState } from '@/components/page-states'
 import { DirectoryEditor, selectClass } from '@/components/directory/editor'
+import { DirectoryRecord } from '@/components/directory/record'
 import { directoryGateway } from '@/directory/gateway'
 import {
   canManageDirectory,
@@ -53,6 +49,10 @@ export default function DirectoryPage({ kind }: { kind: DirectoryKind }) {
   const { user } = useAuth()
   const doctors = kind === 'doctors'
   const manage = canManageDirectory(user)
+  const canFilterInactive =
+    user?.role === 'ADMIN' ||
+    user?.role === 'RECEPTIONIST' ||
+    (user?.role === 'DOCTOR' && doctors)
   const pendingAPI = directoryGateway.mode === 'pending'
   const [query, setQuery] = useState(initialQuery)
   const [resource, setResource] = useState<{
@@ -64,6 +64,7 @@ export default function DirectoryPage({ kind }: { kind: DirectoryKind }) {
   const [filterError, setFilterError] = useState<string | null>(null)
   const [revision, setRevision] = useState(0)
   const [modal, setModal] = useState<Modal | null>(null)
+  const [selectionVersion, setSelectionVersion] = useState(0)
   const [busy, setBusy] = useState(false)
   const [mutationError, setMutationError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -87,8 +88,9 @@ export default function DirectoryPage({ kind }: { kind: DirectoryKind }) {
 
   useEffect(() => {
     const controller = new AbortController()
-    const effectiveQuery =
-      user?.role === 'PATIENT' ? { ...query, active: 'active' as const } : query
+    const effectiveQuery = !canFilterInactive
+      ? { ...query, active: 'active' as const }
+      : query
     const request = doctors
       ? directoryGateway.listDoctors(effectiveQuery, controller.signal)
       : directoryGateway.listSpecialties(effectiveQuery, controller.signal)
@@ -105,7 +107,7 @@ export default function DirectoryPage({ kind }: { kind: DirectoryKind }) {
         const items = result.items.filter(
           (item) =>
             user &&
-            ('userId' in item
+            ('doctorCode' in item
               ? visibleDoctor(item, user)
               : user.role !== 'PATIENT' || item.active),
         )
@@ -124,12 +126,15 @@ export default function DirectoryPage({ kind }: { kind: DirectoryKind }) {
           })
       })
     return () => controller.abort()
-  }, [doctors, query, revision, user, requestKey])
+  }, [doctors, query, revision, user, requestKey, canFilterInactive])
   useEffect(() => {
     if (!doctors || pendingAPI) return
     const controller = new AbortController()
     void directoryGateway
-      .specialtyOptions(controller.signal, user?.role === 'PATIENT')
+      .specialtyOptions(
+        controller.signal,
+        user?.role === 'PATIENT' || user?.role === 'DOCTOR',
+      )
       .then((result) => {
         if (!controller.signal.aborted) {
           setSpecialties(result)
@@ -153,6 +158,7 @@ export default function DirectoryPage({ kind }: { kind: DirectoryKind }) {
     returnFocus.current = document.activeElement as HTMLElement
     setMutationError(null)
     setSuccess(null)
+    setSelectionVersion((current) => current + 1)
     setModal(value)
   }
   const restoreFocus = (event: Event) => {
@@ -174,7 +180,10 @@ export default function DirectoryPage({ kind }: { kind: DirectoryKind }) {
   const close = (next: boolean) => {
     if (!next && !busy && !changing) setModal(null)
   }
-  const pages = Math.max(1, Math.ceil((data?.total ?? 0) / query.pageSize))
+  const pages = Math.max(
+    1,
+    data?.totalPages ?? Math.ceil((data?.total ?? 0) / query.pageSize),
+  )
   const Icon = doctors ? Stethoscope : Layers2
 
   return (
@@ -224,14 +233,16 @@ export default function DirectoryPage({ kind }: { kind: DirectoryKind }) {
           </Link>
         </Button>
       </nav>
-      <Alert>
-        <CircleAlert aria-hidden="true" />
-        <AlertDescription>
-          {pendingAPI
-            ? 'Danh mục đang chờ kết nối dịch vụ. Chưa có dữ liệu thật hoặc thao tác lưu khả dụng.'
-            : 'DEMO · Dữ liệu kiểm thử tổng hợp. Các thay đổi chỉ lưu tạm trong bộ nhớ, chưa tích hợp Backend D03.'}
-        </AlertDescription>
-      </Alert>
+      {directoryGateway.mode !== 'real' && (
+        <Alert>
+          <CircleAlert aria-hidden="true" />
+          <AlertDescription>
+            {pendingAPI
+              ? 'Danh mục đang chờ kết nối dịch vụ. Chưa có dữ liệu thật hoặc thao tác lưu khả dụng.'
+              : 'DEMO · Dữ liệu kiểm thử tổng hợp. Các thay đổi chỉ lưu tạm trong bộ nhớ, chưa tích hợp Backend D03.'}
+          </AlertDescription>
+        </Alert>
+      )}
       {success && (
         <Alert role="status">
           <CheckCircle2 aria-hidden="true" />
@@ -252,11 +263,14 @@ export default function DirectoryPage({ kind }: { kind: DirectoryKind }) {
               aria-hidden="true"
             />
             <Input
+              maxLength={120}
               id={`${kind}-search`}
               type="search"
               className="h-11 pl-10"
               placeholder={
-                doctors ? 'Nhập tên bác sĩ…' : 'Nhập tên chuyên khoa…'
+                doctors
+                  ? 'Nhập mã hoặc tên bác sĩ…'
+                  : 'Nhập mã hoặc tên chuyên khoa…'
               }
               value={query.search}
               disabled={pendingAPI}
@@ -283,7 +297,7 @@ export default function DirectoryPage({ kind }: { kind: DirectoryKind }) {
             </select>
           </div>
         )}
-        {user?.role !== 'PATIENT' && (
+        {canFilterInactive && (
           <div>
             <Label htmlFor={`${kind}-active`}>Trạng thái</Label>
             <select
@@ -303,9 +317,9 @@ export default function DirectoryPage({ kind }: { kind: DirectoryKind }) {
             </select>
           </div>
         )}
-        {user?.role === 'PATIENT' && (
+        {!canFilterInactive && (
           <p className="self-end pb-3 text-sm text-muted-foreground">
-            Chỉ hiển thị bác sĩ và chuyên khoa đang hoạt động.
+            Chỉ hiển thị danh mục hoạt động theo quyền truy cập.
           </p>
         )}
       </section>
@@ -385,6 +399,9 @@ export default function DirectoryPage({ kind }: { kind: DirectoryKind }) {
                     </span>
                     <div className="min-w-0 flex-1">
                       <h2 className="font-semibold break-words">{name}</h2>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {'doctorCode' in item ? item.doctorCode : item.code}
+                      </p>
                       {'specialtyName' in item && (
                         <p className="mt-1 text-sm break-words text-muted-foreground">
                           {item.specialtyName}
@@ -503,46 +520,26 @@ export default function DirectoryPage({ kind }: { kind: DirectoryKind }) {
               if (busy) event.preventDefault()
             }}
           >
-            {modal.type === 'edit' ? (
+            {modal.item ? (
+              <DirectoryRecord
+                key={selectionVersion}
+                kind={kind}
+                item={modal.item}
+                gateway={directoryGateway}
+                edit={modal.type === 'edit' && manage}
+                onSaved={completed}
+                onBusy={setBusy}
+              />
+            ) : (
               manage && (
                 <DirectoryEditor
-                  key={modal.item?.id ?? 'new'}
+                  key={selectionVersion}
                   kind={kind}
-                  item={modal.item}
                   gateway={directoryGateway}
                   onSaved={completed}
                   onBusy={setBusy}
                 />
               )
-            ) : (
-              <>
-                <DialogTitle className="pr-8 text-xl font-semibold break-words">
-                  {'fullName' in modal.item
-                    ? modal.item.fullName
-                    : modal.item.name}
-                </DialogTitle>
-                <DialogDescription className="mt-2 text-sm text-muted-foreground">
-                  {doctors ? 'Thông tin hồ sơ bác sĩ' : 'Thông tin chuyên khoa'}
-                  {directoryGateway.mode === 'mock' && ' · DEMO'}
-                </DialogDescription>
-                <div className="mt-5 space-y-4 text-sm">
-                  {'specialtyName' in modal.item && (
-                    <p className="break-words">
-                      <strong>Chuyên khoa: </strong>
-                      {modal.item.specialtyName}
-                    </p>
-                  )}
-                  <Badge variant="outline">
-                    {modal.item.active ? 'Đang hoạt động' : 'Ngừng hoạt động'}
-                  </Badge>
-                  <p className="leading-relaxed whitespace-pre-wrap break-words">
-                    {('biography' in modal.item
-                      ? modal.item.biography
-                      : modal.item.description) ||
-                      'Chưa có thông tin giới thiệu.'}
-                  </p>
-                </div>
-              </>
             )}
           </DialogContent>
         )}
