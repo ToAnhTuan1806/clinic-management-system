@@ -1,0 +1,35 @@
+name: clinic-management-d01
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: clinic_management_db
+      MYSQL_USER: clinic_app
+      MYSQL_PASSWORD: ${CLINIC_MYSQL_PASSWORD:?Set CLINIC_MYSQL_PASSWORD in the Clinic env file}
+      MYSQL_ROOT_PASSWORD: ${CLINIC_MYSQL_ROOT_PASSWORD:?Set CLINIC_MYSQL_ROOT_PASSWORD in the Clinic env file}
+      TZ: UTC
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --default-time-zone=+00:00
+    ports:
+      - "127.0.0.1:${CLINIC_MYSQL_PORT:-3307}:3306"
+    volumes:
+      - clinic_mysql_data:/var/lib/mysql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          MYSQL_PWD="$${MYSQL_PASSWORD}"
+          mysql --protocol=TCP --host=127.0.0.1 --user="$${MYSQL_USER}"
+          --database="$${MYSQL_DATABASE}" --batch --skip-column-names
+          --execute="SELECT 1" >/dev/null
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+volumes:
+  clinic_mysql_data:
