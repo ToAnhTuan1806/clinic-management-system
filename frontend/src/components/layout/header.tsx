@@ -14,6 +14,7 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet'
 import { navigation } from '@/lib/navigation'
+import { isAuthMock } from '@/auth/config'
 
 export function Header() {
   const [open, setOpen] = useState(false)
@@ -67,7 +68,8 @@ export function Header() {
           aria-hidden="true"
         />
         <span className="truncate font-medium">
-          {current?.label ?? 'Không tìm thấy'}
+          {current?.label ??
+            (pathname === '/forbidden' ? 'Không đủ quyền' : 'Không tìm thấy')}
         </span>
       </div>
       <div className="ml-auto flex shrink-0 items-center gap-3 sm:gap-5">
@@ -75,7 +77,7 @@ export function Header() {
           variant="outline"
           className="border-primary/20 bg-primary/5 px-2.5 py-1 text-primary"
         >
-          DEMO
+          {isAuthMock ? 'API MOCK' : 'DEMO'}
         </Badge>
         <span
           className="hidden h-6 w-px bg-border sm:block"

@@ -6,10 +6,15 @@ import {
   Stethoscope,
   UsersRound,
 } from 'lucide-react'
+import type { Role } from '@/auth/types'
+
+const staff: readonly Role[] = ['ADMIN', 'DOCTOR', 'RECEPTIONIST']
+const everyone: readonly Role[] = [...staff, 'PATIENT']
 
 export const navigation = [
   {
     path: '/dashboard',
+    roles: staff,
     label: 'Tổng quan',
     title: 'Tổng quan phòng khám',
     icon: LayoutDashboard,
@@ -17,6 +22,7 @@ export const navigation = [
   },
   {
     path: '/doctors',
+    roles: everyone,
     label: 'Bác sĩ',
     title: 'Đội ngũ bác sĩ',
     icon: Stethoscope,
@@ -24,6 +30,7 @@ export const navigation = [
   },
   {
     path: '/patients',
+    roles: ['ADMIN', 'RECEPTIONIST'] as readonly Role[],
     label: 'Bệnh nhân',
     title: 'Quản lý bệnh nhân',
     icon: UsersRound,
@@ -31,6 +38,7 @@ export const navigation = [
   },
   {
     path: '/appointments',
+    roles: staff,
     label: 'Lịch hẹn',
     title: 'Quản lý lịch hẹn',
     icon: CalendarDays,
@@ -38,6 +46,7 @@ export const navigation = [
   },
   {
     path: '/medical-records',
+    roles: ['DOCTOR'] as readonly Role[],
     label: 'Hồ sơ bệnh án',
     title: 'Hồ sơ bệnh án',
     icon: ClipboardList,
@@ -45,9 +54,23 @@ export const navigation = [
   },
   {
     path: '/settings',
+    roles: everyone,
     label: 'Cài đặt',
     title: 'Cài đặt không gian làm việc',
     icon: Settings2,
     description: 'Tùy chỉnh giao diện và xem các thành phần nền tảng.',
   },
+  {
+    path: '/booking',
+    roles: ['PATIENT'] as readonly Role[],
+    label: 'Đặt lịch khám',
+    title: 'Đặt lịch khám',
+    icon: CalendarDays,
+    description: 'Không gian đặt lịch và theo dõi lịch khám của bạn.',
+  },
 ] as const
+
+export const roleHome = (role: Role) =>
+  role === 'PATIENT' ? '/booking' : '/dashboard'
+export const canAccessPath = (role: Role, path: string) =>
+  navigation.some((item) => item.path === path && item.roles.includes(role))

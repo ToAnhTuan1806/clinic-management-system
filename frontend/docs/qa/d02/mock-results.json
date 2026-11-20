@@ -1,0 +1,88 @@
+{
+  "label": "API MOCK ONLY — NOT A REAL BACKEND TEST",
+  "checks": [
+    {
+      "label": "Unauthenticated direct URL redirects to Login",
+      "result": "PASS",
+      "source": "API MOCK"
+    },
+    {
+      "label": "Login validation and focus; no request on invalid form",
+      "result": "PASS",
+      "source": "API MOCK"
+    },
+    {
+      "label": "Password visibility and keyboard Enter submits",
+      "result": "PASS",
+      "source": "API MOCK"
+    },
+    {
+      "label": "Login network error and malformed success never authenticate",
+      "result": "PASS",
+      "source": "API MOCK"
+    },
+    {
+      "label": "Register validation, matching confirmation, no privileged role selection",
+      "result": "PASS",
+      "source": "API MOCK"
+    },
+    {
+      "label": "Register maps network, duplicate email and Problem Details field errors",
+      "result": "PASS",
+      "source": "API MOCK"
+    },
+    {
+      "label": "Register PATIENT success redirects to Login with explicit MOCK notice",
+      "result": "PASS",
+      "source": "API MOCK"
+    },
+    {
+      "label": "Loading and double-submit lock; /me validates identity before entry",
+      "result": "PASS",
+      "source": "API MOCK"
+    },
+    {
+      "label": "403 keeps session and shows missing permission; 401 clears and redirects",
+      "result": "PASS",
+      "source": "API MOCK"
+    },
+    {
+      "label": "All four roles enter the correct workspace and guard direct SPA URLs",
+      "result": "PASS",
+      "source": "API MOCK"
+    },
+    {
+      "label": "Logout and reload remove authentication; history cannot restore it",
+      "result": "PASS",
+      "source": "API MOCK"
+    },
+    {
+      "label": "Keyboard skip link and focus are usable",
+      "result": "PASS",
+      "source": "API MOCK"
+    },
+    {
+      "label": "Mobile navigation traps focus, closes on Escape and supports logout",
+      "result": "PASS",
+      "source": "API MOCK"
+    },
+    {
+      "label": "Responsive Light/Dark auth pages at 320/390/768/1440px",
+      "result": "PASS",
+      "source": "API MOCK"
+    },
+    {
+      "label": "Reduced motion disables loading animation",
+      "result": "PASS",
+      "source": "API MOCK"
+    }
+  ],
+  "runtimeErrors": 0,
+  "requestSummary": {
+    "login": 11,
+    "register": 5,
+    "me": 10,
+    "unexpected": 0
+  },
+  "tokensLogged": false
+}

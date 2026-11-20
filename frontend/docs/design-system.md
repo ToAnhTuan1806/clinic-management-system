@@ -1,6 +1,6 @@
 # ClinicOS design system
 
-CL-D01-FE — Modern Medical Dashboard, blue/white, Light/Dark/System.
+CL-D01-FE + CL-D02-FE — Modern Medical Dashboard, blue/white, Light/Dark/System. D02 authentication status and integration limits are documented in [auth contract status](auth-contract-status.md).
 
 ## Foundation
 
@@ -34,7 +34,7 @@ Defined in `src/index.css`; components should use semantic classes instead of re
 - Desktop navigation starts at 1024px; sidebar is 256px with independent overflow. Content is capped at 1600px.
 - Mobile/tablet use a Radix modal Sheet: focus trap, Escape, return focus on dismissal, focus main content after navigation. The menu supports safe-area padding.
 - Native links and buttons, visible focus, skip link, `aria-current` on active routes, labels on fields and icon buttons.
-- Login fields use native required/email/minimum-length validation. Submission only displays an explanatory local message; it does not authenticate.
+- Login/Register use shadcn Form, React Hook Form, Input, Button and Alert with inline validation, visible error focus, password visibility and submission locks. The default profile blocks unconfirmed auth contracts; the opt-in development profile is explicitly labeled API MOCK.
 - `LoadingState`, `EmptyState`, `ErrorState` are reusable. Preview them in Settings with explicit DEMO labeling.
 - No metric values, patient records or fabricated activity appear in the scaffold. Dashes mean data is unavailable, not zero.
 
@@ -44,7 +44,7 @@ Defined in `src/index.css`; components should use semantic classes instead of re
 - The pre-paint script in `index.html` applies the preference before React loads. Storage failures are handled gracefully.
 - Magic UI `BlurFade` is installed from the official registry and adapted: blur is disabled by default, entrance uses only opacity and a 4px translation for 300ms, on one dashboard banner.
 - `useReducedMotion`, `MotionConfig reducedMotion="user"` and a global media query disable motion and skeleton pulses when requested.
-- No looping decorative animations or external image/font requests.
+- No looping decorative animations or external image/font requests. D02 uses a loading spinner only while a request is pending; reduced motion disables it.
 
 ## Official references
 

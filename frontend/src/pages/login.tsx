@@ -1,146 +1,165 @@
-import { useState, type FormEvent } from 'react'
-import { ArrowRight, Eye, EyeOff, HeartPulse, ShieldCheck } from 'lucide-react'
-import { Link } from 'react-router'
-import { Brand } from '@/components/brand'
-import { ThemeToggle } from '@/components/theme-toggle'
-import { Badge } from '@/components/ui/badge'
+import { useRef, useState } from 'react'
+import { useForm } from 'react-hook-form'
+import { Link, useLocation } from 'react-router'
+import { ArrowRight, LoaderCircle } from 'lucide-react'
+import { useAuth } from '@/auth/context'
+import { normalizeAuthError } from '@/auth/errors'
+import type { LoginInput } from '@/auth/types'
+import { emailRules, loginPasswordRules } from '@/auth/validation'
+import { useSubmission } from '@/auth/use-submission'
+import { AuthLayout } from '@/components/auth/auth-layout'
+import { AuthFeedback } from '@/components/auth/auth-feedback'
+import { PasswordInput } from '@/components/auth/password-input'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@/components/ui/form'
 
 export default function Login() {
-  const [showPassword, setShowPassword] = useState(false)
-  const [submitted, setSubmitted] = useState(false)
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    setSubmitted(true)
-  }
+  const { login, notice } = useAuth()
+  const { state } = useLocation()
+  const form = useForm<LoginInput>({
+    defaultValues: { email: '', password: '' },
+    mode: 'onTouched',
+  })
+  const { pending, run } = useSubmission()
+  const [error, setError] = useState<string | null>(null)
+  const feedback = useRef<HTMLDivElement>(null)
   return (
-    <main
-      id="main-content"
-      tabIndex={-1}
-      className="grid min-h-dvh outline-none lg:grid-cols-2"
-    >
-      <section className="medical-banner hidden flex-col justify-between p-12 lg:flex">
-        <p className="text-sm font-semibold">CLINICOS / KHÔNG GIAN CHĂM SÓC</p>
-        <div className="max-w-md">
-          <HeartPulse
-            className="mb-8 size-20"
-            strokeWidth={1}
-            aria-hidden="true"
-          />
-          <h2 className="text-4xl leading-tight font-semibold">
-            Chăm sóc tốt hơn.
-            <br />
-            Bắt đầu từ kết nối.
-          </h2>
-          <p className="mt-6 leading-relaxed text-white/90">
-            Nền tảng quản lý phòng khám với trải nghiệm rõ ràng, thống nhất và
-            dễ sử dụng.
-          </p>
-        </div>
-        <p className="flex items-center gap-2 text-sm text-white/90">
-          <ShieldCheck className="size-4" aria-hidden="true" />
-          Bản DEMO · Không sử dụng dữ liệu thật
-        </p>
-      </section>
-      <section className="flex min-w-0 flex-col p-5 sm:p-10">
-        <div className="flex items-center justify-between">
-          <Link
-            to="/dashboard"
-            className="rounded-lg"
-            aria-label="ClinicOS — về tổng quan"
-          >
-            <Brand />
-          </Link>
-          <ThemeToggle />
-        </div>
-        <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center py-12">
-          <Badge className="mb-5 w-fit" variant="secondary">
-            DEMO · Chưa kết nối xác thực
-          </Badge>
-          <h1 className="text-3xl font-semibold">Chào mừng trở lại</h1>
-          <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-            Xem trước màn hình đăng nhập. Chỉ nhập thông tin DEMO, không dùng
-            tài khoản thật.
-          </p>
-          <form
-            onSubmit={submit}
-            className="mt-8 space-y-5"
-            aria-describedby="login-note"
-          >
-            <div className="space-y-2">
-              <Label htmlFor="email">Email DEMO</Label>
-              <Input
-                id="email"
-                name="email"
-                type="email"
-                placeholder="demo@example.test"
-                autoComplete="off"
-                required
-                className="h-11"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Mật khẩu DEMO</Label>
-              <div className="relative">
-                <Input
-                  id="password"
-                  name="password"
-                  type={showPassword ? 'text' : 'password'}
-                  autoComplete="off"
-                  required
-                  minLength={8}
-                  placeholder="Ít nhất 8 ký tự DEMO"
-                  className="h-11 pr-12"
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="absolute top-0.5 right-0.5 size-10"
-                  onClick={() => setShowPassword(!showPassword)}
-                  aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
-                  aria-pressed={showPassword}
-                >
-                  {showPassword ? (
-                    <EyeOff aria-hidden="true" />
-                  ) : (
-                    <Eye aria-hidden="true" />
-                  )}
-                </Button>
-              </div>
-            </div>
-            <p
-              id="login-note"
-              className="text-xs leading-relaxed text-muted-foreground"
-            >
-              Thông tin nhập không được gửi đi hoặc lưu bởi ứng dụng.
-            </p>
-            {submitted && (
-              <p
-                role="alert"
-                className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm leading-relaxed"
-              >
-                Chưa kết nối dịch vụ xác thực. Bạn có thể mở bản DEMO bên dưới
-                để khám phá giao diện.
-              </p>
-            )}
-            <Button type="submit" className="h-11 w-full">
-              Xem trước đăng nhập
-              <ArrowRight aria-hidden="true" />
+    <AuthLayout>
+      <h1 className="text-3xl font-semibold">Chào mừng trở lại</h1>
+      <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+        Đăng nhập để tiếp tục vào không gian chăm sóc của bạn.
+      </p>
+      {state?.registrationComplete === true && (
+        <Alert className="mt-5 p-4" role="status">
+          <AlertDescription>
+            {state.mockRegistration === true
+              ? 'DEMO · API mock đã phản hồi đăng ký PATIENT. Chưa xác minh với Backend thật.'
+              : 'Đăng ký hoàn tất. Bạn có thể đăng nhập bằng tài khoản vừa tạo.'}
+          </AlertDescription>
+        </Alert>
+      )}
+      {notice === 'expired' && (
+        <Alert className="mt-5 p-4" role="status">
+          <AlertDescription>
+            Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.
+          </AlertDescription>
+        </Alert>
+      )}
+      <Form {...form}>
+        <form
+          noValidate
+          className="mt-7 space-y-5"
+          aria-busy={pending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            void run(async (signal) => {
+              await form.handleSubmit(async (values) => {
+                setError(null)
+                try {
+                  await login(
+                    { email: values.email.trim(), password: values.password },
+                    signal,
+                  )
+                } catch (failure) {
+                  if (signal.aborted) return
+                  const problem = normalizeAuthError(failure)
+                  setError(problem.message)
+                  for (const field of ['email', 'password'] as const)
+                    if (problem.fields[field])
+                      form.setError(field, {
+                        type: 'server',
+                        message: problem.fields[field],
+                      })
+                  requestAnimationFrame(() => feedback.current?.focus())
+                }
+              })()
+            })
+          }}
+        >
+          <fieldset disabled={pending} className="space-y-5">
+            <FormField
+              control={form.control}
+              name="email"
+              rules={emailRules}
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Email</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type="email"
+                      autoComplete="username"
+                      inputMode="email"
+                      placeholder="ban@example.com"
+                      className="h-11"
+                    />
+                  </FormControl>
+                  <FormDescription className="sr-only">
+                    Địa chỉ email dùng để đăng nhập.
+                  </FormDescription>
+                  <FormMessage role="alert" />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="password"
+              rules={loginPasswordRules}
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Mật khẩu</FormLabel>
+                  <FormControl>
+                    <PasswordInput {...field} autoComplete="current-password" />
+                  </FormControl>
+                  <FormDescription className="sr-only">
+                    Mật khẩu của tài khoản.
+                  </FormDescription>
+                  <FormMessage role="alert" />
+                </FormItem>
+              )}
+            />
+            {error && <AuthFeedback ref={feedback} message={error} />}
+            <Button type="submit" disabled={pending} className="h-11 w-full">
+              {pending ? (
+                <>
+                  <LoaderCircle
+                    className="animate-spin motion-reduce:animate-none"
+                    aria-hidden="true"
+                  />
+                  Đang đăng nhập…
+                </>
+              ) : (
+                <>
+                  Đăng nhập
+                  <ArrowRight aria-hidden="true" />
+                </>
+              )}
             </Button>
-          </form>
-          <div className="mt-6 border-t pt-6">
-            <Button asChild variant="outline" className="h-11 w-full">
-              <Link to="/dashboard">Mở không gian DEMO</Link>
-            </Button>
-          </div>
-        </div>
-        <p className="text-center text-xs text-muted-foreground">
-          ClinicOS · Frontend foundation
-        </p>
-      </section>
-    </main>
+          </fieldset>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            Phiên chỉ được giữ trong bộ nhớ và kết thúc khi tải lại trang.
+          </p>
+        </form>
+      </Form>
+      <p className="mt-6 border-t pt-6 text-center text-sm text-muted-foreground">
+        Bạn chưa có tài khoản?{' '}
+        <Link
+          to="/register"
+          className="inline-flex min-h-9 items-center rounded font-semibold text-primary"
+        >
+          Đăng ký bệnh nhân
+        </Link>
+      </p>
+    </AuthLayout>
   )
 }
