@@ -89,7 +89,7 @@ export const navigation = [
   },
   {
     path: '/booking',
-    roles: ['PATIENT'] as readonly Role[],
+    roles: ['PATIENT', 'RECEPTIONIST'] as readonly Role[],
     label: 'Đặt lịch khám',
     title: 'Đặt lịch khám',
     icon: CalendarDays,
