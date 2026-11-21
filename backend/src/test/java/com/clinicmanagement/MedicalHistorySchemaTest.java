@@ -94,8 +94,8 @@ class MedicalHistorySchemaTest {
             assertThat(((SQLException) root).getErrorCode()).isEqualTo(code);
         });
     }
-
     static void seed(JdbcTemplate db) {
+
         for (int i : new int[]{1,2,3,4,50}) {
             db.update("INSERT INTO users(id,email,password_hash,full_name,role,status,created_at,updated_at) VALUES(?,?,'synthetic-not-login','Synthetic History',?,'ACTIVE'," + CREATED + "," + CREATED + ")",
                     i, "d11-" + i + "@example.test", i <= 2 || i == 50 ? "DOCTOR" : "PATIENT");

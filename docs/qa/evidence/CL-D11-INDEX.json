@@ -1,0 +1,549 @@
+{
+  "task": "CL-D11-DB INDEX BASELINE",
+  "container": "clinic-d11-index-f19641f7682d",
+  "migration_sha256": {
+    "V1__create_users.sql": "27043f2c2669b8b666d4c17f9be12d14cc40a7e96451ad10b2a99f3b07955edf",
+    "V2__create_specialties_and_doctors.sql": "1f1f39cdea70eff2fa1198543ffd41b62d874d629d5c530a7c1cf45f89276973",
+    "V3__create_patients_and_profile_fields.sql": "9a9395e048768a87cd54aeaded3cc8c59b97f5a90124a7a2cc52d566fb38e7e0",
+    "V4__add_profile_contact_fields_to_users.sql": "c2b2f5cc9fbdc27060e426133e541c1e379df3f7d1491d33326f6bbd55d22c6f",
+    "V5__create_doctor_schedules.sql": "65de95a05969411f0f15c9bc19d44399fff72b507da2fc2fe1fb7685b86ee71d",
+    "V6__create_appointments.sql": "9d5e1a3742364515afc660a4635ffe73690219b45cd12d2a2947e5aea5d7cc64",
+    "V7__appointment_lifecycle.sql": "245e8b189bb6fe4e18261dbaf5b6be746e54feaf878b32024d999ce31192f363",
+    "V8__appointment_reception_lifecycle.sql": "3aa1e76d4e27da0342e1b4a5c7e751733d4377a035fa012955f5778e5e132a20",
+    "V9__create_medical_records.sql": "75dc648044e795c168e0bc787a3f86d112ca3d542567f23040e061eba104d1bf"
+  },
+  "synthetic_only": true,
+  "added_indexes": [],
+  "mysql_version": "8.4.11",
+  "fixture_counts": {
+    "patients": 300,
+    "doctors": 12,
+    "appointments": 12000,
+    "medical_records": 12000
+  },
+  "baseline_v9_plans": {
+    "patient_history": {
+      "sql": "SELECT a.id,a.start_at_utc,m.id FROM appointments a JOIN medical_records m ON m.appointment_id=a.id WHERE a.patient_id=42 AND a.status='COMPLETED' AND m.completed_at IS NOT NULL ORDER BY a.start_at_utc DESC,a.id DESC LIMIT 20",
+      "explain_analyze": "-> Limit: 20 row(s)  (cost=19 rows=18) (actual time=0.164..0.338 rows=20 loops=1)\n    -> Nested loop inner join  (cost=19 rows=18) (actual time=0.156..0.33 rows=20 loops=1)\n        -> Filter: (a.`status` = 'COMPLETED')  (cost=12 rows=20) (actual time=0.138..0.165 rows=20 loops=1)\n            -> Index lookup on a using ix_appointments_patient_start_id (patient_id=42) (reverse)  (cost=12 rows=40) (actual time=0.118..0.143 rows=20 loops=1)\n        -> Filter: (m.completed_at is not null)  (cost=0.255 rows=0.9) (actual time=0.00769..0.00777 rows=1 loops=20)\n            -> Single-row index lookup on m using uk_medical_records_appointment (appointment_id=a.id)  (cost=0.255 rows=1) (actual time=0.00755..0.00758 rows=1 loops=20)",
+      "explain_json": {
+        "query_block": {
+          "select_id": 1,
+          "cost_info": {
+            "query_cost": "21.00"
+          },
+          "ordering_operation": {
+            "using_filesort": false,
+            "nested_loop": [
+              {
+                "table": {
+                  "table_name": "a",
+                  "access_type": "ref",
+                  "possible_keys": [
+                    "PRIMARY",
+                    "ix_appointments_patient_start_id",
+                    "ix_appointments_status_start_id"
+                  ],
+                  "key": "ix_appointments_patient_start_id",
+                  "used_key_parts": [
+                    "patient_id"
+                  ],
+                  "key_length": "8",
+                  "ref": [
+                    "const"
+                  ],
+                  "rows_examined_per_scan": 40,
+                  "rows_produced_per_join": 19,
+                  "filtered": "50.00",
+                  "backward_index_scan": true,
+                  "cost_info": {
+                    "read_cost": "10.00",
+                    "eval_cost": "2.00",
+                    "prefix_cost": "14.00",
+                    "data_read_per_join": "67K"
+                  },
+                  "used_columns": [
+                    "id",
+                    "patient_id",
+                    "start_at_utc",
+                    "status"
+                  ],
+                  "attached_condition": "(`clinic_d11_history_benchmark`.`a`.`status` = 'COMPLETED')"
+                }
+              },
+              {
+                "table": {
+                  "table_name": "m",
+                  "access_type": "eq_ref",
+                  "possible_keys": [
+                    "uk_medical_records_appointment"
+                  ],
+                  "key": "uk_medical_records_appointment",
+                  "used_key_parts": [
+                    "appointment_id"
+                  ],
+                  "key_length": "8",
+                  "ref": [
+                    "clinic_d11_history_benchmark.a.id"
+                  ],
+                  "rows_examined_per_scan": 1,
+                  "rows_produced_per_join": 17,
+                  "filtered": "90.00",
+                  "cost_info": {
+                    "read_cost": "5.00",
+                    "eval_cost": "1.80",
+                    "prefix_cost": "21.00",
+                    "data_read_per_join": "1K"
+                  },
+                  "used_columns": [
+                    "id",
+                    "appointment_id",
+                    "completed_at"
+                  ],
+                  "attached_condition": "(`clinic_d11_history_benchmark`.`m`.`completed_at` is not null)"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "doctor_history": {
+      "sql": "SELECT a.id,a.start_at_utc,m.id FROM appointments a JOIN medical_records m ON m.appointment_id=a.id WHERE a.doctor_id=7 AND a.status='COMPLETED' AND m.completed_at IS NOT NULL ORDER BY a.start_at_utc DESC,a.id DESC LIMIT 20",
+      "explain_analyze": "-> Limit: 20 row(s)  (cost=278 rows=20) (actual time=0.297..0.331 rows=20 loops=1)\n    -> Nested loop inner join  (cost=278 rows=900) (actual time=0.296..0.33 rows=20 loops=1)\n        -> Sort: a.start_at_utc DESC, a.id DESC  (cost=53.2 rows=1000) (actual time=0.281..0.282 rows=20 loops=1)\n            -> Filter: (a.`status` = 'COMPLETED')  (cost=53.2 rows=1000) (actual time=0.023..0.176 rows=1000 loops=1)\n                -> Covering index lookup on a using ix_appointments_doctor_time_status (doctor_id=7)  (cost=53.2 rows=1000) (actual time=0.0216..0.127 rows=1000 loops=1)\n        -> Filter: (m.completed_at is not null)  (cost=0.25 rows=0.9) (actual time=0.00215..0.00221 rows=1 loops=20)\n            -> Single-row index lookup on m using uk_medical_records_appointment (appointment_id=a.id)  (cost=0.25 rows=1) (actual time=0.00205..0.00207 rows=1 loops=20)",
+      "explain_json": {
+        "query_block": {
+          "select_id": 1,
+          "cost_info": {
+            "query_cost": "278.21"
+          },
+          "ordering_operation": {
+            "using_filesort": true,
+            "nested_loop": [
+              {
+                "table": {
+                  "table_name": "a",
+                  "access_type": "ref",
+                  "possible_keys": [
+                    "PRIMARY",
+                    "uk_appointments_doctor_active_slot",
+                    "ix_appointments_doctor_time_status",
+                    "ix_appointments_status_start_id"
+                  ],
+                  "key": "ix_appointments_doctor_time_status",
+                  "used_key_parts": [
+                    "doctor_id"
+                  ],
+                  "key_length": "8",
+                  "ref": [
+                    "const"
+                  ],
+                  "rows_examined_per_scan": 1000,
+                  "rows_produced_per_join": 499,
+                  "filtered": "50.00",
+                  "using_index": true,
+                  "cost_info": {
+                    "read_cost": "3.22",
+                    "eval_cost": "50.00",
+                    "prefix_cost": "103.22",
+                    "data_read_per_join": "1M"
+                  },
+                  "used_columns": [
+                    "id",
+                    "doctor_id",
+                    "start_at_utc",
+                    "status"
+                  ],
+                  "attached_condition": "(`clinic_d11_history_benchmark`.`a`.`status` = 'COMPLETED')"
+                }
+              },
+              {
+                "table": {
+                  "table_name": "m",
+                  "access_type": "eq_ref",
+                  "possible_keys": [
+                    "uk_medical_records_appointment"
+                  ],
+                  "key": "uk_medical_records_appointment",
+                  "used_key_parts": [
+                    "appointment_id"
+                  ],
+                  "key_length": "8",
+                  "ref": [
+                    "clinic_d11_history_benchmark.a.id"
+                  ],
+                  "rows_examined_per_scan": 1,
+                  "rows_produced_per_join": 449,
+                  "filtered": "90.00",
+                  "cost_info": {
+                    "read_cost": "124.99",
+                    "eval_cost": "45.00",
+                    "prefix_cost": "278.21",
+                    "data_read_per_join": "49K"
+                  },
+                  "used_columns": [
+                    "id",
+                    "appointment_id",
+                    "completed_at"
+                  ],
+                  "attached_condition": "(`clinic_d11_history_benchmark`.`m`.`completed_at` is not null)"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "patient_doctor_time": {
+      "sql": "SELECT a.id,a.start_at_utc,m.id FROM appointments a JOIN medical_records m ON m.appointment_id=a.id WHERE a.patient_id=42 AND a.doctor_id=7 AND a.start_at_utc >= '2026-02-01' AND a.start_at_utc < '2026-10-01' AND m.completed_at IS NOT NULL ORDER BY a.start_at_utc DESC,a.id DESC LIMIT 20",
+      "explain_analyze": "-> Limit: 20 row(s)  (cost=17 rows=2.65) (actual time=0.18..0.192 rows=3 loops=1)\n    -> Nested loop inner join  (cost=17 rows=2.65) (actual time=0.179..0.191 rows=3 loops=1)\n        -> Filter: (a.doctor_id = 7)  (cost=16 rows=2.94) (actual time=0.165..0.169 rows=3 loops=1)\n            -> Index range scan on a using ix_appointments_patient_start_id over (patient_id = 42 AND '2026-02-01 00:00:00.000000' <= start_at_utc < '2026-10-01 00:00:00.000000') (reverse), with index condition: ((a.patient_id = 42) and (a.start_at_utc >= TIMESTAMP'2026-02-01 00:00:00') and (a.start_at_utc < TIMESTAMP'2026-10-01 00:00:00'))  (cost=16 rows=35) (actual time=0.132..0.135 rows=35 loops=1)\n        -> Filter: (m.completed_at is not null)  (cost=0.281 rows=0.9) (actual time=0.0066..0.00666 rows=1 loops=3)\n            -> Single-row index lookup on m using uk_medical_records_appointment (appointment_id=a.id)  (cost=0.281 rows=1) (actual time=0.00643..0.00645 rows=1 loops=3)",
+      "explain_json": {
+        "query_block": {
+          "select_id": 1,
+          "cost_info": {
+            "query_cost": "17.04"
+          },
+          "ordering_operation": {
+            "using_filesort": false,
+            "nested_loop": [
+              {
+                "table": {
+                  "table_name": "a",
+                  "access_type": "range",
+                  "possible_keys": [
+                    "PRIMARY",
+                    "uk_appointments_doctor_active_slot",
+                    "ix_appointments_doctor_time_status",
+                    "ix_appointments_patient_start_id"
+                  ],
+                  "key": "ix_appointments_patient_start_id",
+                  "used_key_parts": [
+                    "patient_id",
+                    "start_at_utc"
+                  ],
+                  "key_length": "16",
+                  "rows_examined_per_scan": 35,
+                  "rows_produced_per_join": 2,
+                  "filtered": "8.41",
+                  "index_condition": "((`clinic_d11_history_benchmark`.`a`.`patient_id` = 42) and (`clinic_d11_history_benchmark`.`a`.`start_at_utc` >= TIMESTAMP'2026-02-01 00:00:00') and (`clinic_d11_history_benchmark`.`a`.`start_at_utc` < TIMESTAMP'2026-10-01 00:00:00'))",
+                  "backward_index_scan": true,
+                  "cost_info": {
+                    "read_cost": "15.72",
+                    "eval_cost": "0.29",
+                    "prefix_cost": "16.01",
+                    "data_read_per_join": "9K"
+                  },
+                  "used_columns": [
+                    "id",
+                    "patient_id",
+                    "doctor_id",
+                    "start_at_utc"
+                  ],
+                  "attached_condition": "(`clinic_d11_history_benchmark`.`a`.`doctor_id` = 7)"
+                }
+              },
+              {
+                "table": {
+                  "table_name": "m",
+                  "access_type": "eq_ref",
+                  "possible_keys": [
+                    "uk_medical_records_appointment"
+                  ],
+                  "key": "uk_medical_records_appointment",
+                  "used_key_parts": [
+                    "appointment_id"
+                  ],
+                  "key_length": "8",
+                  "ref": [
+                    "clinic_d11_history_benchmark.a.id"
+                  ],
+                  "rows_examined_per_scan": 1,
+                  "rows_produced_per_join": 2,
+                  "filtered": "90.00",
+                  "cost_info": {
+                    "read_cost": "0.74",
+                    "eval_cost": "0.26",
+                    "prefix_cost": "17.04",
+                    "data_read_per_join": "296"
+                  },
+                  "used_columns": [
+                    "id",
+                    "appointment_id",
+                    "completed_at"
+                  ],
+                  "attached_condition": "(`clinic_d11_history_benchmark`.`m`.`completed_at` is not null)"
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "v10_sha256": "c2d3b6ab3688701fa8454849a5b89b4ac360f7fbe1ffe5bd47c2e06fb478893b",
+  "v10_plans": {
+    "patient_history": {
+      "sql": "SELECT a.id,a.start_at_utc,m.id FROM appointments a JOIN medical_records m ON m.appointment_id=a.id WHERE a.patient_id=42 AND a.status='COMPLETED' AND m.released_at IS NOT NULL ORDER BY a.start_at_utc DESC,a.id DESC LIMIT 20",
+      "explain_analyze": "-> Limit: 20 row(s)  (cost=19 rows=18) (actual time=0.109..0.21 rows=20 loops=1)\n    -> Nested loop inner join  (cost=19 rows=18) (actual time=0.108..0.208 rows=20 loops=1)\n        -> Filter: (a.`status` = 'COMPLETED')  (cost=12 rows=20) (actual time=0.0932..0.101 rows=20 loops=1)\n            -> Index lookup on a using ix_appointments_patient_start_id (patient_id=42) (reverse)  (cost=12 rows=40) (actual time=0.0913..0.0966 rows=20 loops=1)\n        -> Filter: (m.released_at is not null)  (cost=0.254 rows=0.9) (actual time=0.00509..0.00515 rows=1 loops=20)\n            -> Single-row index lookup on m using uk_medical_records_appointment (appointment_id=a.id)  (cost=0.254 rows=1) (actual time=0.00497..0.00499 rows=1 loops=20)",
+      "explain_json": {
+        "query_block": {
+          "select_id": 1,
+          "cost_info": {
+            "query_cost": "21.00"
+          },
+          "ordering_operation": {
+            "using_filesort": false,
+            "nested_loop": [
+              {
+                "table": {
+                  "table_name": "a",
+                  "access_type": "ref",
+                  "possible_keys": [
+                    "PRIMARY",
+                    "ix_appointments_patient_start_id",
+                    "ix_appointments_status_start_id"
+                  ],
+                  "key": "ix_appointments_patient_start_id",
+                  "used_key_parts": [
+                    "patient_id"
+                  ],
+                  "key_length": "8",
+                  "ref": [
+                    "const"
+                  ],
+                  "rows_examined_per_scan": 40,
+                  "rows_produced_per_join": 20,
+                  "filtered": "50.00",
+                  "backward_index_scan": true,
+                  "cost_info": {
+                    "read_cost": "10.00",
+                    "eval_cost": "2.00",
+                    "prefix_cost": "14.00",
+                    "data_read_per_join": "67K"
+                  },
+                  "used_columns": [
+                    "id",
+                    "patient_id",
+                    "start_at_utc",
+                    "status"
+                  ],
+                  "attached_condition": "(`clinic_d11_history_benchmark`.`a`.`status` = 'COMPLETED')"
+                }
+              },
+              {
+                "table": {
+                  "table_name": "m",
+                  "access_type": "eq_ref",
+                  "possible_keys": [
+                    "uk_medical_records_appointment"
+                  ],
+                  "key": "uk_medical_records_appointment",
+                  "used_key_parts": [
+                    "appointment_id"
+                  ],
+                  "key_length": "8",
+                  "ref": [
+                    "clinic_d11_history_benchmark.a.id"
+                  ],
+                  "rows_examined_per_scan": 1,
+                  "rows_produced_per_join": 17,
+                  "filtered": "90.00",
+                  "cost_info": {
+                    "read_cost": "5.00",
+                    "eval_cost": "1.80",
+                    "prefix_cost": "21.00",
+                    "data_read_per_join": "2K"
+                  },
+                  "used_columns": [
+                    "id",
+                    "appointment_id",
+                    "released_at"
+                  ],
+                  "attached_condition": "(`clinic_d11_history_benchmark`.`m`.`released_at` is not null)"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "doctor_history": {
+      "sql": "SELECT a.id,a.start_at_utc,m.id FROM appointments a JOIN medical_records m ON m.appointment_id=a.id WHERE a.doctor_id=7 AND a.status='COMPLETED' AND m.released_at IS NOT NULL ORDER BY a.start_at_utc DESC,a.id DESC LIMIT 20",
+      "explain_analyze": "-> Limit: 20 row(s)  (cost=278 rows=20) (actual time=0.298..0.329 rows=20 loops=1)\n    -> Nested loop inner join  (cost=278 rows=900) (actual time=0.298..0.327 rows=20 loops=1)\n        -> Sort: a.start_at_utc DESC, a.id DESC  (cost=53.2 rows=1000) (actual time=0.287..0.288 rows=20 loops=1)\n            -> Filter: (a.`status` = 'COMPLETED')  (cost=53.2 rows=1000) (actual time=0.0177..0.188 rows=1000 loops=1)\n                -> Covering index lookup on a using ix_appointments_doctor_time_status (doctor_id=7)  (cost=53.2 rows=1000) (actual time=0.0169..0.144 rows=1000 loops=1)\n        -> Filter: (m.released_at is not null)  (cost=0.25 rows=0.9) (actual time=0.00179..0.00185 rows=1 loops=20)\n            -> Single-row index lookup on m using uk_medical_records_appointment (appointment_id=a.id)  (cost=0.25 rows=1) (actual time=0.0017..0.00172 rows=1 loops=20)",
+      "explain_json": {
+        "query_block": {
+          "select_id": 1,
+          "cost_info": {
+            "query_cost": "278.22"
+          },
+          "ordering_operation": {
+            "using_filesort": true,
+            "nested_loop": [
+              {
+                "table": {
+                  "table_name": "a",
+                  "access_type": "ref",
+                  "possible_keys": [
+                    "PRIMARY",
+                    "uk_appointments_doctor_active_slot",
+                    "ix_appointments_doctor_time_status",
+                    "ix_appointments_status_start_id"
+                  ],
+                  "key": "ix_appointments_doctor_time_status",
+                  "used_key_parts": [
+                    "doctor_id"
+                  ],
+                  "key_length": "8",
+                  "ref": [
+                    "const"
+                  ],
+                  "rows_examined_per_scan": 1000,
+                  "rows_produced_per_join": 500,
+                  "filtered": "50.00",
+                  "using_index": true,
+                  "cost_info": {
+                    "read_cost": "3.22",
+                    "eval_cost": "50.00",
+                    "prefix_cost": "103.22",
+                    "data_read_per_join": "1M"
+                  },
+                  "used_columns": [
+                    "id",
+                    "doctor_id",
+                    "start_at_utc",
+                    "status"
+                  ],
+                  "attached_condition": "(`clinic_d11_history_benchmark`.`a`.`status` = 'COMPLETED')"
+                }
+              },
+              {
+                "table": {
+                  "table_name": "m",
+                  "access_type": "eq_ref",
+                  "possible_keys": [
+                    "uk_medical_records_appointment"
+                  ],
+                  "key": "uk_medical_records_appointment",
+                  "used_key_parts": [
+                    "appointment_id"
+                  ],
+                  "key_length": "8",
+                  "ref": [
+                    "clinic_d11_history_benchmark.a.id"
+                  ],
+                  "rows_examined_per_scan": 1,
+                  "rows_produced_per_join": 449,
+                  "filtered": "90.00",
+                  "cost_info": {
+                    "read_cost": "125.00",
+                    "eval_cost": "45.00",
+                    "prefix_cost": "278.22",
+                    "data_read_per_join": "56K"
+                  },
+                  "used_columns": [
+                    "id",
+                    "appointment_id",
+                    "released_at"
+                  ],
+                  "attached_condition": "(`clinic_d11_history_benchmark`.`m`.`released_at` is not null)"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "patient_doctor_time": {
+      "sql": "SELECT a.id,a.start_at_utc,m.id FROM appointments a JOIN medical_records m ON m.appointment_id=a.id WHERE a.patient_id=42 AND a.doctor_id=7 AND a.start_at_utc >= '2026-02-01' AND a.start_at_utc < '2026-10-01' AND m.released_at IS NOT NULL ORDER BY a.start_at_utc DESC,a.id DESC LIMIT 20",
+      "explain_analyze": "-> Limit: 20 row(s)  (cost=17.1 rows=2.72) (actual time=0.102..0.115 rows=3 loops=1)\n    -> Nested loop inner join  (cost=17.1 rows=2.72) (actual time=0.101..0.114 rows=3 loops=1)\n        -> Filter: (a.doctor_id = 7)  (cost=16 rows=3.02) (actual time=0.0897..0.0934 rows=3 loops=1)\n            -> Index range scan on a using ix_appointments_patient_start_id over (patient_id = 42 AND '2026-02-01 00:00:00.000000' <= start_at_utc < '2026-10-01 00:00:00.000000') (reverse), with index condition: ((a.patient_id = 42) and (a.start_at_utc >= TIMESTAMP'2026-02-01 00:00:00') and (a.start_at_utc < TIMESTAMP'2026-10-01 00:00:00'))  (cost=16 rows=35) (actual time=0.0871..0.0909 rows=35 loops=1)\n        -> Filter: (m.released_at is not null)  (cost=0.28 rows=0.9) (actual time=0.00622..0.00629 rows=1 loops=3)\n            -> Single-row index lookup on m using uk_medical_records_appointment (appointment_id=a.id)  (cost=0.28 rows=1) (actual time=0.00605..0.00607 rows=1 loops=3)",
+      "explain_json": {
+        "query_block": {
+          "select_id": 1,
+          "cost_info": {
+            "query_cost": "17.07"
+          },
+          "ordering_operation": {
+            "using_filesort": false,
+            "nested_loop": [
+              {
+                "table": {
+                  "table_name": "a",
+                  "access_type": "range",
+                  "possible_keys": [
+                    "PRIMARY",
+                    "uk_appointments_doctor_active_slot",
+                    "ix_appointments_doctor_time_status",
+                    "ix_appointments_patient_start_id"
+                  ],
+                  "key": "ix_appointments_patient_start_id",
+                  "used_key_parts": [
+                    "patient_id",
+                    "start_at_utc"
+                  ],
+                  "key_length": "16",
+                  "rows_examined_per_scan": 35,
+                  "rows_produced_per_join": 3,
+                  "filtered": "8.62",
+                  "index_condition": "((`clinic_d11_history_benchmark`.`a`.`patient_id` = 42) and (`clinic_d11_history_benchmark`.`a`.`start_at_utc` >= TIMESTAMP'2026-02-01 00:00:00') and (`clinic_d11_history_benchmark`.`a`.`start_at_utc` < TIMESTAMP'2026-10-01 00:00:00'))",
+                  "backward_index_scan": true,
+                  "cost_info": {
+                    "read_cost": "15.71",
+                    "eval_cost": "0.30",
+                    "prefix_cost": "16.01",
+                    "data_read_per_join": "10K"
+                  },
+                  "used_columns": [
+                    "id",
+                    "patient_id",
+                    "doctor_id",
+                    "start_at_utc"
+                  ],
+                  "attached_condition": "(`clinic_d11_history_benchmark`.`a`.`doctor_id` = 7)"
+                }
+              },
+              {
+                "table": {
+                  "table_name": "m",
+                  "access_type": "eq_ref",
+                  "possible_keys": [
+                    "uk_medical_records_appointment"
+                  ],
+                  "key": "uk_medical_records_appointment",
+                  "used_key_parts": [
+                    "appointment_id"
+                  ],
+                  "key_length": "8",
+                  "ref": [
+                    "clinic_d11_history_benchmark.a.id"
+                  ],
+                  "rows_examined_per_scan": 1,
+                  "rows_produced_per_join": 2,
+                  "filtered": "90.00",
+                  "cost_info": {
+                    "read_cost": "0.75",
+                    "eval_cost": "0.27",
+                    "prefix_cost": "17.07",
+                    "data_read_per_join": "347"
+                  },
+                  "used_columns": [
+                    "id",
+                    "appointment_id",
+                    "released_at"
+                  ],
+                  "attached_condition": "(`clinic_d11_history_benchmark`.`m`.`released_at` is not null)"
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "released_rows_after_backfill": 12000,
+  "fk_support_index": "ix_medical_records_released_by (structural FK support, not a history-query optimization)",
+  "result": "PASS",
+  "owned_container_stopped": true,
+  "volume_retained": true,
+  "migration_bytes_preserved": true,
+  "added_indexes_scope": "History-query optimizations only; the V10 released_by FK support index is listed separately",
+  "recorded_at_utc": "2026-11-21T21:22:30.094940+00:00"
+}
