@@ -79,10 +79,12 @@ describe('Personal Profile — Models & Validation (FR-02)', () => {
     expect(profileFullNameRule('A'.repeat(121))).not.toBe(true)
   })
 
-  it('validates phone format', () => {
+  it('matches the nullable 24-character phone contract without a minimum length', () => {
     expect(profilePhoneRule('')).toBe(true)
     expect(profilePhoneRule('0987654321')).toBe(true)
-    expect(profilePhoneRule('invalid-phone')).not.toBe(true)
+    expect(profilePhoneRule('123')).toBe(true)
+    expect(profilePhoneRule('  ')).toBe(true)
+    expect(profilePhoneRule('extension 12')).toBe(true)
     expect(profilePhoneRule('0'.repeat(25))).not.toBe(true)
   })
 
@@ -96,7 +98,7 @@ describe('Personal Profile — Models & Validation (FR-02)', () => {
 
     const invalid: ProfileDraft = {
       fullName: '',
-      phone: 'bad-phone',
+      phone: '0'.repeat(25),
       address: 'A'.repeat(256),
     }
     const errors = validateProfile(invalid)
@@ -213,5 +215,20 @@ describe('Personal Profile — HTTP Transport (FR-02)', () => {
       code: 'VALIDATION_FAILED',
       status: 400,
     })
+  })
+
+  it('does not synthesize a loaded profile from session when the real API returns 404', async () => {
+    login('DOCTOR')
+    const { client, seen } = mockClient(() => ({
+      status: 404,
+      body: { status: 404, code: 'RESOURCE_NOT_FOUND' },
+    }))
+    await expect(
+      createProfileApi(client).getProfile(signal()),
+    ).rejects.toMatchObject({
+      status: 404,
+      code: 'RESOURCE_NOT_FOUND',
+    })
+    expect(seen).toHaveLength(1)
   })
 })

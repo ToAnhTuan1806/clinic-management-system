@@ -14,6 +14,7 @@ import {
   UserRound,
 } from 'lucide-react'
 import { useAuth } from '@/auth/context'
+import { useSubmission } from '@/auth/use-submission'
 import { roleLabels } from '@/auth/types'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -31,13 +32,20 @@ import {
   type UserProfile,
 } from '@/profile/model'
 import { patientGateway } from '@/patient/gateway'
-import { sexLabels, type Patient } from '@/patient/model'
+import {
+  PatientError,
+  patientMessage,
+  sexLabels,
+  type Patient,
+} from '@/patient/model'
 
 export default function ProfilePage() {
   const { user, refreshUser } = useAuth()
   const isPatient = user?.role === 'PATIENT'
+  const [profileRetry, setProfileRetry] = useState(0)
+  const [patientRetry, setPatientRetry] = useState(0)
 
-  const profileKey = JSON.stringify([user?.id, user?.role])
+  const profileKey = JSON.stringify([user?.id, user?.role, profileRetry])
   const [profileResource, setProfileResource] = useState<{
     key: string
     data: UserProfile | null
@@ -47,13 +55,20 @@ export default function ProfilePage() {
   const profile = !loading ? profileResource?.data : null
   const loadError = !loading ? profileResource?.error : null
 
-  const patientKey = JSON.stringify([user?.id, user?.role, 'patient'])
+  const patientKey = JSON.stringify([
+    user?.id,
+    user?.role,
+    'patient',
+    patientRetry,
+  ])
   const [patientResource, setPatientResource] = useState<{
     key: string
     data: Patient | null
+    error: string | null
   } | null>(null)
   const patientLoading = isPatient && patientResource?.key !== patientKey
   const patientRecord = !patientLoading ? (patientResource?.data ?? null) : null
+  const patientError = !patientLoading ? patientResource?.error : null
 
   const [draft, setDraft] = useState<ProfileDraft>({
     fullName: '',
@@ -61,7 +76,7 @@ export default function ProfilePage() {
     address: '',
   })
   const [errors, setErrors] = useState<ProfileFieldErrors>({})
-  const [submitting, setSubmitting] = useState(false)
+  const { pending: submitting, run } = useSubmission()
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
 
@@ -110,14 +125,19 @@ export default function ProfilePage() {
           setPatientResource({
             key: patientKey,
             data,
+            error: null,
           })
         }
       })
-      .catch(() => {
+      .catch((error) => {
         if (!controller.signal.aborted) {
           setPatientResource({
             key: patientKey,
             data: null,
+            error:
+              error instanceof PatientError && error.status === 404
+                ? null
+                : patientMessage(error),
           })
         }
       })
@@ -131,6 +151,7 @@ export default function ProfilePage() {
       setErrors((prev) => ({ ...prev, [field]: undefined }))
     }
     setSaveError(null)
+    setSaveSuccess(null)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -145,38 +166,36 @@ export default function ProfilePage() {
       return
     }
 
-    setSubmitting(true)
-    setSaveSuccess(null)
-    setSaveError(null)
+    await run(async (signal) => {
+      setSaveSuccess(null)
+      setSaveError(null)
 
-    const controller = new AbortController()
-    try {
-      const updated = await profileGateway.updateProfile(
-        draft,
-        controller.signal,
-      )
-      setProfileResource({
-        key: profileKey,
-        data: updated,
-        error: null,
-      })
-      setDraft({
-        fullName: updated.fullName,
-        phone: updated.phone,
-        address: updated.address,
-      })
-      // Update session auth state so full name syncs across layout
-      await refreshUser()
-      setSaveSuccess('Hồ sơ cá nhân đã được cập nhật thành công.')
-    } catch (err) {
-      const msg = profileMessage(err)
-      setSaveError(msg)
-      if (err && typeof err === 'object' && 'fields' in err && err.fields) {
-        setErrors(err.fields as ProfileFieldErrors)
+      try {
+        const updated = await profileGateway.updateProfile(draft, signal)
+        if (signal.aborted) return
+        setProfileResource({
+          key: profileKey,
+          data: updated,
+          error: null,
+        })
+        setDraft({
+          fullName: updated.fullName,
+          phone: updated.phone,
+          address: updated.address,
+        })
+        // Update session auth state so full name syncs across layout
+        await refreshUser()
+        if (!signal.aborted)
+          setSaveSuccess('Hồ sơ cá nhân đã được cập nhật thành công.')
+      } catch (err) {
+        if (signal.aborted) return
+        const msg = profileMessage(err)
+        setSaveError(msg)
+        if (err && typeof err === 'object' && 'fields' in err && err.fields) {
+          setErrors(err.fields as ProfileFieldErrors)
+        }
       }
-    } finally {
-      setSubmitting(false)
-    }
+    })
   }
 
   if (loading) {
@@ -189,6 +208,26 @@ export default function ProfilePage() {
           <h1 className="text-2xl font-semibold sm:text-3xl">Hồ sơ cá nhân</h1>
         </div>
         <LoadingState />
+      </div>
+    )
+  }
+
+  if (loadError || !profile) {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-2xl font-semibold sm:text-3xl">Hồ sơ cá nhân</h1>
+        <Alert variant="destructive">
+          <AlertCircle className="size-4" />
+          <AlertDescription>
+            {loadError || 'Không thể tải hồ sơ cá nhân.'}
+          </AlertDescription>
+        </Alert>
+        <Button
+          variant="outline"
+          onClick={() => setProfileRetry((value) => value + 1)}
+        >
+          Thử lại
+        </Button>
       </div>
     )
   }
@@ -440,6 +479,19 @@ export default function ProfilePage() {
 
           {patientLoading ? (
             <LoadingState />
+          ) : patientError ? (
+            <div className="space-y-3">
+              <Alert variant="destructive">
+                <AlertCircle className="size-4" />
+                <AlertDescription>{patientError}</AlertDescription>
+              </Alert>
+              <Button
+                variant="outline"
+                onClick={() => setPatientRetry((value) => value + 1)}
+              >
+                Thử lại hồ sơ bệnh nhân
+              </Button>
+            </div>
           ) : patientRecord ? (
             <div className="grid gap-4 sm:grid-cols-2 text-sm pt-1">
               <div>

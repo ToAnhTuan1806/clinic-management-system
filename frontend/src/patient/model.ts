@@ -167,11 +167,8 @@ export const patientDobRule = (value: string) => {
 }
 
 export const patientPhoneRule = (value: string) => {
-  if (!value) return true
   const trimmed = value.trim()
   if (trimmed.length > 24) return 'Số điện thoại tối đa 24 ký tự.'
-  if (!/^[0-9+() -]{7,24}$/.test(trimmed))
-    return 'Số điện thoại không đúng định dạng.'
   return true
 }
 

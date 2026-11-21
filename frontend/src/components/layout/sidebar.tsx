@@ -26,7 +26,9 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           CL
         </span>
         <div className="min-w-0">
-          <p className="text-sm font-semibold">Không gian phòng khám</p>
+          <p className="truncate text-sm font-semibold" title={user?.fullName}>
+            {user?.fullName ?? 'Không gian phòng khám'}
+          </p>
           <p className="mt-1 text-xs text-muted-foreground">
             {user ? roleLabels[user.role] : 'Chưa đăng nhập'}
             {isAuthMock && (

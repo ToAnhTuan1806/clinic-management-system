@@ -63,11 +63,8 @@ export const profileFullNameRule = (value: string) =>
   'Vui lòng nhập họ và tên, tối đa 120 ký tự.'
 
 export const profilePhoneRule = (value: string) => {
-  if (!value) return true
   const trimmed = value.trim()
   if (trimmed.length > 24) return 'Số điện thoại tối đa 24 ký tự.'
-  if (!/^[0-9+() -]{7,24}$/.test(trimmed))
-    return 'Số điện thoại không đúng định dạng.'
   return true
 }
 

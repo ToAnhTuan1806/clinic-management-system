@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
-import { ChevronRight, Menu } from 'lucide-react'
-import { useLocation } from 'react-router'
+import { ChevronRight, Menu, UserRound } from 'lucide-react'
+import { Link, useLocation } from 'react-router'
+import { useAuth } from '@/auth/context'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { SidebarContent } from '@/components/layout/sidebar'
 import { Button } from '@/components/ui/button'
@@ -17,6 +18,7 @@ import { navigation } from '@/lib/navigation'
 import { isAuthMock } from '@/auth/config'
 
 export function Header() {
+  const { user } = useAuth()
   const [open, setOpen] = useState(false)
   const navigated = useRef(false)
   const { pathname } = useLocation()
@@ -84,6 +86,18 @@ export function Header() {
           aria-hidden="true"
         />
         <ThemeToggle />
+        <Button
+          asChild
+          variant="ghost"
+          className="size-10 shrink-0 p-2 sm:w-auto sm:gap-2 sm:px-3"
+        >
+          <Link to="/profile" aria-label="Hồ sơ cá nhân" title={user?.fullName}>
+            <UserRound className="size-4" aria-hidden="true" />
+            <span className="hidden max-w-32 truncate text-sm sm:inline">
+              {user?.fullName}
+            </span>
+          </Link>
+        </Button>
       </div>
     </header>
   )
