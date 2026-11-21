@@ -52,4 +52,20 @@ public class AppointmentController {
             @PathVariable @Positive Long id) {
         return new ApiResponse<>(appointmentService.getAppointment(viewer, id));
     }
+
+    @PatchMapping("/{id}/slot")
+    public ApiResponse<AppointmentResponse> reschedule(
+            @AuthenticationPrincipal AuthenticatedUser actor,
+            @PathVariable @Positive Long id,
+            @Valid @RequestBody AppointmentRescheduleRequest request) {
+        return new ApiResponse<>(appointmentService.rescheduleAppointment(actor, id, request));
+    }
+
+    @PostMapping("/{id}/cancellation")
+    public ApiResponse<AppointmentResponse> cancel(
+            @AuthenticationPrincipal AuthenticatedUser actor,
+            @PathVariable @Positive Long id,
+            @Valid @RequestBody AppointmentCancelRequest request) {
+        return new ApiResponse<>(appointmentService.cancelAppointment(actor, id, request));
+    }
 }

@@ -802,6 +802,152 @@ Response 201 (hoặc 200 khi replay idempotent):
 | 409 | IDEMPOTENCY_CONFLICT | Dùng lại `requestKey` nhưng nội dung payload đặt hẹn khác với lần gửi trước |
 | 409 | SCHEDULE_HAS_APPOINTMENTS | Không thể khóa hoặc điều chỉnh thời gian ca làm việc khi đã có lịch hẹn phát sinh |
 
+### 3.6. Quản lý Đổi lịch và Hủy lịch khám (CL-D08-BE) — IMPLEMENTED D08
+
+Chức năng hoàn thiện quy trình đổi lịch và hủy lịch khám (FR-07/FR-08 foundation), kế thừa cấu trúc từ D07 với bảo vệ concurrency và optimistic locking:
+
+| Endpoint | Method | ADMIN | RECEPTIONIST | DOCTOR | PATIENT |
+| --- | --- | --- | --- | --- | --- |
+| `/api/v1/appointments/{id}/slot` | PATCH | 403 ACCESS_DENIED | Cho phép (đổi lịch mọi cuộc hẹn) | 403 ACCESS_DENIED | Cho phép (chỉ đổi lịch cuộc hẹn linked của mình) |
+| `/api/v1/appointments/{id}/cancellation` | POST | 403 ACCESS_DENIED | Cho phép (hủy lịch mọi cuộc hẹn) | 403 ACCESS_DENIED | Cho phép (chỉ hủy lịch cuộc hẹn linked của mình) |
+
+**PATCH /api/v1/appointments/{id}/slot — PATIENT/RECEPTIONIST, 200**
+
+Payload đổi slot:
+```json
+{
+  "scheduleId": "100",
+  "startAt": "2026-11-25T09:00:00Z",
+  "expectedVersion": 0
+}
+```
+
+Response 200:
+```json
+{
+  "data": {
+    "id": "1001",
+    "appointmentCode": "APP123456",
+    "patientId": "50",
+    "patientCode": "PAT123456",
+    "patientFullName": "Nguyen Van A",
+    "patientPhone": "0901234567",
+    "doctorId": "1",
+    "doctorCode": "DOC_001",
+    "doctorFullName": "Bac Si B",
+    "specialtyName": "Noi Khoa",
+    "scheduleId": "100",
+    "startAt": "2026-11-25T09:00:00Z",
+    "endAt": "2026-11-25T09:30:00Z",
+    "status": "PENDING",
+    "reason": "Khám tổng quát định kỳ",
+    "cancelledAt": null,
+    "cancelledBy": null,
+    "cancellationReason": null,
+    "rescheduledAt": "2026-11-21T11:00:00Z",
+    "rescheduledBy": "50",
+    "previousScheduleId": "99",
+    "previousStartAt": "2026-11-25T08:00:00Z",
+    "createdBy": "50",
+    "version": 1,
+    "createdAt": "2026-11-21T10:30:00Z",
+    "updatedAt": "2026-11-21T11:00:00Z"
+  }
+}
+```
+
+**POST /api/v1/appointments/{id}/cancellation — PATIENT/RECEPTIONIST, 200**
+
+Payload hủy lịch:
+```json
+{
+  "reason": "Không thể đến khám đúng giờ",
+  "expectedVersion": 0
+}
+```
+
+Response 200:
+```json
+{
+  "data": {
+    "id": "1001",
+    "appointmentCode": "APP123456",
+    "patientId": "50",
+    "patientCode": "PAT123456",
+    "patientFullName": "Nguyen Van A",
+    "patientPhone": "0901234567",
+    "doctorId": "1",
+    "doctorCode": "DOC_001",
+    "doctorFullName": "Bac Si B",
+    "specialtyName": "Noi Khoa",
+    "scheduleId": "100",
+    "startAt": "2026-11-25T09:00:00Z",
+    "endAt": "2026-11-25T09:30:00Z",
+    "status": "CANCELLED",
+    "reason": "Khám tổng quát định kỳ",
+    "cancelledAt": "2026-11-21T11:05:00Z",
+    "cancelledBy": "50",
+    "cancellationReason": "Không thể đến khám đúng giờ",
+    "rescheduledAt": null,
+    "rescheduledBy": null,
+    "previousScheduleId": null,
+    "previousStartAt": null,
+    "createdBy": "50",
+    "version": 1,
+    "createdAt": "2026-11-21T10:30:00Z",
+    "updatedAt": "2026-11-21T11:05:00Z"
+  }
+}
+```
+
+**Quy tắc nghiệp vụ & Concurrency D08**:
+1. **Trạng thái hợp lệ**: Chỉ cho phép đổi slot hoặc hủy khi cuộc hẹn có trạng thái `PENDING` hoặc `CONFIRMED` và thời gian khám chưa bắt đầu (`startAt > now`). Vi phạm trả 409 `INVALID_STATE_TRANSITION`.
+2. **Đổi slot**:
+   - Đổi slot thành công luôn chuyển trạng thái cuộc hẹn về `PENDING` để xác nhận lại.
+   - Ghi nhận đầy đủ metadata đổi lịch theo migration V7: `rescheduled_at` (thời điểm UTC), `rescheduled_by` (người thực hiện), `previous_schedule_id` (ca cũ) và `previous_start_at_utc` (slot cũ).
+   - Không thay đổi `doctorId`, `patientId`, `createdBy`, `requestKey`, `requestFingerprint` hoặc `reason` ban đầu.
+   - Không cho phép đổi sang ca của bác sĩ khác trong D08 (slot mới phải thuộc ca `ACTIVE` của cùng bác sĩ; đổi sang bác sĩ khác trả 400 `VALIDATION_FAILED`).
+   - Slot mới phải khớp lưới slot (`(startAt - schedule.startAt) % slotMinutes == 0`) và nằm trong khung giờ làm việc của ca.
+   - Slot cũ được giải phóng ngay khi chuyển sang slot mới. Nếu đổi slot thất bại, toàn bộ giao dịch rollback, giữ nguyên vẹn lịch cũ.
+3. **Hủy lịch & Giải phóng slot**:
+   - Chuyển trạng thái sang `CANCELLED`.
+   - Ghi nhận đầy đủ metadata hủy theo migration V7: `cancelled_at` (thời điểm UTC), `cancelled_by` (người thực hiện) và `cancellation_reason` (lý do hủy, bắt buộc, tối đa 255 ký tự; 255 ký tự hợp lệ, 256 ký tự trả 400 `VALIDATION_FAILED`).
+   - Giữ nguyên `reason` đặt khám ban đầu của cuộc hẹn (không bị ghi đè bởi lý do hủy).
+   - Cột sinh `active_slot_start_utc` của migration V6 tự động nhận giá trị `NULL` khi `status = 'CANCELLED'`, giải phóng slot cho người khác đặt lại mà vẫn bảo toàn đầy đủ dữ liệu lịch sử cuộc hẹn.
+   - Không xóa bản ghi `appointments` khỏi cơ sở dữ liệu.
+4. **Optimistic Locking & Xử lý hủy lặp**:
+   - Request bắt buộc truyền `expectedVersion` (số nguyên >= 0).
+   - Nếu `expectedVersion` không khớp với version hiện tại trong DB: trả 409 `VERSION_CONFLICT`.
+   - Nếu gửi yêu cầu hủy lặp lại:
+     - Gửi lại với `expectedVersion` cũ (stale version): trả 409 `VERSION_CONFLICT`.
+     - Gửi với `expectedVersion` mới trên cuộc hẹn đã `CANCELLED`: trả 409 `INVALID_STATE_TRANSITION` ("Appointment is already cancelled.").
+5. **Serialization qua Khóa Doctor**:
+   - Mọi thao tác đổi lịch và hủy lịch đều tái sử dụng khóa bi quan `PESSIMISTIC_WRITE` trên entity `Doctor` cha (`doctorRepository.findLocked(doctorId)`).
+   - Đảm bảo chống race condition hoàn toàn giữa:
+     - Reschedule vs Booking đồng thời.
+     - Reschedule vs Cancellation đồng thời.
+     - Reschedule vs Schedule PATCH (`BLOCKED`/thay đổi giờ).
+6. **Bảo mật và Phân quyền (RBAC & Ownership)**:
+   - `RECEPTIONIST`: Được phép đổi slot và hủy bất kỳ cuộc hẹn nào.
+   - `PATIENT`: Chỉ được phép đổi slot và hủy cuộc hẹn thuộc về hồ sơ bệnh nhân liên kết chính mình (`GET /api/v1/me/patient-profile`). Truy cập vào cuộc hẹn của bệnh nhân khác trả về 404 `RESOURCE_NOT_FOUND` (không rò rỉ sự tồn tại của cuộc hẹn).
+   - `ADMIN` và `DOCTOR`: Chỉ có quyền đọc (GET); gọi PATCH slot hoặc POST cancellation trả về 403 `ACCESS_DENIED`.
+
+**Bảng mã lỗi D08 bổ sung**
+
+| HTTP | Code | Trường hợp |
+| --- | --- | --- |
+| 400 | VALIDATION_FAILED / HTTP_400 | `scheduleId` rỗng/sai định dạng; `startAt` quá khứ/lệch lưới/ngoài ca; `expectedVersion` âm; `reason` hủy rỗng/vượt quá 500 ký tự; đổi ca sang bác sĩ khác |
+| 401 | AUTHENTICATION_REQUIRED / INVALID_ACCESS_TOKEN | Chưa xác thực hoặc Bearer token không hợp lệ/hết hạn |
+| 403 | ACCESS_DENIED | ADMIN hoặc DOCTOR thực hiện đổi slot hoặc hủy cuộc hẹn |
+| 404 | RESOURCE_NOT_FOUND | Cuộc hẹn không tồn tại; PATIENT đổi/hủy cuộc hẹn nằm ngoài sở hữu; ca mới không tồn tại |
+| 409 | VERSION_CONFLICT | Phiên bản `expectedVersion` không khớp với phiên bản hiện tại (bị sửa đồng thời hoặc stale update) |
+| 409 | INVALID_STATE_TRANSITION | Cuộc hẹn không ở trạng thái `PENDING`/`CONFIRMED`, hoặc thời gian khám đã trôi qua/đang diễn ra, hoặc hủy lặp trên lịch đã `CANCELLED` |
+| 409 | SLOT_ALREADY_BOOKED | Slot mới khi đổi lịch đã có cuộc hẹn khác đang hoạt động chiếm chỗ |
+| 409 | SCHEDULE_BLOCKED | Ca làm việc mới đang bị khóa (BLOCKED) |
+| 409 | DOCTOR_INACTIVE | Bác sĩ của cuộc hẹn ngừng hoạt động |
+| 409 | USER_NOT_ACTIVE | Tài khoản người dùng của bác sĩ bị khóa |
+| 409 | PATIENT_INACTIVE | Hồ sơ bệnh nhân của cuộc hẹn ngừng hoạt động |
+
 ## 4. Error response
 
 Dùng Problem Details theo [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457.html),
@@ -910,8 +1056,8 @@ Các dòng có nhiều method mô tả các API riêng cùng trạng thái tri�
 | FR-06 | GET | `/doctors/{id}/schedule-slots` | Cả bốn role; sinh slot khả dụng | **IMPLEMENTED D06** |
 | FR-07 | GET | `/appointments`, `/appointments/{id}` | ADMIN/RECEPTIONIST; DOCTOR self; PATIENT self linked | **IMPLEMENTED D07** |
 | FR-07 | POST | `/appointments` | PATIENT self / RECEPTIONIST thay tại quầy (idempotent qua requestKey) | **IMPLEMENTED D07** |
-| FR-07 | PATCH | `/appointments/{id}/slot` | PATIENT self / RECEPTIONIST | PROPOSED D08 |
-| FR-07 | POST | `/appointments/{id}/cancellation` | PATIENT self / RECEPTIONIST | PROPOSED D08 |
+| FR-07 | PATCH | `/appointments/{id}/slot` | PATIENT self / RECEPTIONIST | **IMPLEMENTED D08** |
+| FR-07 | POST | `/appointments/{id}/cancellation` | PATIENT self / RECEPTIONIST | **IMPLEMENTED D08** |
 | FR-08 | POST | `/appointments/{id}/confirmation` | RECEPTIONIST | PROPOSED |
 | FR-08 | POST | `/appointments/{id}/check-in` | RECEPTIONIST | PROPOSED |
 | FR-08 | POST | `/appointments/{id}/no-show` | RECEPTIONIST | PROPOSED |

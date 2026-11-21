@@ -384,4 +384,369 @@ class AppointmentServiceTest {
         assertThat(result.appointment().id()).isEqualTo("999");
         assertThat(result.appointment().status()).isEqualTo("PENDING");
     }
+
+    // --- D08 Reschedule & Cancellation Unit Tests ---
+
+    @Test
+    void rescheduleAppointmentSuccessForPatient() {
+        when(patientRepository.findByUserId(1L)).thenReturn(Optional.of(patient));
+        when(scheduleRepository.findById(300L)).thenReturn(Optional.of(schedule));
+
+        Instant oldStart = futureTime(2, 8, 30);
+        Instant oldEnd = oldStart.plus(Duration.ofMinutes(30));
+        Appointment app = new Appointment("APP100", patient, doctor, schedule, patientUser, "req-k1", "fp1",
+                oldStart, oldEnd, AppointmentStatus.CONFIRMED, "Initial checkup");
+        ReflectionTestUtils.setField(app, "id", 600L);
+        ReflectionTestUtils.setField(app, "version", 0L);
+
+        when(appointmentRepository.findById(600L)).thenReturn(Optional.of(app));
+        when(appointmentRepository.existsByDoctorIdAndStartAtAndStatusNotAndIdNot(eq(20L), any(), any(), eq(600L))).thenReturn(false);
+        when(appointmentRepository.saveAndFlush(any())).thenAnswer(inv -> {
+            Appointment a = inv.getArgument(0);
+            ReflectionTestUtils.setField(a, "version", 1L);
+            return a;
+        });
+
+        Instant newStart = futureTime(2, 9, 30);
+        com.clinicmanagement.dto.AppointmentRescheduleRequest request =
+                new com.clinicmanagement.dto.AppointmentRescheduleRequest("300", newStart, 0L);
+
+        AppointmentResponse res = service.rescheduleAppointment(patientAuth, 600L, request);
+
+        assertThat(res.id()).isEqualTo("600");
+        assertThat(res.startAt()).isEqualTo(newStart);
+        assertThat(res.endAt()).isEqualTo(newStart.plus(Duration.ofMinutes(30)));
+        assertThat(res.status()).isEqualTo("PENDING");
+        assertThat(res.version()).isEqualTo(1L);
+        assertThat(res.reason()).isEqualTo("Initial checkup");
+        assertThat(res.rescheduledAt()).isNotNull();
+        assertThat(res.rescheduledBy()).isEqualTo("1");
+        assertThat(res.previousScheduleId()).isEqualTo("300");
+        assertThat(res.previousStartAt()).isEqualTo(oldStart);
+    }
+
+    @Test
+    void rescheduleAppointmentSuccessForReceptionist() {
+        when(scheduleRepository.findById(300L)).thenReturn(Optional.of(schedule));
+
+        Instant oldStart = futureTime(2, 8, 30);
+        Instant oldEnd = oldStart.plus(Duration.ofMinutes(30));
+        Appointment app = new Appointment("APP101", patient, doctor, schedule, patientUser, "req-k2", "fp2",
+                oldStart, oldEnd, AppointmentStatus.PENDING, "Initial checkup");
+        ReflectionTestUtils.setField(app, "id", 601L);
+        ReflectionTestUtils.setField(app, "version", 2L);
+
+        when(appointmentRepository.findById(601L)).thenReturn(Optional.of(app));
+        when(appointmentRepository.existsByDoctorIdAndStartAtAndStatusNotAndIdNot(eq(20L), any(), any(), eq(601L))).thenReturn(false);
+        when(appointmentRepository.saveAndFlush(any())).thenAnswer(inv -> {
+            Appointment a = inv.getArgument(0);
+            ReflectionTestUtils.setField(a, "version", 3L);
+            return a;
+        });
+
+        Instant newStart = futureTime(2, 10, 0);
+        com.clinicmanagement.dto.AppointmentRescheduleRequest request =
+                new com.clinicmanagement.dto.AppointmentRescheduleRequest("300", newStart, 2L);
+
+        AppointmentResponse res = service.rescheduleAppointment(receptionistAuth, 601L, request);
+
+        assertThat(res.id()).isEqualTo("601");
+        assertThat(res.startAt()).isEqualTo(newStart);
+        assertThat(res.status()).isEqualTo("PENDING");
+        assertThat(res.version()).isEqualTo(3L);
+        assertThat(res.rescheduledAt()).isNotNull();
+        assertThat(res.rescheduledBy()).isEqualTo("3");
+        assertThat(res.previousScheduleId()).isEqualTo("300");
+        assertThat(res.previousStartAt()).isEqualTo(oldStart);
+    }
+
+    @Test
+    void rescheduleAppointmentFailsIfPatientDoesNotOwnAppointment() {
+        Instant oldStart = futureTime(2, 8, 30);
+        Appointment app = new Appointment("APP102", patient, doctor, schedule, patientUser, "req-k3", "fp3",
+                oldStart, oldStart.plus(Duration.ofMinutes(30)), AppointmentStatus.PENDING, "Check");
+        ReflectionTestUtils.setField(app, "id", 602L);
+
+        when(appointmentRepository.findById(602L)).thenReturn(Optional.of(app));
+
+        AuthenticatedUser otherPatient = new AuthenticatedUser(99L, "other@p.test", "Other", Role.PATIENT, UserStatus.ACTIVE);
+        when(patientRepository.findByUserId(99L)).thenReturn(Optional.of(mock(Patient.class)));
+
+        Instant newStart = futureTime(2, 9, 0);
+        com.clinicmanagement.dto.AppointmentRescheduleRequest request =
+                new com.clinicmanagement.dto.AppointmentRescheduleRequest("300", newStart, 0L);
+
+        ManagementException ex = assertThrows(ManagementException.class,
+                () -> service.rescheduleAppointment(otherPatient, 602L, request));
+        assertThat(ex.getStatus()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(ex.getCode()).isEqualTo("RESOURCE_NOT_FOUND");
+    }
+
+    @Test
+    void rescheduleAppointmentFailsOnVersionConflict() {
+        when(patientRepository.findByUserId(1L)).thenReturn(Optional.of(patient));
+
+        Instant oldStart = futureTime(2, 8, 30);
+        Appointment app = new Appointment("APP103", patient, doctor, schedule, patientUser, "req-k4", "fp4",
+                oldStart, oldStart.plus(Duration.ofMinutes(30)), AppointmentStatus.PENDING, "Check");
+        ReflectionTestUtils.setField(app, "id", 603L);
+        ReflectionTestUtils.setField(app, "version", 3L);
+
+        when(appointmentRepository.findById(603L)).thenReturn(Optional.of(app));
+
+        Instant newStart = futureTime(2, 9, 0);
+        com.clinicmanagement.dto.AppointmentRescheduleRequest request =
+                new com.clinicmanagement.dto.AppointmentRescheduleRequest("300", newStart, 0L); // Expected 0, current is 3
+
+        ManagementException ex = assertThrows(ManagementException.class,
+                () -> service.rescheduleAppointment(patientAuth, 603L, request));
+        assertThat(ex.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ex.getCode()).isEqualTo("VERSION_CONFLICT");
+    }
+
+    @Test
+    void rescheduleAppointmentFailsIfStatusNotPendingOrConfirmed() {
+        when(patientRepository.findByUserId(1L)).thenReturn(Optional.of(patient));
+
+        Instant oldStart = futureTime(2, 8, 30);
+        Appointment app = new Appointment("APP104", patient, doctor, schedule, patientUser, "req-k5", "fp5",
+                oldStart, oldStart.plus(Duration.ofMinutes(30)), AppointmentStatus.CANCELLED, "Check");
+        ReflectionTestUtils.setField(app, "id", 604L);
+        ReflectionTestUtils.setField(app, "version", 0L);
+
+        when(appointmentRepository.findById(604L)).thenReturn(Optional.of(app));
+
+        Instant newStart = futureTime(2, 9, 0);
+        com.clinicmanagement.dto.AppointmentRescheduleRequest request =
+                new com.clinicmanagement.dto.AppointmentRescheduleRequest("300", newStart, 0L);
+
+        ManagementException ex = assertThrows(ManagementException.class,
+                () -> service.rescheduleAppointment(patientAuth, 604L, request));
+        assertThat(ex.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ex.getCode()).isEqualTo("INVALID_STATE_TRANSITION");
+    }
+
+    @Test
+    void rescheduleAppointmentFailsIfAppointmentAlreadyStarted() {
+        when(patientRepository.findByUserId(1L)).thenReturn(Optional.of(patient));
+
+        Instant pastStart = Instant.now().minus(Duration.ofHours(2));
+        Appointment app = new Appointment("APP105", patient, doctor, schedule, patientUser, "req-k6", "fp6",
+                pastStart, pastStart.plus(Duration.ofMinutes(30)), AppointmentStatus.PENDING, "Check");
+        ReflectionTestUtils.setField(app, "id", 605L);
+        ReflectionTestUtils.setField(app, "version", 0L);
+
+        when(appointmentRepository.findById(605L)).thenReturn(Optional.of(app));
+
+        Instant newStart = futureTime(2, 9, 0);
+        com.clinicmanagement.dto.AppointmentRescheduleRequest request =
+                new com.clinicmanagement.dto.AppointmentRescheduleRequest("300", newStart, 0L);
+
+        ManagementException ex = assertThrows(ManagementException.class,
+                () -> service.rescheduleAppointment(patientAuth, 605L, request));
+        assertThat(ex.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ex.getCode()).isEqualTo("INVALID_STATE_TRANSITION");
+        assertThat(ex.getMessage()).contains("already started or passed");
+    }
+
+    @Test
+    void rescheduleAppointmentFailsIfNewScheduleDifferentDoctor() {
+        when(patientRepository.findByUserId(1L)).thenReturn(Optional.of(patient));
+
+        Instant oldStart = futureTime(2, 8, 30);
+        Appointment app = new Appointment("APP106", patient, doctor, schedule, patientUser, "req-k7", "fp7",
+                oldStart, oldStart.plus(Duration.ofMinutes(30)), AppointmentStatus.PENDING, "Check");
+        ReflectionTestUtils.setField(app, "id", 606L);
+        ReflectionTestUtils.setField(app, "version", 0L);
+
+        when(appointmentRepository.findById(606L)).thenReturn(Optional.of(app));
+
+        Doctor otherDoctor = mock(Doctor.class);
+        when(otherDoctor.getId()).thenReturn(999L);
+        DoctorSchedule otherSchedule = mock(DoctorSchedule.class);
+        when(otherSchedule.getDoctor()).thenReturn(otherDoctor);
+        when(scheduleRepository.findById(400L)).thenReturn(Optional.of(otherSchedule));
+
+        Instant newStart = futureTime(2, 9, 0);
+        com.clinicmanagement.dto.AppointmentRescheduleRequest request =
+                new com.clinicmanagement.dto.AppointmentRescheduleRequest("400", newStart, 0L);
+
+        ManagementException ex = assertThrows(ManagementException.class,
+                () -> service.rescheduleAppointment(patientAuth, 606L, request));
+        assertThat(ex.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(ex.getCode()).isEqualTo("VALIDATION_FAILED");
+        assertThat(ex.getMessage()).contains("same doctor");
+    }
+
+    @Test
+    void rescheduleAppointmentFailsIfTargetSlotAlreadyBooked() {
+        when(patientRepository.findByUserId(1L)).thenReturn(Optional.of(patient));
+        when(scheduleRepository.findById(300L)).thenReturn(Optional.of(schedule));
+
+        Instant oldStart = futureTime(2, 8, 30);
+        Appointment app = new Appointment("APP107", patient, doctor, schedule, patientUser, "req-k8", "fp8",
+                oldStart, oldStart.plus(Duration.ofMinutes(30)), AppointmentStatus.PENDING, "Check");
+        ReflectionTestUtils.setField(app, "id", 607L);
+        ReflectionTestUtils.setField(app, "version", 0L);
+
+        when(appointmentRepository.findById(607L)).thenReturn(Optional.of(app));
+        when(appointmentRepository.existsByDoctorIdAndStartAtAndStatusNotAndIdNot(eq(20L), any(), any(), eq(607L))).thenReturn(true);
+
+        Instant newStart = futureTime(2, 9, 0);
+        com.clinicmanagement.dto.AppointmentRescheduleRequest request =
+                new com.clinicmanagement.dto.AppointmentRescheduleRequest("300", newStart, 0L);
+
+        ManagementException ex = assertThrows(ManagementException.class,
+                () -> service.rescheduleAppointment(patientAuth, 607L, request));
+        assertThat(ex.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ex.getCode()).isEqualTo("SLOT_ALREADY_BOOKED");
+    }
+
+    @Test
+    void cancelAppointmentSuccessForPatient() {
+        when(patientRepository.findByUserId(1L)).thenReturn(Optional.of(patient));
+
+        Instant oldStart = futureTime(2, 8, 30);
+        Appointment app = new Appointment("APP200", patient, doctor, schedule, patientUser, "req-c1", "fpc1",
+                oldStart, oldStart.plus(Duration.ofMinutes(30)), AppointmentStatus.PENDING, "Initial reason");
+        ReflectionTestUtils.setField(app, "id", 700L);
+        ReflectionTestUtils.setField(app, "version", 0L);
+
+        when(appointmentRepository.findById(700L)).thenReturn(Optional.of(app));
+        when(appointmentRepository.saveAndFlush(any())).thenAnswer(inv -> {
+            Appointment a = inv.getArgument(0);
+            ReflectionTestUtils.setField(a, "version", 1L);
+            return a;
+        });
+
+        com.clinicmanagement.dto.AppointmentCancelRequest request =
+                new com.clinicmanagement.dto.AppointmentCancelRequest("Bận việc đột xuất", 0L);
+
+        AppointmentResponse res = service.cancelAppointment(patientAuth, 700L, request);
+
+        assertThat(res.id()).isEqualTo("700");
+        assertThat(res.status()).isEqualTo("CANCELLED");
+        assertThat(res.reason()).isEqualTo("Initial reason");
+        assertThat(res.cancellationReason()).isEqualTo("Bận việc đột xuất");
+        assertThat(res.cancelledAt()).isNotNull();
+        assertThat(res.cancelledBy()).isEqualTo("1");
+        assertThat(res.version()).isEqualTo(1L);
+    }
+
+    @Test
+    void cancelAppointmentSuccessForReceptionist() {
+        Instant oldStart = futureTime(2, 8, 30);
+        Appointment app = new Appointment("APP201", patient, doctor, schedule, patientUser, "req-c2", "fpc2",
+                oldStart, oldStart.plus(Duration.ofMinutes(30)), AppointmentStatus.CONFIRMED, "Initial reason");
+        ReflectionTestUtils.setField(app, "id", 701L);
+        ReflectionTestUtils.setField(app, "version", 1L);
+
+        when(appointmentRepository.findById(701L)).thenReturn(Optional.of(app));
+        when(appointmentRepository.saveAndFlush(any())).thenAnswer(inv -> {
+            Appointment a = inv.getArgument(0);
+            ReflectionTestUtils.setField(a, "version", 2L);
+            return a;
+        });
+
+        com.clinicmanagement.dto.AppointmentCancelRequest request =
+                new com.clinicmanagement.dto.AppointmentCancelRequest("Khách gọi điện xin hủy", 1L);
+
+        AppointmentResponse res = service.cancelAppointment(receptionistAuth, 701L, request);
+
+        assertThat(res.id()).isEqualTo("701");
+        assertThat(res.status()).isEqualTo("CANCELLED");
+        assertThat(res.reason()).isEqualTo("Initial reason");
+        assertThat(res.cancellationReason()).isEqualTo("Khách gọi điện xin hủy");
+        assertThat(res.cancelledAt()).isNotNull();
+        assertThat(res.cancelledBy()).isEqualTo("3");
+        assertThat(res.version()).isEqualTo(2L);
+    }
+
+    @Test
+    void cancelAppointmentFailsOnRepeatedCancel() {
+        when(patientRepository.findByUserId(1L)).thenReturn(Optional.of(patient));
+
+        Instant oldStart = futureTime(2, 8, 30);
+        Appointment app = new Appointment("APP202", patient, doctor, schedule, patientUser, "req-c3", "fpc3",
+                oldStart, oldStart.plus(Duration.ofMinutes(30)), AppointmentStatus.CANCELLED, "Đã hủy lần 1");
+        ReflectionTestUtils.setField(app, "id", 702L);
+        ReflectionTestUtils.setField(app, "version", 1L);
+
+        when(appointmentRepository.findById(702L)).thenReturn(Optional.of(app));
+
+        com.clinicmanagement.dto.AppointmentCancelRequest request =
+                new com.clinicmanagement.dto.AppointmentCancelRequest("Hủy lần 2", 1L);
+
+        ManagementException ex = assertThrows(ManagementException.class,
+                () -> service.cancelAppointment(patientAuth, 702L, request));
+        assertThat(ex.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ex.getCode()).isEqualTo("INVALID_STATE_TRANSITION");
+        assertThat(ex.getMessage()).contains("already cancelled");
+    }
+
+    @Test
+    void cancelAppointmentFailsOnVersionMismatch() {
+        when(patientRepository.findByUserId(1L)).thenReturn(Optional.of(patient));
+
+        Instant oldStart = futureTime(2, 8, 30);
+        Appointment app = new Appointment("APP203", patient, doctor, schedule, patientUser, "req-c4", "fpc4",
+                oldStart, oldStart.plus(Duration.ofMinutes(30)), AppointmentStatus.PENDING, "Reason");
+        ReflectionTestUtils.setField(app, "id", 703L);
+        ReflectionTestUtils.setField(app, "version", 2L);
+
+        when(appointmentRepository.findById(703L)).thenReturn(Optional.of(app));
+
+        com.clinicmanagement.dto.AppointmentCancelRequest request =
+                new com.clinicmanagement.dto.AppointmentCancelRequest("Lý do", 0L); // Stale version 0
+
+        ManagementException ex = assertThrows(ManagementException.class,
+                () -> service.cancelAppointment(patientAuth, 703L, request));
+        assertThat(ex.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ex.getCode()).isEqualTo("VERSION_CONFLICT");
+    }
+
+    @Test
+    void cancelAppointmentFailsIfReasonEmptyOrBlank() {
+        com.clinicmanagement.dto.AppointmentCancelRequest requestEmpty =
+                new com.clinicmanagement.dto.AppointmentCancelRequest("", 0L);
+
+        ManagementException ex = assertThrows(ManagementException.class,
+                () -> service.cancelAppointment(patientAuth, 704L, requestEmpty));
+        assertThat(ex.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(ex.getCode()).isEqualTo("VALIDATION_FAILED");
+    }
+
+    @Test
+    void cancelAppointmentReasonLength255SuccessAnd256Fails() {
+        when(patientRepository.findByUserId(1L)).thenReturn(Optional.of(patient));
+
+        Instant oldStart = futureTime(2, 8, 30);
+        Appointment app = new Appointment("APP204", patient, doctor, schedule, patientUser, "req-c5", "fpc5",
+                oldStart, oldStart.plus(Duration.ofMinutes(30)), AppointmentStatus.PENDING, "Initial reason");
+        ReflectionTestUtils.setField(app, "id", 705L);
+        ReflectionTestUtils.setField(app, "version", 0L);
+
+        when(appointmentRepository.findById(705L)).thenReturn(Optional.of(app));
+        when(appointmentRepository.saveAndFlush(any())).thenAnswer(inv -> {
+            Appointment a = inv.getArgument(0);
+            ReflectionTestUtils.setField(a, "version", 1L);
+            return a;
+        });
+
+        // 255 chars -> valid
+        String reason255 = "A".repeat(255);
+        com.clinicmanagement.dto.AppointmentCancelRequest req255 =
+                new com.clinicmanagement.dto.AppointmentCancelRequest(reason255, 0L);
+        AppointmentResponse res255 = service.cancelAppointment(patientAuth, 705L, req255);
+        assertThat(res255.cancellationReason()).isEqualTo(reason255);
+
+        // 256 chars -> invalid 400
+        String reason256 = "A".repeat(256);
+        com.clinicmanagement.dto.AppointmentCancelRequest req256 =
+                new com.clinicmanagement.dto.AppointmentCancelRequest(reason256, 0L);
+        ManagementException ex256 = assertThrows(ManagementException.class,
+                () -> service.cancelAppointment(patientAuth, 705L, req256));
+        assertThat(ex256.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(ex256.getCode()).isEqualTo("VALIDATION_FAILED");
+    }
 }

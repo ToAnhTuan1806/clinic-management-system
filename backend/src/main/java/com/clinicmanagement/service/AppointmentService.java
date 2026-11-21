@@ -268,6 +268,229 @@ public class AppointmentService {
         return AppointmentResponse.from(appointment);
     }
 
+    @Transactional
+    @PreAuthorize("hasAnyRole('RECEPTIONIST', 'PATIENT')")
+    public AppointmentResponse rescheduleAppointment(AuthenticatedUser actor, Long appointmentId, AppointmentRescheduleRequest request) {
+        if (request == null) {
+            throw new ManagementException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "Request body is required.");
+        }
+
+        Long newScheduleId = parsePositiveLong(request.scheduleId(), "Schedule ID must be a positive integer.");
+        Instant startAt = request.startAt();
+        if (startAt == null) {
+            throw new ManagementException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "Start time is required.");
+        }
+        if (!startAt.isAfter(Instant.now())) {
+            throw new ManagementException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "Appointment start time must be in the future.");
+        }
+
+        if (request.expectedVersion() == null || request.expectedVersion() < 0) {
+            throw new ManagementException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "Expected version must be a non-negative integer.");
+        }
+
+        Appointment appointment = appointmentRepository.findById(appointmentId)
+                .orElseThrow(ManagementException::missing);
+
+        if (actor.role() == Role.PATIENT) {
+            Patient actorPatient = patientRepository.findByUserId(actor.id())
+                    .orElseThrow(() -> new ManagementException(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", "No linked patient profile found for patient user."));
+            if (appointment.getPatient().getUser() == null || !appointment.getPatient().getUser().getId().equals(actor.id())) {
+                throw ManagementException.missing();
+            }
+            if (!appointment.getPatient().isActive()) {
+                throw new ManagementException(HttpStatus.CONFLICT, "PATIENT_INACTIVE", "Patient profile is inactive.");
+            }
+        }
+
+        if (!appointment.getVersion().equals(request.expectedVersion())) {
+            throw new ManagementException(HttpStatus.CONFLICT, "VERSION_CONFLICT",
+                    "Appointment version mismatch. Expected: " + request.expectedVersion() + ", actual: " + appointment.getVersion());
+        }
+
+        if (appointment.getStatus() != AppointmentStatus.PENDING && appointment.getStatus() != AppointmentStatus.CONFIRMED) {
+            throw new ManagementException(HttpStatus.CONFLICT, "INVALID_STATE_TRANSITION",
+                    "Only PENDING or CONFIRMED appointments can be rescheduled. Current status: " + appointment.getStatus());
+        }
+
+        if (!appointment.getStartAt().isAfter(Instant.now())) {
+            throw new ManagementException(HttpStatus.CONFLICT, "INVALID_STATE_TRANSITION",
+                    "Cannot reschedule an appointment that has already started or passed.");
+        }
+
+        DoctorSchedule targetSchedule = scheduleRepository.findById(newScheduleId)
+                .orElseThrow(ManagementException::missing);
+
+        if (!targetSchedule.getDoctor().getId().equals(appointment.getDoctor().getId())) {
+            throw new ManagementException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "Rescheduled slot must belong to the same doctor.");
+        }
+
+        if (targetSchedule.getStatus() != ScheduleStatus.ACTIVE) {
+            throw new ManagementException(HttpStatus.CONFLICT, "SCHEDULE_BLOCKED", "Doctor schedule is blocked and cannot accept appointments.");
+        }
+
+        Doctor doctor = targetSchedule.getDoctor();
+        if (!doctor.isActive()) {
+            throw new ManagementException(HttpStatus.CONFLICT, "DOCTOR_INACTIVE", "Doctor is inactive.");
+        }
+        if (doctor.getUser().getStatus() != UserStatus.ACTIVE) {
+            throw new ManagementException(HttpStatus.CONFLICT, "USER_NOT_ACTIVE", "Doctor account is not active.");
+        }
+
+        int slotMinutes = targetSchedule.getSlotMinutes();
+        Duration slotDuration = Duration.ofMinutes(slotMinutes);
+        Instant calculatedEndAt = startAt.plus(slotDuration);
+
+        if (startAt.isBefore(targetSchedule.getStartAt()) || calculatedEndAt.isAfter(targetSchedule.getEndAt())) {
+            throw new ManagementException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "Appointment time must be within doctor schedule hours.");
+        }
+
+        long minutesFromStart = Duration.between(targetSchedule.getStartAt(), startAt).toMinutes();
+        if (minutesFromStart % slotMinutes != 0) {
+            throw new ManagementException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "Appointment start time must align with the schedule slot grid.");
+        }
+
+        // Lock parent doctor to serialize bookings, schedule patches, and reschedules
+        doctorRepository.findLocked(doctor.getId()).orElseThrow(ManagementException::missing);
+
+        // Re-verify under lock
+        Appointment freshAppointment = appointmentRepository.findById(appointmentId)
+                .orElseThrow(ManagementException::missing);
+
+        if (!freshAppointment.getVersion().equals(request.expectedVersion())) {
+            throw new ManagementException(HttpStatus.CONFLICT, "VERSION_CONFLICT",
+                    "Appointment version mismatch. Expected: " + request.expectedVersion() + ", actual: " + freshAppointment.getVersion());
+        }
+
+        if (freshAppointment.getStatus() != AppointmentStatus.PENDING && freshAppointment.getStatus() != AppointmentStatus.CONFIRMED) {
+            throw new ManagementException(HttpStatus.CONFLICT, "INVALID_STATE_TRANSITION",
+                    "Only PENDING or CONFIRMED appointments can be rescheduled.");
+        }
+
+        if (!freshAppointment.getStartAt().isAfter(Instant.now())) {
+            throw new ManagementException(HttpStatus.CONFLICT, "INVALID_STATE_TRANSITION",
+                    "Cannot reschedule an appointment that has already started or passed.");
+        }
+
+        DoctorSchedule freshSchedule = scheduleRepository.findById(targetSchedule.getId())
+                .orElseThrow(ManagementException::missing);
+        if (freshSchedule.getStatus() != ScheduleStatus.ACTIVE) {
+            throw new ManagementException(HttpStatus.CONFLICT, "SCHEDULE_BLOCKED", "Doctor schedule is blocked and cannot accept appointments.");
+        }
+
+        boolean slotTaken = appointmentRepository.existsByDoctorIdAndStartAtAndStatusNotAndIdNot(
+                doctor.getId(), startAt, AppointmentStatus.CANCELLED, freshAppointment.getId());
+        if (slotTaken) {
+            throw new ManagementException(HttpStatus.CONFLICT, "SLOT_ALREADY_BOOKED", "Selected appointment slot is already booked.");
+        }
+
+        User actorUser = userRepository.findById(actor.id())
+                .orElseThrow(() -> new ManagementException(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", "User not found."));
+
+        freshAppointment.reschedule(actorUser, freshSchedule, startAt, calculatedEndAt);
+
+        try {
+            Appointment saved = appointmentRepository.saveAndFlush(freshAppointment);
+            return AppointmentResponse.from(saved);
+        } catch (org.springframework.orm.ObjectOptimisticLockingFailureException | jakarta.persistence.OptimisticLockException ex) {
+            throw new ManagementException(HttpStatus.CONFLICT, "VERSION_CONFLICT", "Appointment has been modified by another concurrent transaction.");
+        } catch (DataIntegrityViolationException ex) {
+            String msg = ex.getMessage() != null ? ex.getMessage() : "";
+            if (msg.contains("uk_appointments_doctor_active_slot") || msg.contains("uk_appointments_doctor_start")) {
+                throw new ManagementException(HttpStatus.CONFLICT, "SLOT_ALREADY_BOOKED", "Selected appointment slot is already booked.");
+            }
+            throw new ManagementException(HttpStatus.CONFLICT, "APPOINTMENT_CONFLICT", "Data conflict while rescheduling appointment.");
+        }
+    }
+
+    @Transactional
+    @PreAuthorize("hasAnyRole('RECEPTIONIST', 'PATIENT')")
+    public AppointmentResponse cancelAppointment(AuthenticatedUser actor, Long appointmentId, AppointmentCancelRequest request) {
+        if (request == null) {
+            throw new ManagementException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "Request body is required.");
+        }
+
+        String reason = request.reason() != null ? request.reason().trim() : "";
+        if (reason.isEmpty()) {
+            throw new ManagementException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "Cancellation reason is required.");
+        }
+        if (reason.length() > 255) {
+            throw new ManagementException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "Reason cannot exceed 255 characters.");
+        }
+
+        if (request.expectedVersion() == null || request.expectedVersion() < 0) {
+            throw new ManagementException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "Expected version must be a non-negative integer.");
+        }
+
+        Appointment appointment = appointmentRepository.findById(appointmentId)
+                .orElseThrow(ManagementException::missing);
+
+        if (actor.role() == Role.PATIENT) {
+            Patient actorPatient = patientRepository.findByUserId(actor.id())
+                    .orElseThrow(() -> new ManagementException(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", "No linked patient profile found for patient user."));
+            if (appointment.getPatient().getUser() == null || !appointment.getPatient().getUser().getId().equals(actor.id())) {
+                throw ManagementException.missing();
+            }
+            if (!appointment.getPatient().isActive()) {
+                throw new ManagementException(HttpStatus.CONFLICT, "PATIENT_INACTIVE", "Patient profile is inactive.");
+            }
+        }
+
+        if (!appointment.getVersion().equals(request.expectedVersion())) {
+            throw new ManagementException(HttpStatus.CONFLICT, "VERSION_CONFLICT",
+                    "Appointment version mismatch. Expected: " + request.expectedVersion() + ", actual: " + appointment.getVersion());
+        }
+
+        if (appointment.getStatus() == AppointmentStatus.CANCELLED) {
+            throw new ManagementException(HttpStatus.CONFLICT, "INVALID_STATE_TRANSITION", "Appointment is already cancelled.");
+        }
+
+        if (appointment.getStatus() != AppointmentStatus.PENDING && appointment.getStatus() != AppointmentStatus.CONFIRMED) {
+            throw new ManagementException(HttpStatus.CONFLICT, "INVALID_STATE_TRANSITION",
+                    "Only PENDING or CONFIRMED appointments can be cancelled. Current status: " + appointment.getStatus());
+        }
+
+        if (!appointment.getStartAt().isAfter(Instant.now())) {
+            throw new ManagementException(HttpStatus.CONFLICT, "INVALID_STATE_TRANSITION",
+                    "Cannot cancel an appointment that has already started or passed.");
+        }
+
+        // Lock parent doctor to serialize
+        doctorRepository.findLocked(appointment.getDoctor().getId()).orElseThrow(ManagementException::missing);
+
+        Appointment freshAppointment = appointmentRepository.findById(appointmentId)
+                .orElseThrow(ManagementException::missing);
+
+        if (!freshAppointment.getVersion().equals(request.expectedVersion())) {
+            throw new ManagementException(HttpStatus.CONFLICT, "VERSION_CONFLICT",
+                    "Appointment version mismatch. Expected: " + request.expectedVersion() + ", actual: " + freshAppointment.getVersion());
+        }
+
+        if (freshAppointment.getStatus() == AppointmentStatus.CANCELLED) {
+            throw new ManagementException(HttpStatus.CONFLICT, "INVALID_STATE_TRANSITION", "Appointment is already cancelled.");
+        }
+
+        if (freshAppointment.getStatus() != AppointmentStatus.PENDING && freshAppointment.getStatus() != AppointmentStatus.CONFIRMED) {
+            throw new ManagementException(HttpStatus.CONFLICT, "INVALID_STATE_TRANSITION",
+                    "Only PENDING or CONFIRMED appointments can be cancelled.");
+        }
+
+        if (!freshAppointment.getStartAt().isAfter(Instant.now())) {
+            throw new ManagementException(HttpStatus.CONFLICT, "INVALID_STATE_TRANSITION",
+                    "Cannot cancel an appointment that has already started or passed.");
+        }
+
+        User actorUser = userRepository.findById(actor.id())
+                .orElseThrow(() -> new ManagementException(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", "User not found."));
+
+        freshAppointment.cancel(actorUser, reason);
+        try {
+            Appointment saved = appointmentRepository.saveAndFlush(freshAppointment);
+            return AppointmentResponse.from(saved);
+        } catch (org.springframework.orm.ObjectOptimisticLockingFailureException | jakarta.persistence.OptimisticLockException ex) {
+            throw new ManagementException(HttpStatus.CONFLICT, "VERSION_CONFLICT", "Appointment has been modified by another concurrent transaction.");
+        }
+    }
+
     private Long parsePositiveLong(String value, String errorMessage) {
         if (value == null || value.isBlank()) {
             throw new ManagementException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", errorMessage);

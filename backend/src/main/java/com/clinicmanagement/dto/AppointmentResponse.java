@@ -19,7 +19,15 @@ public record AppointmentResponse(
         Instant endAt,
         String status,
         String reason,
+        Instant cancelledAt,
+        String cancelledBy,
+        String cancellationReason,
+        Instant rescheduledAt,
+        String rescheduledBy,
+        String previousScheduleId,
+        Instant previousStartAt,
         String createdBy,
+        Long version,
         Instant createdAt,
         Instant updatedAt
 ) {
@@ -40,7 +48,15 @@ public record AppointmentResponse(
                 a.getEndAt(),
                 a.getStatus().name(),
                 a.getReason(),
+                a.getCancelledAt(),
+                a.getCancelledBy() != null ? a.getCancelledBy().getId().toString() : null,
+                a.getCancellationReason(),
+                a.getRescheduledAt(),
+                a.getRescheduledBy() != null ? a.getRescheduledBy().getId().toString() : null,
+                a.getPreviousSchedule() != null ? a.getPreviousSchedule().getId().toString() : null,
+                a.getPreviousStartAtUtc(),
                 a.getCreatedBy().getId().toString(),
+                a.getVersion(),
                 a.getCreatedAt(),
                 a.getUpdatedAt()
         );
