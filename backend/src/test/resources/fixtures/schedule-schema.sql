@@ -9,5 +9,6 @@ CREATE TABLE doctor_schedules (
     status VARCHAR(16) NOT NULL,
     version BIGINT NOT NULL DEFAULT 0,
     created_at TIMESTAMP(6) NOT NULL,
-    updated_at TIMESTAMP(6) NOT NULL
+    updated_at TIMESTAMP(6) NOT NULL,
+    CONSTRAINT uk_doctor_schedules_id_doctor UNIQUE (id, doctor_id)
 );
