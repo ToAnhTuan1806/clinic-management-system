@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { AxiosInstance } from 'axios'
 import {
   BookingError,
@@ -86,30 +86,38 @@ describe('Patient Appointment Booking Contract & Domain Unit Tests (Sprint 2 - D
     })
 
     it('validates slot availability and past slots on current day', () => {
-      const noSlot = { ...baseValidDraft }
-      delete (noSlot as Partial<BookingDraft>).slot
-      expect(validateBookingDraft(noSlot).slot).toBe(
-        'Vui lòng chọn khung giờ khám còn trống.',
-      )
+      vi.useFakeTimers()
+      try {
+        vi.setSystemTime(new Date('2026-11-25T12:00:00+07:00'))
 
-      // Past slot on current day
-      const todayStr = getVnTodayString()
-      const pastTimeTodayIso = new Date(Date.now() - 3600000).toISOString()
-      const pastSlot = {
-        scheduleId: '100',
-        startsAt: pastTimeTodayIso,
-        endsAt: new Date(Date.now() - 1800000).toISOString(),
-        isAvailable: true,
-      }
+        const noSlot = { ...baseValidDraft }
+        delete (noSlot as Partial<BookingDraft>).slot
+        expect(validateBookingDraft(noSlot).slot).toBe(
+          'Vui lòng chọn khung giờ khám còn trống.',
+        )
 
-      const todayPastDraft: BookingDraft = {
-        ...baseValidDraft,
-        date: todayStr,
-        slot: pastSlot,
+        // Freeze noon in Vietnam so the past slot stays on the same VN date.
+        const todayStr = getVnTodayString()
+        expect(todayStr).toBe('2026-11-25')
+        const pastTimeTodayIso = new Date(Date.now() - 3600000).toISOString()
+        const pastSlot = {
+          scheduleId: '100',
+          startsAt: pastTimeTodayIso,
+          endsAt: new Date(Date.now() - 1800000).toISOString(),
+          isAvailable: true,
+        }
+
+        const todayPastDraft: BookingDraft = {
+          ...baseValidDraft,
+          date: todayStr,
+          slot: pastSlot,
+        }
+        expect(validateBookingDraft(todayPastDraft).slot).toBe(
+          'Khung giờ này đã trôi qua. Vui lòng chọn khung giờ khác.',
+        )
+      } finally {
+        vi.useRealTimers()
       }
-      expect(validateBookingDraft(todayPastDraft).slot).toBe(
-        'Khung giờ này đã trôi qua. Vui lòng chọn khung giờ khác.',
-      )
     })
 
     it('validates reason length constraint (max 500 characters)', () => {
