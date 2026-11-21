@@ -68,6 +68,27 @@ public class Appointment {
     @Column(name = "previous_start_at_utc")
     private Instant previousStartAtUtc;
 
+    @Column(name = "confirmed_at")
+    private Instant confirmedAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "confirmed_by")
+    private User confirmedBy;
+
+    @Column(name = "checked_in_at")
+    private Instant checkedInAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "checked_in_by")
+    private User checkedInBy;
+
+    @Column(name = "no_show_at")
+    private Instant noShowAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "no_show_by")
+    private User noShowBy;
+
     @Column(name = "request_key", nullable = false, length = 64)
     private String requestKey;
 
@@ -207,6 +228,30 @@ public class Appointment {
         return previousStartAtUtc;
     }
 
+    public Instant getConfirmedAt() {
+        return confirmedAt;
+    }
+
+    public User getConfirmedBy() {
+        return confirmedBy;
+    }
+
+    public Instant getCheckedInAt() {
+        return checkedInAt;
+    }
+
+    public User getCheckedInBy() {
+        return checkedInBy;
+    }
+
+    public Instant getNoShowAt() {
+        return noShowAt;
+    }
+
+    public User getNoShowBy() {
+        return noShowBy;
+    }
+
     public Instant getActiveSlotStartUtc() {
         return activeSlotStartUtc;
     }
@@ -255,6 +300,29 @@ public class Appointment {
         this.startAt = newStartAt;
         this.endAt = newEndAt;
         this.status = AppointmentStatus.PENDING;
+        this.confirmedAt = null;
+        this.confirmedBy = null;
+        this.updatedAt = Instant.now();
+    }
+
+    public void confirm(User actor) {
+        this.status = AppointmentStatus.CONFIRMED;
+        this.confirmedAt = Instant.now();
+        this.confirmedBy = actor;
+        this.updatedAt = Instant.now();
+    }
+
+    public void checkIn(User actor) {
+        this.status = AppointmentStatus.CHECKED_IN;
+        this.checkedInAt = Instant.now();
+        this.checkedInBy = actor;
+        this.updatedAt = Instant.now();
+    }
+
+    public void markNoShow(User actor) {
+        this.status = AppointmentStatus.NO_SHOW;
+        this.noShowAt = Instant.now();
+        this.noShowBy = actor;
         this.updatedAt = Instant.now();
     }
 }

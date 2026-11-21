@@ -34,9 +34,10 @@ class AppointmentServiceTest {
     private final DoctorRepository doctorRepository = mock(DoctorRepository.class);
     private final PatientRepository patientRepository = mock(PatientRepository.class);
     private final UserRepository userRepository = mock(UserRepository.class);
+    private final jakarta.persistence.EntityManager entityManager = mock(jakarta.persistence.EntityManager.class);
 
     private final AppointmentService service = new AppointmentService(
-            appointmentRepository, scheduleRepository, doctorRepository, patientRepository, userRepository);
+            appointmentRepository, scheduleRepository, doctorRepository, patientRepository, userRepository, entityManager);
 
     private User patientUser;
     private Patient patient;
@@ -748,5 +749,309 @@ class AppointmentServiceTest {
                 () -> service.cancelAppointment(patientAuth, 705L, req256));
         assertThat(ex256.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(ex256.getCode()).isEqualTo("VALIDATION_FAILED");
+    }
+
+    @Test
+    void confirmAppointmentSuccess() {
+        Instant start = futureTime(2, 9, 0);
+        Appointment app = new Appointment("APP301", patient, doctor, schedule, patientUser, "req-cf1", "fpcf1",
+                start, start.plus(Duration.ofMinutes(30)), AppointmentStatus.PENDING, "Checkup");
+        ReflectionTestUtils.setField(app, "id", 801L);
+        ReflectionTestUtils.setField(app, "version", 0L);
+
+        when(appointmentRepository.findById(801L)).thenReturn(Optional.of(app));
+        when(appointmentRepository.saveAndFlush(any())).thenAnswer(inv -> {
+            Appointment a = inv.getArgument(0);
+            ReflectionTestUtils.setField(a, "version", 1L);
+            return a;
+        });
+
+        AppointmentResponse res = service.confirmAppointment(receptionistAuth, 801L,
+                new com.clinicmanagement.dto.AppointmentTransitionRequest(0L));
+
+        assertThat(res.status()).isEqualTo("CONFIRMED");
+        assertThat(res.confirmedAt()).isNotNull();
+        assertThat(res.confirmedBy()).isEqualTo("3");
+        assertThat(res.version()).isEqualTo(1L);
+    }
+
+    @Test
+    void confirmAppointmentFailsIfNotPending() {
+        Instant start = futureTime(2, 9, 0);
+        Appointment app = new Appointment("APP302", patient, doctor, schedule, patientUser, "req-cf2", "fpcf2",
+                start, start.plus(Duration.ofMinutes(30)), AppointmentStatus.CANCELLED, "Checkup");
+        ReflectionTestUtils.setField(app, "id", 802L);
+        ReflectionTestUtils.setField(app, "version", 0L);
+
+        when(appointmentRepository.findById(802L)).thenReturn(Optional.of(app));
+
+        ManagementException ex = assertThrows(ManagementException.class,
+                () -> service.confirmAppointment(receptionistAuth, 802L,
+                        new com.clinicmanagement.dto.AppointmentTransitionRequest(0L)));
+
+        assertThat(ex.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ex.getCode()).isEqualTo("INVALID_STATE_TRANSITION");
+    }
+
+    @Test
+    void confirmAppointmentFailsIfPastStartAt() {
+        Instant pastStart = Instant.now().minus(Duration.ofHours(1));
+        Appointment app = new Appointment("APP303", patient, doctor, schedule, patientUser, "req-cf3", "fpcf3",
+                pastStart, pastStart.plus(Duration.ofMinutes(30)), AppointmentStatus.PENDING, "Checkup");
+        ReflectionTestUtils.setField(app, "id", 803L);
+        ReflectionTestUtils.setField(app, "version", 0L);
+
+        when(appointmentRepository.findById(803L)).thenReturn(Optional.of(app));
+
+        ManagementException ex = assertThrows(ManagementException.class,
+                () -> service.confirmAppointment(receptionistAuth, 803L,
+                        new com.clinicmanagement.dto.AppointmentTransitionRequest(0L)));
+
+        assertThat(ex.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ex.getCode()).isEqualTo("INVALID_STATE_TRANSITION");
+    }
+
+    @Test
+    void confirmAppointmentFailsOnVersionConflict() {
+        Instant start = futureTime(2, 9, 0);
+        Appointment app = new Appointment("APP304", patient, doctor, schedule, patientUser, "req-cf4", "fpcf4",
+                start, start.plus(Duration.ofMinutes(30)), AppointmentStatus.PENDING, "Checkup");
+        ReflectionTestUtils.setField(app, "id", 804L);
+        ReflectionTestUtils.setField(app, "version", 1L);
+
+        when(appointmentRepository.findById(804L)).thenReturn(Optional.of(app));
+
+        ManagementException ex = assertThrows(ManagementException.class,
+                () -> service.confirmAppointment(receptionistAuth, 804L,
+                        new com.clinicmanagement.dto.AppointmentTransitionRequest(0L))); // Expected 0, actual 1
+
+        assertThat(ex.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ex.getCode()).isEqualTo("VERSION_CONFLICT");
+    }
+
+    @Test
+    void checkInAppointmentSuccess() {
+        Instant now = Instant.now();
+        Instant start = now.minus(Duration.ofMinutes(10));
+        Instant end = now.plus(Duration.ofMinutes(20));
+
+        Appointment app = new Appointment("APP305", patient, doctor, schedule, patientUser, "req-ci1", "fpci1",
+                start, end, AppointmentStatus.CONFIRMED, "Checkup");
+        ReflectionTestUtils.setField(app, "id", 805L);
+        ReflectionTestUtils.setField(app, "version", 1L);
+
+        when(appointmentRepository.findById(805L)).thenReturn(Optional.of(app));
+        when(appointmentRepository.saveAndFlush(any())).thenAnswer(inv -> {
+            Appointment a = inv.getArgument(0);
+            ReflectionTestUtils.setField(a, "version", 2L);
+            return a;
+        });
+
+        AppointmentResponse res = service.checkInAppointment(receptionistAuth, 805L,
+                new com.clinicmanagement.dto.AppointmentTransitionRequest(1L));
+
+        assertThat(res.status()).isEqualTo("CHECKED_IN");
+        assertThat(res.checkedInAt()).isNotNull();
+        assertThat(res.checkedInBy()).isEqualTo("3");
+        assertThat(res.version()).isEqualTo(2L);
+    }
+
+    @Test
+    void checkInAppointmentRepeatedReturnsCurrentWithoutBumpingVersion() {
+        Instant now = Instant.now();
+        Instant start = now.minus(Duration.ofMinutes(10));
+        Instant end = now.plus(Duration.ofMinutes(20));
+
+        Appointment app = new Appointment("APP306", patient, doctor, schedule, patientUser, "req-ci2", "fpci2",
+                start, end, AppointmentStatus.CHECKED_IN, "Checkup");
+        ReflectionTestUtils.setField(app, "id", 806L);
+        ReflectionTestUtils.setField(app, "version", 2L);
+        ReflectionTestUtils.setField(app, "checkedInAt", now.minus(Duration.ofMinutes(5)));
+        ReflectionTestUtils.setField(app, "checkedInBy", patientUser);
+
+        when(appointmentRepository.findById(806L)).thenReturn(Optional.of(app));
+
+        // Replay with version before check-in (1)
+        AppointmentResponse res1 = service.checkInAppointment(receptionistAuth, 806L,
+                new com.clinicmanagement.dto.AppointmentTransitionRequest(1L));
+        assertThat(res1.status()).isEqualTo("CHECKED_IN");
+        assertThat(res1.version()).isEqualTo(2L);
+
+        // Replay with current version (2)
+        AppointmentResponse res2 = service.checkInAppointment(receptionistAuth, 806L,
+                new com.clinicmanagement.dto.AppointmentTransitionRequest(2L));
+        assertThat(res2.status()).isEqualTo("CHECKED_IN");
+        assertThat(res2.version()).isEqualTo(2L);
+
+        verify(appointmentRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void checkInAppointmentFailsIfPending() {
+        Instant now = Instant.now();
+        Instant start = now.minus(Duration.ofMinutes(10));
+        Instant end = now.plus(Duration.ofMinutes(20));
+
+        Appointment app = new Appointment("APP307", patient, doctor, schedule, patientUser, "req-ci3", "fpci3",
+                start, end, AppointmentStatus.PENDING, "Checkup");
+        ReflectionTestUtils.setField(app, "id", 807L);
+        ReflectionTestUtils.setField(app, "version", 0L);
+
+        when(appointmentRepository.findById(807L)).thenReturn(Optional.of(app));
+
+        ManagementException ex = assertThrows(ManagementException.class,
+                () -> service.checkInAppointment(receptionistAuth, 807L,
+                        new com.clinicmanagement.dto.AppointmentTransitionRequest(0L)));
+
+        assertThat(ex.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ex.getCode()).isEqualTo("INVALID_STATE_TRANSITION");
+    }
+
+    @Test
+    void checkInAppointmentFailsIfNotToday() {
+        Instant start = futureTime(2, 9, 0); // 2 days in future
+        Instant end = start.plus(Duration.ofMinutes(30));
+
+        Appointment app = new Appointment("APP308", patient, doctor, schedule, patientUser, "req-ci4", "fpci4",
+                start, end, AppointmentStatus.CONFIRMED, "Checkup");
+        ReflectionTestUtils.setField(app, "id", 808L);
+        ReflectionTestUtils.setField(app, "version", 1L);
+
+        when(appointmentRepository.findById(808L)).thenReturn(Optional.of(app));
+
+        ManagementException ex = assertThrows(ManagementException.class,
+                () -> service.checkInAppointment(receptionistAuth, 808L,
+                        new com.clinicmanagement.dto.AppointmentTransitionRequest(1L)));
+
+        assertThat(ex.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ex.getCode()).isEqualTo("INVALID_STATE_TRANSITION");
+    }
+
+    @Test
+    void checkInAppointmentFailsIfAfterEndAt() {
+        Instant now = Instant.now();
+        Instant start = now.minus(Duration.ofMinutes(40));
+        Instant end = now.minus(Duration.ofMinutes(10)); // slot already ended
+
+        Appointment app = new Appointment("APP309", patient, doctor, schedule, patientUser, "req-ci5", "fpci5",
+                start, end, AppointmentStatus.CONFIRMED, "Checkup");
+        ReflectionTestUtils.setField(app, "id", 809L);
+        ReflectionTestUtils.setField(app, "version", 1L);
+
+        when(appointmentRepository.findById(809L)).thenReturn(Optional.of(app));
+
+        ManagementException ex = assertThrows(ManagementException.class,
+                () -> service.checkInAppointment(receptionistAuth, 809L,
+                        new com.clinicmanagement.dto.AppointmentTransitionRequest(1L)));
+
+        assertThat(ex.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ex.getCode()).isEqualTo("INVALID_STATE_TRANSITION");
+    }
+
+    @Test
+    void checkInAppointmentFailsOnVersionConflict() {
+        Instant now = Instant.now();
+        Instant start = now.minus(Duration.ofMinutes(10));
+        Instant end = now.plus(Duration.ofMinutes(20));
+
+        Appointment app = new Appointment("APP310", patient, doctor, schedule, patientUser, "req-ci6", "fpci6",
+                start, end, AppointmentStatus.CONFIRMED, "Checkup");
+        ReflectionTestUtils.setField(app, "id", 810L);
+        ReflectionTestUtils.setField(app, "version", 2L);
+
+        when(appointmentRepository.findById(810L)).thenReturn(Optional.of(app));
+
+        ManagementException ex = assertThrows(ManagementException.class,
+                () -> service.checkInAppointment(receptionistAuth, 810L,
+                        new com.clinicmanagement.dto.AppointmentTransitionRequest(0L)));
+
+        assertThat(ex.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ex.getCode()).isEqualTo("VERSION_CONFLICT");
+    }
+
+    @Test
+    void markNoShowSuccess() {
+        Instant pastStart = Instant.now().minus(Duration.ofMinutes(40));
+        Instant pastEnd = Instant.now().minus(Duration.ofMinutes(10));
+
+        Appointment app = new Appointment("APP311", patient, doctor, schedule, patientUser, "req-ns1", "fpns1",
+                pastStart, pastEnd, AppointmentStatus.CONFIRMED, "Checkup");
+        ReflectionTestUtils.setField(app, "id", 811L);
+        ReflectionTestUtils.setField(app, "version", 1L);
+
+        when(appointmentRepository.findById(811L)).thenReturn(Optional.of(app));
+        when(appointmentRepository.saveAndFlush(any())).thenAnswer(inv -> {
+            Appointment a = inv.getArgument(0);
+            ReflectionTestUtils.setField(a, "version", 2L);
+            return a;
+        });
+
+        AppointmentResponse res = service.markNoShow(receptionistAuth, 811L,
+                new com.clinicmanagement.dto.AppointmentTransitionRequest(1L));
+
+        assertThat(res.status()).isEqualTo("NO_SHOW");
+        assertThat(res.noShowAt()).isNotNull();
+        assertThat(res.noShowBy()).isEqualTo("3");
+        assertThat(res.version()).isEqualTo(2L);
+    }
+
+    @Test
+    void markNoShowFailsIfBeforeEndAt() {
+        Instant start = futureTime(1, 9, 0);
+        Instant end = start.plus(Duration.ofMinutes(30));
+
+        Appointment app = new Appointment("APP312", patient, doctor, schedule, patientUser, "req-ns2", "fpns2",
+                start, end, AppointmentStatus.CONFIRMED, "Checkup");
+        ReflectionTestUtils.setField(app, "id", 812L);
+        ReflectionTestUtils.setField(app, "version", 1L);
+
+        when(appointmentRepository.findById(812L)).thenReturn(Optional.of(app));
+
+        ManagementException ex = assertThrows(ManagementException.class,
+                () -> service.markNoShow(receptionistAuth, 812L,
+                        new com.clinicmanagement.dto.AppointmentTransitionRequest(1L)));
+
+        assertThat(ex.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ex.getCode()).isEqualTo("INVALID_STATE_TRANSITION");
+    }
+
+    @Test
+    void markNoShowFailsIfNotConfirmed() {
+        Instant pastStart = Instant.now().minus(Duration.ofMinutes(40));
+        Instant pastEnd = Instant.now().minus(Duration.ofMinutes(10));
+
+        Appointment app = new Appointment("APP313", patient, doctor, schedule, patientUser, "req-ns3", "fpns3",
+                pastStart, pastEnd, AppointmentStatus.PENDING, "Checkup");
+        ReflectionTestUtils.setField(app, "id", 813L);
+        ReflectionTestUtils.setField(app, "version", 0L);
+
+        when(appointmentRepository.findById(813L)).thenReturn(Optional.of(app));
+
+        ManagementException ex = assertThrows(ManagementException.class,
+                () -> service.markNoShow(receptionistAuth, 813L,
+                        new com.clinicmanagement.dto.AppointmentTransitionRequest(0L)));
+
+        assertThat(ex.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ex.getCode()).isEqualTo("INVALID_STATE_TRANSITION");
+    }
+
+    @Test
+    void markNoShowFailsOnVersionConflict() {
+        Instant pastStart = Instant.now().minus(Duration.ofMinutes(40));
+        Instant pastEnd = Instant.now().minus(Duration.ofMinutes(10));
+
+        Appointment app = new Appointment("APP314", patient, doctor, schedule, patientUser, "req-ns4", "fpns4",
+                pastStart, pastEnd, AppointmentStatus.CONFIRMED, "Checkup");
+        ReflectionTestUtils.setField(app, "id", 814L);
+        ReflectionTestUtils.setField(app, "version", 2L);
+
+        when(appointmentRepository.findById(814L)).thenReturn(Optional.of(app));
+
+        ManagementException ex = assertThrows(ManagementException.class,
+                () -> service.markNoShow(receptionistAuth, 814L,
+                        new com.clinicmanagement.dto.AppointmentTransitionRequest(0L)));
+
+        assertThat(ex.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ex.getCode()).isEqualTo("VERSION_CONFLICT");
     }
 }

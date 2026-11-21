@@ -38,7 +38,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler({
             org.springframework.orm.ObjectOptimisticLockingFailureException.class,
-            jakarta.persistence.OptimisticLockException.class
+            jakarta.persistence.OptimisticLockException.class,
+            org.springframework.transaction.UnexpectedRollbackException.class
     })
     ResponseEntity<ProblemDetail> handleOptimisticLock(Exception exception, ServletWebRequest request) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiProblems.create(HttpStatus.CONFLICT,
