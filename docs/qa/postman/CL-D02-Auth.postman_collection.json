@@ -160,7 +160,7 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test(\"Expected HTTP status\", function () { pm.expect(pm.response.code).to.eql(401); });",
-                  "pm.test(\"Problem Details status matches HTTP\", function () { const p=pm.response.json(); pm.expect(p.status).to.eql(pm.response.code); pm.expect(p.code).to.eql(\"AUTHENTICATION_REQUIRED\"); });"
+                  "pm.test(\"Problem Details status matches HTTP\", function () { const p=pm.response.json(); pm.expect(p.status).to.eql(pm.response.code); pm.expect(p.code).to.eql(\"INVALID_ACCESS_TOKEN\"); });"
                 ]
               }
             }
