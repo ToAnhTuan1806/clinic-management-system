@@ -33,6 +33,12 @@ public class User {
     @Column(name = "full_name", nullable = false, length = 120)
     private String fullName;
 
+    @Column(length = 24)
+    private String phone;
+
+    @Column(length = 255)
+    private String address;
+
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.VARCHAR)
     @Column(nullable = false, length = 20)
@@ -79,11 +85,23 @@ public class User {
         updatedAt = Instant.now();
     }
 
+    public void updateFullName(String fullName) {
+        this.fullName = fullName.trim();
+    }
+
+    public void updateProfile(String fullName, String phone, String address) {
+        this.fullName = fullName.trim();
+        this.phone = (phone == null || phone.isBlank()) ? null : phone.trim();
+        this.address = (address == null || address.isBlank()) ? null : address.trim();
+    }
+
     public Long getId() { return id; }
     public String getEmail() { return email; }
     @JsonIgnore
     public String getPasswordHash() { return passwordHash; }
     public String getFullName() { return fullName; }
+    public String getPhone() { return phone; }
+    public String getAddress() { return address; }
     public Role getRole() { return role; }
     public UserStatus getStatus() { return status; }
     public Instant getLastLoginAt() { return lastLoginAt; }
