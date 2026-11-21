@@ -9,6 +9,13 @@ CREATE TABLE IF NOT EXISTS appointments (
     end_at_utc TIMESTAMP(6) WITH TIME ZONE NOT NULL,
     status VARCHAR(16) NOT NULL DEFAULT 'PENDING',
     reason VARCHAR(500),
+    cancelled_at TIMESTAMP(6) WITH TIME ZONE,
+    cancelled_by BIGINT,
+    cancellation_reason VARCHAR(255),
+    rescheduled_at TIMESTAMP(6) WITH TIME ZONE,
+    rescheduled_by BIGINT,
+    previous_schedule_id BIGINT,
+    previous_start_at_utc TIMESTAMP(6) WITH TIME ZONE,
     request_key VARCHAR(64) NOT NULL,
     request_fingerprint CHAR(64) NOT NULL,
     active_slot_start_utc TIMESTAMP(6) WITH TIME ZONE GENERATED ALWAYS AS (
@@ -24,5 +31,8 @@ CREATE TABLE IF NOT EXISTS appointments (
     CONSTRAINT fk_appointments_doctor FOREIGN KEY (doctor_id) REFERENCES doctors (id),
     CONSTRAINT fk_appointments_schedule FOREIGN KEY (schedule_id) REFERENCES doctor_schedules (id),
     CONSTRAINT fk_appointments_schedule_doctor FOREIGN KEY (schedule_id, doctor_id) REFERENCES doctor_schedules (id, doctor_id),
-    CONSTRAINT fk_appointments_created_by FOREIGN KEY (created_by) REFERENCES users (id)
+    CONSTRAINT fk_appointments_created_by FOREIGN KEY (created_by) REFERENCES users (id),
+    CONSTRAINT fk_appointments_cancelled_by FOREIGN KEY (cancelled_by) REFERENCES users (id),
+    CONSTRAINT fk_appointments_rescheduled_by FOREIGN KEY (rescheduled_by) REFERENCES users (id),
+    CONSTRAINT fk_appointments_previous_schedule FOREIGN KEY (previous_schedule_id) REFERENCES doctor_schedules (id)
 );

@@ -44,6 +44,30 @@ public class Appointment {
     @Column(name = "reason", length = 500)
     private String reason;
 
+    @Column(name = "cancelled_at")
+    private Instant cancelledAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "cancelled_by")
+    private User cancelledBy;
+
+    @Column(name = "cancellation_reason", length = 255)
+    private String cancellationReason;
+
+    @Column(name = "rescheduled_at")
+    private Instant rescheduledAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "rescheduled_by")
+    private User rescheduledBy;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "previous_schedule_id")
+    private DoctorSchedule previousSchedule;
+
+    @Column(name = "previous_start_at_utc")
+    private Instant previousStartAtUtc;
+
     @Column(name = "request_key", nullable = false, length = 64)
     private String requestKey;
 
@@ -155,6 +179,34 @@ public class Appointment {
         return reason;
     }
 
+    public Instant getCancelledAt() {
+        return cancelledAt;
+    }
+
+    public User getCancelledBy() {
+        return cancelledBy;
+    }
+
+    public String getCancellationReason() {
+        return cancellationReason;
+    }
+
+    public Instant getRescheduledAt() {
+        return rescheduledAt;
+    }
+
+    public User getRescheduledBy() {
+        return rescheduledBy;
+    }
+
+    public DoctorSchedule getPreviousSchedule() {
+        return previousSchedule;
+    }
+
+    public Instant getPreviousStartAtUtc() {
+        return previousStartAtUtc;
+    }
+
     public Instant getActiveSlotStartUtc() {
         return activeSlotStartUtc;
     }
@@ -173,6 +225,36 @@ public class Appointment {
 
     public void cancel() {
         this.status = AppointmentStatus.CANCELLED;
+        this.updatedAt = Instant.now();
+    }
+
+    public void cancel(String cancellationReason) {
+        cancel(null, cancellationReason);
+    }
+
+    public void cancel(User actor, String cancellationReason) {
+        this.status = AppointmentStatus.CANCELLED;
+        if (cancellationReason != null && !cancellationReason.isBlank()) {
+            this.cancellationReason = cancellationReason.trim();
+        }
+        this.cancelledAt = Instant.now();
+        this.cancelledBy = actor;
+        this.updatedAt = Instant.now();
+    }
+
+    public void reschedule(DoctorSchedule newSchedule, Instant newStartAt, Instant newEndAt) {
+        reschedule(null, newSchedule, newStartAt, newEndAt);
+    }
+
+    public void reschedule(User actor, DoctorSchedule newSchedule, Instant newStartAt, Instant newEndAt) {
+        this.rescheduledAt = Instant.now();
+        this.rescheduledBy = actor;
+        this.previousSchedule = this.schedule;
+        this.previousStartAtUtc = this.startAt;
+        this.schedule = newSchedule;
+        this.startAt = newStartAt;
+        this.endAt = newEndAt;
+        this.status = AppointmentStatus.PENDING;
         this.updatedAt = Instant.now();
     }
 }

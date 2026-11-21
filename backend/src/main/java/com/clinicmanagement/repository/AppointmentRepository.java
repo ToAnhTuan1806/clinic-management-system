@@ -17,10 +17,10 @@ import java.util.Optional;
 
 public interface AppointmentRepository extends JpaRepository<Appointment, Long>, JpaSpecificationExecutor<Appointment> {
 
-    @EntityGraph(attributePaths = {"patient", "doctor", "doctor.user", "doctor.specialty", "schedule", "createdBy"})
+    @EntityGraph(attributePaths = {"patient", "doctor", "doctor.user", "doctor.specialty", "schedule", "createdBy", "cancelledBy", "rescheduledBy", "previousSchedule"})
     Optional<Appointment> findById(Long id);
 
-    @EntityGraph(attributePaths = {"patient", "doctor", "doctor.user", "doctor.specialty", "schedule", "createdBy"})
+    @EntityGraph(attributePaths = {"patient", "doctor", "doctor.user", "doctor.specialty", "schedule", "createdBy", "cancelledBy", "rescheduledBy", "previousSchedule"})
     Optional<Appointment> findByCreatedByIdAndRequestKey(Long createdById, String requestKey);
 
     boolean existsByAppointmentCode(String appointmentCode);
@@ -30,6 +30,13 @@ public interface AppointmentRepository extends JpaRepository<Appointment, Long>,
             @Param("doctorId") Long doctorId,
             @Param("startAt") Instant startAt,
             @Param("excludedStatus") AppointmentStatus excludedStatus);
+
+    @Query("SELECT COUNT(a) > 0 FROM Appointment a WHERE a.doctor.id = :doctorId AND a.startAt = :startAt AND a.status <> :excludedStatus AND a.id <> :appointmentId")
+    boolean existsByDoctorIdAndStartAtAndStatusNotAndIdNot(
+            @Param("doctorId") Long doctorId,
+            @Param("startAt") Instant startAt,
+            @Param("excludedStatus") AppointmentStatus excludedStatus,
+            @Param("appointmentId") Long appointmentId);
 
     @Query("SELECT COUNT(a) > 0 FROM Appointment a WHERE a.schedule.id = :scheduleId AND a.status <> :excludedStatus")
     boolean existsByScheduleIdAndStatusNot(
@@ -47,6 +54,6 @@ public interface AppointmentRepository extends JpaRepository<Appointment, Long>,
             @Param("excludedStatus") AppointmentStatus excludedStatus);
 
     @Override
-    @EntityGraph(attributePaths = {"patient", "doctor", "doctor.user", "doctor.specialty", "schedule", "createdBy"})
+    @EntityGraph(attributePaths = {"patient", "doctor", "doctor.user", "doctor.specialty", "schedule", "createdBy", "cancelledBy", "rescheduledBy", "previousSchedule"})
     Page<Appointment> findAll(Specification<Appointment> spec, Pageable pageable);
 }

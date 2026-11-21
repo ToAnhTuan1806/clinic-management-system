@@ -625,4 +625,483 @@ abstract class AppointmentHttpTestSupport extends TestSecurityProperties {
         assertThat(patchStatus.get()).isEqualTo(200);
         assertThat(bookStatus.get()).isEqualTo(409);
     }
+
+    private String tokenForUser(User user) throws Exception {
+        String payload = mapper.writeValueAsString(Map.of("email", user.getEmail(), "password", password));
+        HttpResponse<String> response = send("POST", "/api/v1/auth/login", payload, null);
+        assertThat(response.statusCode()).isEqualTo(200);
+        return mapper.readTree(response.body()).path("data").path("accessToken").asText();
+    }
+
+    @Test
+    void patientAndReceptionistCanRescheduleAppointment() throws Exception {
+        Instant slot1 = futureTime(3, 8, 30);
+        Instant slot2 = futureTime(3, 9, 0);
+        Instant slot3 = futureTime(3, 9, 30);
+
+        // 1. Patient books slot 1
+        String bookBody = mapper.writeValueAsString(Map.of(
+                "scheduleId", mainSchedule.getId().toString(),
+                "startAt", slot1.toString(),
+                "requestKey", "resched-book-1"
+        ));
+        HttpResponse<String> bookRes = send("POST", "/api/v1/appointments", bookBody, token(Role.PATIENT));
+        assertThat(bookRes.statusCode()).isEqualTo(201);
+        String appId = mapper.readTree(bookRes.body()).path("data").path("id").asText();
+        long version0 = mapper.readTree(bookRes.body()).path("data").path("version").asLong();
+        assertThat(version0).isEqualTo(0L);
+
+        // 2. Patient reschedules from slot 1 to slot 2
+        String reschedBody1 = mapper.writeValueAsString(Map.of(
+                "scheduleId", mainSchedule.getId().toString(),
+                "startAt", slot2.toString(),
+                "expectedVersion", 0
+        ));
+        HttpResponse<String> patchRes1 = send("PATCH", "/api/v1/appointments/" + appId + "/slot", reschedBody1, token(Role.PATIENT));
+        assertThat(patchRes1.statusCode()).isEqualTo(200);
+        JsonNode data1 = mapper.readTree(patchRes1.body()).path("data");
+        assertThat(data1.path("id").asText()).isEqualTo(appId);
+        assertThat(data1.path("startAt").asText()).isEqualTo(slot2.toString());
+        assertThat(data1.path("status").asText()).isEqualTo("PENDING");
+        assertThat(data1.path("version").asLong()).isEqualTo(1L);
+        assertThat(data1.path("previousScheduleId").asText()).isEqualTo(mainSchedule.getId().toString());
+        assertThat(data1.path("previousStartAt").asText()).isEqualTo(slot1.toString());
+        assertThat(data1.path("rescheduledAt").asText()).isNotBlank();
+        assertThat(data1.path("rescheduledBy").asText()).isNotBlank();
+
+        // 3. Slot 1 is now freed: another booking on slot 1 succeeds
+        String bookBodySlot1 = mapper.writeValueAsString(Map.of(
+                "scheduleId", mainSchedule.getId().toString(),
+                "startAt", slot1.toString(),
+                "requestKey", "resched-rebook-slot1",
+                "patientId", secondPatient.getId().toString()
+        ));
+        HttpResponse<String> rebookRes = send("POST", "/api/v1/appointments", bookBodySlot1, token(Role.RECEPTIONIST));
+        assertThat(rebookRes.statusCode()).isEqualTo(201);
+
+        // 4. Receptionist reschedules appId from slot 2 to slot 3
+        String reschedBody2 = mapper.writeValueAsString(Map.of(
+                "scheduleId", mainSchedule.getId().toString(),
+                "startAt", slot3.toString(),
+                "expectedVersion", 1
+        ));
+        HttpResponse<String> patchRes2 = send("PATCH", "/api/v1/appointments/" + appId + "/slot", reschedBody2, token(Role.RECEPTIONIST));
+        assertThat(patchRes2.statusCode()).isEqualTo(200);
+        JsonNode data2 = mapper.readTree(patchRes2.body()).path("data");
+        assertThat(data2.path("id").asText()).isEqualTo(appId);
+        assertThat(data2.path("startAt").asText()).isEqualTo(slot3.toString());
+        assertThat(data2.path("status").asText()).isEqualTo("PENDING");
+        assertThat(data2.path("version").asLong()).isEqualTo(2L);
+    }
+
+    @Test
+    void rescheduleRbacAndOwnership() throws Exception {
+        Instant slot1 = futureTime(3, 8, 30);
+        Instant slot2 = futureTime(3, 9, 0);
+
+        String bookBody = mapper.writeValueAsString(Map.of(
+                "scheduleId", mainSchedule.getId().toString(),
+                "startAt", slot1.toString(),
+                "requestKey", "resched-rbac-1"
+        ));
+        HttpResponse<String> bookRes = send("POST", "/api/v1/appointments", bookBody, token(Role.PATIENT));
+        assertThat(bookRes.statusCode()).isEqualTo(201);
+        String appId = mapper.readTree(bookRes.body()).path("data").path("id").asText();
+
+        String reschedBody = mapper.writeValueAsString(Map.of(
+                "scheduleId", mainSchedule.getId().toString(),
+                "startAt", slot2.toString(),
+                "expectedVersion", 0
+        ));
+
+        // Unauthenticated -> 401
+        HttpResponse<String> unauth = send("PATCH", "/api/v1/appointments/" + appId + "/slot", reschedBody, null);
+        assertThat(unauth.statusCode()).isEqualTo(401);
+
+        // ADMIN -> 403
+        HttpResponse<String> adminRes = send("PATCH", "/api/v1/appointments/" + appId + "/slot", reschedBody, token(Role.ADMIN));
+        assertThat(adminRes.statusCode()).isEqualTo(403);
+
+        // DOCTOR -> 403
+        HttpResponse<String> doctorRes = send("PATCH", "/api/v1/appointments/" + appId + "/slot", reschedBody, token(Role.DOCTOR));
+        assertThat(doctorRes.statusCode()).isEqualTo(403);
+
+        // Second patient (not owner) -> 404 (does not leak existence)
+        String tokenP2 = tokenForUser(secondPatient.getUser());
+        HttpResponse<String> otherPatientRes = send("PATCH", "/api/v1/appointments/" + appId + "/slot", reschedBody, tokenP2);
+        assertThat(otherPatientRes.statusCode()).isEqualTo(404);
+    }
+
+    @Test
+    void rescheduleValidationAndConflicts() throws Exception {
+        Instant slot1 = futureTime(3, 8, 30);
+        Instant slot2 = futureTime(3, 9, 0);
+
+        // Book slot 1 for main patient
+        String bookBody1 = mapper.writeValueAsString(Map.of(
+                "scheduleId", mainSchedule.getId().toString(),
+                "startAt", slot1.toString(),
+                "requestKey", "resched-val-1"
+        ));
+        HttpResponse<String> bookRes1 = send("POST", "/api/v1/appointments", bookBody1, token(Role.PATIENT));
+        assertThat(bookRes1.statusCode()).isEqualTo(201);
+        String app1Id = mapper.readTree(bookRes1.body()).path("data").path("id").asText();
+
+        // Book slot 2 for second patient
+        String bookBody2 = mapper.writeValueAsString(Map.of(
+                "scheduleId", mainSchedule.getId().toString(),
+                "startAt", slot2.toString(),
+                "requestKey", "resched-val-2",
+                "patientId", secondPatient.getId().toString()
+        ));
+        HttpResponse<String> bookRes2 = send("POST", "/api/v1/appointments", bookBody2, token(Role.RECEPTIONIST));
+        assertThat(bookRes2.statusCode()).isEqualTo(201);
+
+        // 1. Version conflict: wrong expectedVersion
+        String bodyVersionConflict = mapper.writeValueAsString(Map.of(
+                "scheduleId", mainSchedule.getId().toString(),
+                "startAt", futureTime(3, 10, 0).toString(),
+                "expectedVersion", 99
+        ));
+        HttpResponse<String> resVer = send("PATCH", "/api/v1/appointments/" + app1Id + "/slot", bodyVersionConflict, token(Role.PATIENT));
+        assertThat(resVer.statusCode()).isEqualTo(409);
+        assertThat(resVer.body()).contains("VERSION_CONFLICT");
+
+        // 2. Conflict: target slot 2 already booked
+        String bodySlotBooked = mapper.writeValueAsString(Map.of(
+                "scheduleId", mainSchedule.getId().toString(),
+                "startAt", slot2.toString(),
+                "expectedVersion", 0
+        ));
+        HttpResponse<String> resSlotBooked = send("PATCH", "/api/v1/appointments/" + app1Id + "/slot", bodySlotBooked, token(Role.PATIENT));
+        assertThat(resSlotBooked.statusCode()).isEqualTo(409);
+        assertThat(resSlotBooked.body()).contains("SLOT_ALREADY_BOOKED");
+
+        // Verify app1 remains unchanged on slot 1 (rollback / atomicity)
+        HttpResponse<String> getApp1 = send("GET", "/api/v1/appointments/" + app1Id, null, token(Role.PATIENT));
+        assertThat(getApp1.statusCode()).isEqualTo(200);
+        assertThat(mapper.readTree(getApp1.body()).path("data").path("startAt").asText()).isEqualTo(slot1.toString());
+        assertThat(mapper.readTree(getApp1.body()).path("data").path("version").asLong()).isEqualTo(0L);
+
+        // 3. Validation failed: negative expectedVersion
+        String bodyNegVer = mapper.writeValueAsString(Map.of(
+                "scheduleId", mainSchedule.getId().toString(),
+                "startAt", futureTime(3, 10, 0).toString(),
+                "expectedVersion", -1
+        ));
+        HttpResponse<String> resNegVer = send("PATCH", "/api/v1/appointments/" + app1Id + "/slot", bodyNegVer, token(Role.PATIENT));
+        assertThat(resNegVer.statusCode()).isEqualTo(400);
+
+        // 4. Validation failed: misaligned startAt
+        String bodyMisaligned = mapper.writeValueAsString(Map.of(
+                "scheduleId", mainSchedule.getId().toString(),
+                "startAt", futureTime(3, 8, 15).toString(),
+                "expectedVersion", 0
+        ));
+        HttpResponse<String> resMisaligned = send("PATCH", "/api/v1/appointments/" + app1Id + "/slot", bodyMisaligned, token(Role.PATIENT));
+        assertThat(resMisaligned.statusCode()).isEqualTo(400);
+
+        // 5. Validation failed: startAt in past
+        String bodyPast = mapper.writeValueAsString(Map.of(
+                "scheduleId", mainSchedule.getId().toString(),
+                "startAt", Instant.now().minus(Duration.ofHours(1)).toString(),
+                "expectedVersion", 0
+        ));
+        HttpResponse<String> resPast = send("PATCH", "/api/v1/appointments/" + app1Id + "/slot", bodyPast, token(Role.PATIENT));
+        assertThat(resPast.statusCode()).isEqualTo(400);
+    }
+
+    @Test
+    void patientAndReceptionistCanCancelAppointmentAndReleaseSlot() throws Exception {
+        Instant slot1 = futureTime(3, 8, 30);
+
+        // Book slot 1
+        String bookBody = mapper.writeValueAsString(Map.of(
+                "scheduleId", mainSchedule.getId().toString(),
+                "startAt", slot1.toString(),
+                "requestKey", "cancel-test-1",
+                "reason", "Khám định kỳ ban đầu"
+        ));
+        HttpResponse<String> bookRes = send("POST", "/api/v1/appointments", bookBody, token(Role.PATIENT));
+        assertThat(bookRes.statusCode()).isEqualTo(201);
+        String appId = mapper.readTree(bookRes.body()).path("data").path("id").asText();
+
+        // 1. Patient cancels appointment
+        String cancelBody = mapper.writeValueAsString(Map.of(
+                "reason", "Không thể đến khám đúng giờ",
+                "expectedVersion", 0
+        ));
+        HttpResponse<String> cancelRes = send("POST", "/api/v1/appointments/" + appId + "/cancellation", cancelBody, token(Role.PATIENT));
+        assertThat(cancelRes.statusCode()).isEqualTo(200);
+        JsonNode cancelData = mapper.readTree(cancelRes.body()).path("data");
+        assertThat(cancelData.path("id").asText()).isEqualTo(appId);
+        assertThat(cancelData.path("status").asText()).isEqualTo("CANCELLED");
+        assertThat(cancelData.path("reason").asText()).isEqualTo("Khám định kỳ ban đầu");
+        assertThat(cancelData.path("cancellationReason").asText()).isEqualTo("Không thể đến khám đúng giờ");
+        assertThat(cancelData.path("cancelledAt").asText()).isNotBlank();
+        assertThat(cancelData.path("cancelledBy").asText()).isNotBlank();
+        assertThat(cancelData.path("version").asLong()).isEqualTo(1L);
+
+        // 2. Slot is released: Rebooking the same slot succeeds
+        String rebookBody = mapper.writeValueAsString(Map.of(
+                "scheduleId", mainSchedule.getId().toString(),
+                "startAt", slot1.toString(),
+                "requestKey", "cancel-rebook-2",
+                "patientId", secondPatient.getId().toString()
+        ));
+        HttpResponse<String> rebookRes = send("POST", "/api/v1/appointments", rebookBody, token(Role.RECEPTIONIST));
+        assertThat(rebookRes.statusCode()).isEqualTo(201);
+        String newAppId = mapper.readTree(rebookRes.body()).path("data").path("id").asText();
+        assertThat(newAppId).isNotEqualTo(appId);
+
+        // 3. Repeated cancellation fails:
+        // A. With stale version (expectedVersion = 0) -> 409 VERSION_CONFLICT
+        HttpResponse<String> repeatStale = send("POST", "/api/v1/appointments/" + appId + "/cancellation", cancelBody, token(Role.PATIENT));
+        assertThat(repeatStale.statusCode()).isEqualTo(409);
+        assertThat(repeatStale.body()).contains("VERSION_CONFLICT");
+
+        // B. With current version (expectedVersion = 1) -> 409 INVALID_STATE_TRANSITION (already cancelled)
+        String cancelBodyCurrentVer = mapper.writeValueAsString(Map.of(
+                "reason", "Hủy lại lần 2",
+                "expectedVersion", 1
+        ));
+        HttpResponse<String> repeatCurrent = send("POST", "/api/v1/appointments/" + appId + "/cancellation", cancelBodyCurrentVer, token(Role.PATIENT));
+        assertThat(repeatCurrent.statusCode()).isEqualTo(409);
+        assertThat(repeatCurrent.body()).contains("INVALID_STATE_TRANSITION");
+    }
+
+    @Test
+    void cancelRbacAndOwnership() throws Exception {
+        Instant slot1 = futureTime(3, 8, 30);
+
+        String bookBody = mapper.writeValueAsString(Map.of(
+                "scheduleId", mainSchedule.getId().toString(),
+                "startAt", slot1.toString(),
+                "requestKey", "cancel-rbac-1"
+        ));
+        HttpResponse<String> bookRes = send("POST", "/api/v1/appointments", bookBody, token(Role.PATIENT));
+        assertThat(bookRes.statusCode()).isEqualTo(201);
+        String appId = mapper.readTree(bookRes.body()).path("data").path("id").asText();
+
+        String cancelBody = mapper.writeValueAsString(Map.of(
+                "reason", "Lý do hủy hợp lệ",
+                "expectedVersion", 0
+        ));
+
+        // Unauthenticated -> 401
+        HttpResponse<String> unauth = send("POST", "/api/v1/appointments/" + appId + "/cancellation", cancelBody, null);
+        assertThat(unauth.statusCode()).isEqualTo(401);
+
+        // ADMIN -> 403
+        HttpResponse<String> adminRes = send("POST", "/api/v1/appointments/" + appId + "/cancellation", cancelBody, token(Role.ADMIN));
+        assertThat(adminRes.statusCode()).isEqualTo(403);
+
+        // DOCTOR -> 403
+        HttpResponse<String> docRes = send("POST", "/api/v1/appointments/" + appId + "/cancellation", cancelBody, token(Role.DOCTOR));
+        assertThat(docRes.statusCode()).isEqualTo(403);
+
+        // Second patient -> 404
+        String tokenP2 = tokenForUser(secondPatient.getUser());
+        HttpResponse<String> otherPRes = send("POST", "/api/v1/appointments/" + appId + "/cancellation", cancelBody, tokenP2);
+        assertThat(otherPRes.statusCode()).isEqualTo(404);
+    }
+
+    @Test
+    void cancelValidationFailures() throws Exception {
+        Instant slot1 = futureTime(3, 8, 30);
+
+        String bookBody = mapper.writeValueAsString(Map.of(
+                "scheduleId", mainSchedule.getId().toString(),
+                "startAt", slot1.toString(),
+                "requestKey", "cancel-val-1"
+        ));
+        HttpResponse<String> bookRes = send("POST", "/api/v1/appointments", bookBody, token(Role.PATIENT));
+        assertThat(bookRes.statusCode()).isEqualTo(201);
+        String appId = mapper.readTree(bookRes.body()).path("data").path("id").asText();
+
+        // 1. Empty reason -> 400
+        String emptyReason = mapper.writeValueAsString(Map.of(
+                "reason", "   ",
+                "expectedVersion", 0
+        ));
+        HttpResponse<String> resEmpty = send("POST", "/api/v1/appointments/" + appId + "/cancellation", emptyReason, token(Role.PATIENT));
+        assertThat(resEmpty.statusCode()).isEqualTo(400);
+
+        // 2. Negative expectedVersion -> 400
+        String negVer = mapper.writeValueAsString(Map.of(
+                "reason", "Valid reason",
+                "expectedVersion", -1
+        ));
+        HttpResponse<String> resNeg = send("POST", "/api/v1/appointments/" + appId + "/cancellation", negVer, token(Role.PATIENT));
+        assertThat(resNeg.statusCode()).isEqualTo(400);
+
+        // 3. Reason 255 chars -> 200 OK
+        String reason255 = "R".repeat(255);
+        String body255 = mapper.writeValueAsString(Map.of(
+                "reason", reason255,
+                "expectedVersion", 0
+        ));
+        HttpResponse<String> res255 = send("POST", "/api/v1/appointments/" + appId + "/cancellation", body255, token(Role.PATIENT));
+        assertThat(res255.statusCode()).isEqualTo(200);
+        assertThat(mapper.readTree(res255.body()).path("data").path("cancellationReason").asText()).isEqualTo(reason255);
+
+        // Book another appointment to test 256 chars
+        Instant slot2 = futureTime(3, 9, 0);
+        String bookBody2 = mapper.writeValueAsString(Map.of(
+                "scheduleId", mainSchedule.getId().toString(),
+                "startAt", slot2.toString(),
+                "requestKey", "cancel-val-2"
+        ));
+        HttpResponse<String> bookRes2 = send("POST", "/api/v1/appointments", bookBody2, token(Role.PATIENT));
+        assertThat(bookRes2.statusCode()).isEqualTo(201);
+        String app2Id = mapper.readTree(bookRes2.body()).path("data").path("id").asText();
+
+        // 4. Reason 256 chars -> 400 VALIDATION_FAILED
+        String reason256 = "R".repeat(256);
+        String body256 = mapper.writeValueAsString(Map.of(
+                "reason", reason256,
+                "expectedVersion", 0
+        ));
+        HttpResponse<String> res256 = send("POST", "/api/v1/appointments/" + app2Id + "/cancellation", body256, token(Role.PATIENT));
+        assertThat(res256.statusCode()).isEqualTo(400);
+        assertThat(res256.body()).contains("VALIDATION_FAILED");
+    }
+
+    @Test
+    void concurrentRescheduleAndBookingRace() throws Exception {
+        Instant slot1 = futureTime(3, 8, 30);
+        Instant slot2 = futureTime(3, 9, 0);
+
+        // Patient 1 books slot 1
+        String bookBody = mapper.writeValueAsString(Map.of(
+                "scheduleId", mainSchedule.getId().toString(),
+                "startAt", slot1.toString(),
+                "requestKey", "race-resched-1"
+        ));
+        HttpResponse<String> bookRes = send("POST", "/api/v1/appointments", bookBody, token(Role.PATIENT));
+        assertThat(bookRes.statusCode()).isEqualTo(201);
+        String appId = mapper.readTree(bookRes.body()).path("data").path("id").asText();
+
+        // Now two threads compete for slot 2:
+        // Thread 1: Patient 1 reschedules app1 to slot 2
+        // Thread 2: Receptionist books slot 2 for secondPatient
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+
+        AtomicInteger rescheduleStatus = new AtomicInteger(0);
+        AtomicInteger bookStatus = new AtomicInteger(0);
+
+        Future<?> f1 = executor.submit(() -> {
+            ready.countDown();
+            try {
+                start.await();
+                String reschedBody = mapper.writeValueAsString(Map.of(
+                        "scheduleId", mainSchedule.getId().toString(),
+                        "startAt", slot2.toString(),
+                        "expectedVersion", 0
+                ));
+                HttpResponse<String> res = send("PATCH", "/api/v1/appointments/" + appId + "/slot", reschedBody, token(Role.PATIENT));
+                rescheduleStatus.set(res.statusCode());
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        Future<?> f2 = executor.submit(() -> {
+            ready.countDown();
+            try {
+                start.await();
+                String bookBody2 = mapper.writeValueAsString(Map.of(
+                        "scheduleId", mainSchedule.getId().toString(),
+                        "startAt", slot2.toString(),
+                        "requestKey", "race-competing-book",
+                        "patientId", secondPatient.getId().toString()
+                ));
+                HttpResponse<String> res = send("POST", "/api/v1/appointments", bookBody2, token(Role.RECEPTIONIST));
+                bookStatus.set(res.statusCode());
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        ready.await();
+        start.countDown();
+        f1.get(10, TimeUnit.SECONDS);
+        f2.get(10, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        // Exactly one succeeds (200 or 201), the other gets 409 SLOT_ALREADY_BOOKED
+        List<Integer> statuses = List.of(rescheduleStatus.get(), bookStatus.get());
+        assertThat(statuses).contains(409);
+        boolean validOutcomes = statuses.contains(200) || statuses.contains(201);
+        assertThat(validOutcomes).isTrue();
+    }
+
+    @Test
+    void concurrentRescheduleAndCancellationRace() throws Exception {
+        Instant slot1 = futureTime(3, 8, 30);
+        Instant slot2 = futureTime(3, 9, 0);
+
+        // Patient books slot 1
+        String bookBody = mapper.writeValueAsString(Map.of(
+                "scheduleId", mainSchedule.getId().toString(),
+                "startAt", slot1.toString(),
+                "requestKey", "race-cancel-resched-1"
+        ));
+        HttpResponse<String> bookRes = send("POST", "/api/v1/appointments", bookBody, token(Role.PATIENT));
+        assertThat(bookRes.statusCode()).isEqualTo(201);
+        String appId = mapper.readTree(bookRes.body()).path("data").path("id").asText();
+
+        // Two threads race on the same appointment with expectedVersion 0:
+        // Thread 1: Reschedule to slot 2
+        // Thread 2: Cancel
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+
+        AtomicInteger rescheduleStatus = new AtomicInteger(0);
+        AtomicInteger cancelStatus = new AtomicInteger(0);
+
+        Future<?> f1 = executor.submit(() -> {
+            ready.countDown();
+            try {
+                start.await();
+                String reschedBody = mapper.writeValueAsString(Map.of(
+                        "scheduleId", mainSchedule.getId().toString(),
+                        "startAt", slot2.toString(),
+                        "expectedVersion", 0
+                ));
+                HttpResponse<String> res = send("PATCH", "/api/v1/appointments/" + appId + "/slot", reschedBody, token(Role.PATIENT));
+                rescheduleStatus.set(res.statusCode());
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        Future<?> f2 = executor.submit(() -> {
+            ready.countDown();
+            try {
+                start.await();
+                String cancelBody = mapper.writeValueAsString(Map.of(
+                        "reason", "Raced cancellation",
+                        "expectedVersion", 0
+                ));
+                HttpResponse<String> res = send("POST", "/api/v1/appointments/" + appId + "/cancellation", cancelBody, token(Role.PATIENT));
+                cancelStatus.set(res.statusCode());
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        ready.await();
+        start.countDown();
+        f1.get(10, TimeUnit.SECONDS);
+        f2.get(10, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        // Exactly one succeeds with 200, the other fails with 409 (VERSION_CONFLICT or INVALID_STATE_TRANSITION)
+        List<Integer> statuses2 = List.of(rescheduleStatus.get(), cancelStatus.get());
+        assertThat(statuses2).contains(200).contains(409);
+    }
 }

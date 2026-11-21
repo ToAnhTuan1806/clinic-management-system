@@ -36,6 +36,16 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                         request.getRequest().getRequestURI()));
     }
 
+    @ExceptionHandler({
+            org.springframework.orm.ObjectOptimisticLockingFailureException.class,
+            jakarta.persistence.OptimisticLockException.class
+    })
+    ResponseEntity<ProblemDetail> handleOptimisticLock(Exception exception, ServletWebRequest request) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiProblems.create(HttpStatus.CONFLICT,
+                "VERSION_CONFLICT", "The resource was updated concurrently by another transaction.",
+                request.getRequest().getRequestURI()));
+    }
+
     @Override
     protected ResponseEntity<Object> handleExceptionInternal(Exception exception, Object body,
             HttpHeaders headers, HttpStatusCode statusCode, WebRequest request) {
