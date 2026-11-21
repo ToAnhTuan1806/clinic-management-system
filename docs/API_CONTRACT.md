@@ -1,8 +1,8 @@
 # API Contract — Clinic Management System (Sprint 1: D02–D04)
 
-Rà soát ổn định: **CL-D05-BE**; phạm vi API đã triển khai gồm Auth/JWT D02,
-Doctors/Specialties D03 và Profile/Patients D04, kế thừa nền tảng D01.
-Contract chính thức cho FE Sprint 1, cập nhật ngày **2026-11-21**.
+Rà soát ổn định: **CL-D06-BE**; phạm vi API đã triển khai gồm Auth/JWT D02,
+Doctors/Specialties D03, Profile/Patients D04 và Doctor Work Schedules D06, kế thừa nền tảng D01.
+Contract chính thức cho FE Sprint 2, cập nhật ngày **2026-11-21**.
 `IMPLEMENTED` chỉ áp dụng cho phần đã có code và kiểm thử; `PROPOSED` chưa phải API sử dụng được.
 Phạm vi chức năng: [FR-01–FR-14](requirements/FEATURE_SCOPE.md).
 
@@ -22,7 +22,7 @@ Phạm vi chức năng: [FR-01–FR-14](requirements/FEATURE_SCOPE.md).
 - Không nhận trực tiếp JPA entity làm request/response; dùng DTO và Bean Validation;
   giới hạn trường có thể ghi để ngăn cập nhật role/owner trái phép.
 - Không trả mật khẩu/hash/token nội bộ, stack trace, SQL hoặc URL kết nối.
-- Quy ước cụ thể tại các mục **IMPLEMENTED D02/D03/D04** là contract đang sử dụng.
+- Quy ước cụ thể tại các mục **IMPLEMENTED D02/D03/D04/D06** là contract đang sử dụng.
   Các endpoint và mẫu nghiệp vụ ghi **PROPOSED** chưa được triển khai.
 
 ## 2. HTTP status
@@ -535,6 +535,145 @@ Tạo hồ sơ bệnh nhân hành chính:
 | 409 | USER_NOT_ACTIVE | Tài khoản liên kết đang bị khóa (DISABLED) |
 | 409 | PATIENT_CONFLICT | Xung đột dữ liệu / ràng buộc cơ sở dữ liệu đồng thời |
 
+### 3.4 Doctor Work Schedules & Schedule Slots (CL-D06-BE — IMPLEMENTED D06)
+
+Bổ sung API quản lý lịch làm việc của bác sĩ (FR-06) với RBAC, chống xung đột lịch ca làm việc (pessimistic lock trên parent Doctor), kiểm soát thời lượng slot (15, 30, 60 phút) và sinh các khung giờ đặt hẹn khả dụng. Tích hợp migration Flyway V5 (`V5__create_doctor_schedules.sql`).
+
+**Phân quyền thực tế D06**
+
+| Endpoint | Method | ADMIN | RECEPTIONIST | DOCTOR | PATIENT |
+| --- | --- | --- | --- | --- | --- |
+| `/api/v1/doctor-schedules` | POST | Cho phép | Cho phép | 403 ACCESS_DENIED | 403 ACCESS_DENIED |
+| `/api/v1/doctor-schedules` | GET | Cho phép (toàn bộ) | Cho phép (toàn bộ) | Chỉ xem ca của chính mình | 403 ACCESS_DENIED |
+| `/api/v1/doctor-schedules/{id}` | GET | Cho phép (toàn bộ) | Cho phép (toàn bộ) | Chỉ xem ca của chính mình (khác: 404) | 403 ACCESS_DENIED |
+| `/api/v1/doctor-schedules/{id}` | PATCH | Cho phép | Cho phép | 403 ACCESS_DENIED | 403 ACCESS_DENIED |
+| `/api/v1/doctors/{id}/schedule-slots` | GET | Cho phép | Cho phép | Cho phép | Cho phép |
+
+- Tất cả endpoint yêu cầu JWT Bearer hợp lệ từ user `ACTIVE`; thiếu token trả 401 `AUTHENTICATION_REQUIRED`, token sai/hết hạn trả 401 `INVALID_ACCESS_TOKEN`.
+- DOCTOR chỉ được xem ca làm việc của chính mình trên `GET /doctor-schedules` (hệ thống tự lọc theo `doctorId` của user đăng nhập, query `doctorId` khác sẽ bị bỏ qua hoặc chỉ trả ca của bản thân) và `GET /doctor-schedules/{id}` (nếu ca thuộc bác sĩ khác, trả 404 `RESOURCE_NOT_FOUND` để tránh lộ dữ liệu).
+- PATIENT không có quyền quản lý ca trực (trả 403 `ACCESS_DENIED`). PATIENT và các vai trò khác truy cập `GET /doctors/{id}/schedule-slots` để xem các khung giờ khám còn trống.
+
+**Quy tắc nghiệp vụ & Ràng buộc thời gian**:
+1. **Timezone & Ngày làm việc**:
+   - Múi giờ chuẩn phòng khám: `Asia/Ho_Chi_Minh` (+07:00).
+   - Lưu trữ DB: UTC timestamp (`DATETIME(6)` / `Instant`).
+   - Ca làm việc phải bắt đầu trong tương lai (`startAt > now`).
+   - `startAt < endAt`.
+   - Ca làm việc phải nằm trọn trong cùng một ngày theo lịch Việt Nam (`Asia/Ho_Chi_Minh`), không được vắt qua nửa đêm.
+2. **Thời lượng slot**:
+   - `slotMinutes`: nhận một trong 3 giá trị `15`, `30`, `60`. Mặc định là `30` nếu không truyền.
+   - Thời lượng ca (`endAt - startAt`) không được ngắn hơn `slotMinutes`.
+3. **Trạng thái & Soft Deactivation**:
+   - Trạng thái ca: `ACTIVE` hoặc `BLOCKED`. Mặc định khi tạo là `ACTIVE`.
+   - Không xóa vật lý ca làm việc. Hủy/khóa ca bằng cách PATCH `status = "BLOCKED"`.
+   - Ca có trạng thái `BLOCKED` sẽ **không** sinh ra bất kỳ khung giờ hẹn (slots) nào.
+   - Khi mở lại ca (`BLOCKED` -> `ACTIVE`), hệ thống bắt buộc kiểm tra lại xung đột chồng lấn lịch.
+4. **Chống chồng lấn & Race Condition**:
+   - Khoảng thời gian ca được tính theo nửa mở $[startAt, endAt)$. Hai ca liền kề nhau ($end_1 = start_2$) là **hợp lệ**.
+   - Bác sĩ không được có hai ca `ACTIVE` chồng lấn thời gian. Vi phạm trả 409 `SCHEDULE_OVERLAP`.
+   - Chống race condition khi tạo/sửa ca đồng thời: Hệ thống thực hiện khóa bi quan (`PESSIMISTIC_WRITE`) trên bản ghi bác sĩ cha (`Doctor`) trong cùng transaction trước khi kiểm tra overlap và ghi nhận ca mới.
+5. **Điều kiện Bác sĩ**:
+   - Bác sĩ phải tồn tại (404 `RESOURCE_NOT_FOUND`).
+   - Bác sĩ phải đang hoạt động (`doctor.isActive == true`), vi phạm trả 409 `DOCTOR_INACTIVE`.
+   - Tài khoản người dùng liên kết với bác sĩ phải đang hoạt động (`user.status == ACTIVE`), vi phạm trả 409 `USER_NOT_ACTIVE`.
+
+**POST /api/v1/doctor-schedules — ADMIN/RECEPTIONIST, 201 + Location**
+Tạo ca làm việc mới cho bác sĩ:
+```json
+{
+  "doctorId": "1",
+  "startAt": "2026-11-25T08:00:00Z",
+  "endAt": "2026-11-25T12:00:00Z",
+  "slotMinutes": 30,
+  "status": "ACTIVE"
+}
+```
+Response 201:
+```json
+{
+  "data": {
+    "id": "100",
+    "doctorId": "1",
+    "doctorCode": "DOC_001",
+    "doctorFullName": "Bac Si A",
+    "specialtyName": "Noi Khoa",
+    "startAt": "2026-11-25T08:00:00Z",
+    "endAt": "2026-11-25T12:00:00Z",
+    "slotMinutes": 30,
+    "status": "ACTIVE",
+    "createdAt": "2026-11-21T10:00:00Z",
+    "updatedAt": "2026-11-21T10:00:00Z"
+  }
+}
+```
+
+**GET /api/v1/doctor-schedules — ADMIN/RECEPTIONIST/DOCTOR, 200**
+- Query params:
+  - `doctorId`: Chuỗi ID bác sĩ (tùy chọn với ADMIN/RECEPTIONIST; DOCTOR luôn bị giới hạn ở hồ sơ của mình).
+  - `date`: Lọc theo ngày làm việc (`YYYY-MM-DD` theo múi giờ `Asia/Ho_Chi_Minh`).
+  - `status`: `ACTIVE` hoặc `BLOCKED`.
+  - `page`: Integer >= 0 (mặc định 0).
+  - `size`: Integer 1–100 (mặc định 20).
+- Sắp xếp cố định: `startAt` ASC, sau đó `id` ASC.
+- Response bọc `data.items`, `page`, `size`, `totalElements`, `totalPages`.
+
+**GET /api/v1/doctor-schedules/{id} — ADMIN/RECEPTIONIST/DOCTOR, 200**
+- ADMIN/RECEPTIONIST: Xem bất kỳ ca nào.
+- DOCTOR: Chỉ xem ca của mình; ca của bác sĩ khác trả 404 `RESOURCE_NOT_FOUND`.
+
+**PATCH /api/v1/doctor-schedules/{id} — ADMIN/RECEPTIONIST, 200**
+Cập nhật ca làm việc:
+```json
+{
+  "startAt": "2026-11-25T08:30:00Z",
+  "endAt": "2026-11-25T11:30:00Z",
+  "slotMinutes": 30,
+  "status": "ACTIVE"
+}
+```
+- Không cho phép chuyển đổi ca sang bác sĩ khác (`doctorId` là bất biến, gửi field thừa bị 400).
+- Payload rỗng trả 400 `VALIDATION_FAILED`.
+- Kiểm tra tính hợp lệ: thời gian tương lai, cùng ngày Việt Nam, duration >= slotMinutes, không overlap với các ca ACTIVE khác của bác sĩ.
+
+**GET /api/v1/doctors/{id}/schedule-slots — Bốn role, 200**
+Lấy danh sách các khung giờ (slots) có thể đặt khám của bác sĩ:
+- Path param: `{id}` ID bác sĩ.
+- Query params:
+  - `date`: `YYYY-MM-DD` (bắt buộc, theo múi giờ `Asia/Ho_Chi_Minh`).
+- Response 200:
+```json
+{
+  "data": [
+    {
+      "startAt": "2026-11-25T08:00:00Z",
+      "endAt": "2026-11-25T08:30:00Z",
+      "durationMinutes": 30,
+      "scheduleId": "100"
+    },
+    {
+      "startAt": "2026-11-25T08:30:00Z",
+      "endAt": "2026-11-25T09:00:00Z",
+      "durationMinutes": 30,
+      "scheduleId": "100"
+    }
+  ]
+}
+```
+- Các ca `BLOCKED` sẽ không sinh slot.
+- Slot được cắt tuần tự `[startAt + k * slotMinutes, startAt + (k+1) * slotMinutes)`. Phần dư nếu `(endAt - startAt) % slotMinutes != 0` sẽ bị bỏ qua.
+
+**Bảng mã lỗi D06**
+
+| HTTP | Code | Trường hợp |
+| --- | --- | --- |
+| 400 | VALIDATION_FAILED / HTTP_400 | Dữ liệu không hợp lệ: ca quá khứ, vắt qua đêm, start >= end, slotMinutes không thuộc 15/30/60, duration < slotMinutes, thiếu param bắt buộc |
+| 401 | AUTHENTICATION_REQUIRED / INVALID_ACCESS_TOKEN | Chưa xác thực hoặc JWT không hợp lệ/hết hạn |
+| 403 | ACCESS_DENIED | Không có quyền (PATIENT/DOCTOR gọi thao tác quản trị, DOCTOR xem ca người khác) |
+| 404 | RESOURCE_NOT_FOUND | Bác sĩ không tồn tại, ca làm việc không tồn tại hoặc ngoài phạm vi quyền xem |
+| 409 | SCHEDULE_OVERLAP | Ca làm việc bị trùng/chồng lấn với một ca ACTIVE khác của cùng bác sĩ |
+| 409 | DOCTOR_INACTIVE | Bác sĩ đang ở trạng thái ngừng hoạt động (`isActive = false`) |
+| 409 | USER_NOT_ACTIVE | Tài khoản người dùng liên kết với bác sĩ đang bị khóa (`DISABLED`) |
+
 ## 4. Error response
 
 Dùng Problem Details theo [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457.html),
@@ -587,9 +726,10 @@ vẫn là đề xuất cho các nghiệp vụ ngày sau.
 | RECEPTIONIST | Hồ sơ hành chính bệnh nhân, lịch, xác nhận, check-in | Chỉ metadata vận hành của hồ sơ khám; không sửa chẩn đoán/đơn thuốc |
 | PATIENT | Hồ sơ cá nhân, đặt/đổi/hủy lịch và lịch sử của mình | Kiểm tra ownership ở BE; không tin patientId từ client |
 
-**D04 IMPLEMENTED:** GET health và POST register/login public; GET auth/me, GET/PATCH me/profile,
+**D06 IMPLEMENTED:** GET health và POST register/login public; GET auth/me, GET/PATCH me/profile,
 GET/POST patients, GET/PATCH patients/{id}, GET me/patient-profile, GET eligible-users,
-GET/POST/PATCH doctors và specialties theo đúng RBAC, ownership và scope bảo mật đã duyệt.
+GET/POST/PATCH doctors và specialties, POST/GET/PATCH doctor-schedules và GET schedule-slots
+theo đúng RBAC, ownership, pessimistic lock và scope bảo mật đã duyệt.
 Mọi API khác denyAll, kể cả ADMIN. HTTP Basic/form login/session cookie không dùng;
 không có tài khoản mặc định. Session policy stateless, request cache tắt.
 CSRF tắt vì credential chỉ được gửi chủ động qua Authorization header, không dùng cookie xác thực.
@@ -635,10 +775,10 @@ Các dòng có nhiều method mô tả các API riêng cùng trạng thái tri�
 | FR-05 | GET | `/patients/{id}` | ADMIN/RECEPTIONIST hành chính; PATIENT self linked | **IMPLEMENTED D04** |
 | FR-05 | PATCH | `/patients/{id}` | ADMIN/RECEPTIONIST hành chính | **IMPLEMENTED D04** |
 | FR-05 | GET | `/me/patient-profile` | PATIENT self | **IMPLEMENTED D04** |
-| FR-06 | GET | `/work-schedules` | ADMIN/RECEPTIONIST; DOCTOR self | PROPOSED |
-| FR-06 | POST | `/work-schedules` | ADMIN/RECEPTIONIST | PROPOSED |
-| FR-06 | PATCH | `/work-schedules/{id}` | ADMIN/RECEPTIONIST | PROPOSED |
-| FR-06 | GET | `/doctors/{id}/available-slots` | Cả bốn role; chỉ slot có thể đặt | PROPOSED |
+| FR-06 | POST | `/doctor-schedules` | ADMIN/RECEPTIONIST | **IMPLEMENTED D06** |
+| FR-06 | GET | `/doctor-schedules`, `/doctor-schedules/{id}` | ADMIN/RECEPTIONIST; DOCTOR self | **IMPLEMENTED D06** |
+| FR-06 | PATCH | `/doctor-schedules/{id}` | ADMIN/RECEPTIONIST | **IMPLEMENTED D06** |
+| FR-06 | GET | `/doctors/{id}/schedule-slots` | Cả bốn role; sinh slot khả dụng | **IMPLEMENTED D06** |
 | FR-07 | GET | `/appointments`, `/appointments/{id}` | ADMIN/RECEPTIONIST; DOCTOR assigned; PATIENT self | PROPOSED |
 | FR-07 | POST | `/appointments` | PATIENT self / RECEPTIONIST thay tại quầy | PROPOSED |
 | FR-07 | PATCH | `/appointments/{id}/slot` | PATIENT self / RECEPTIONIST | PROPOSED |
@@ -691,16 +831,16 @@ Payload/response chi tiết của từng API nghiệp vụ sẽ chốt cùng ERD
 
 ## 8. Điểm cần đồng bộ
 
-- **FE:** health/register/login/me, tám API catalog, eligible-users và bảy API Profile/Patients đã có code;
+- **FE:** health/register/login/me, tám API catalog, eligible-users, bảy API Profile/Patients và năm API Doctor Schedules/Slots đã có code;
   dùng Bearer header, expiresIn tính bằng giây, id chuỗi, data/Problem Details và logout client-only.
-  DTO/query params/response/errors D03/D04 chính thức ở mục 3.2–3.3; chú ý khác biệt PATCH profile/patient.
+  DTO/query params/response/errors D03/D04/D06 chính thức ở mục 3.2–3.4; chú ý khác biệt PATCH profile/patient/schedule.
   Không dùng các API PROPOSED như API đã có.
 - **FE + BE:** cấu hình origin chính xác; không gửi credentials cookie; refresh/revoke chưa có;
   UI ẩn nút theo role không thay thế quyền phía BE.
 - **DB + BE:** MySQL version, database rỗng/riêng để kiểm thử, tài khoản qua secret của môi trường,
   quyền Flyway, ERD, loại id, index, timezone, charset/collation và concurrency cho slot.
-- **DB:** V1–V4 của QA đã tích hợp, không sửa migration đã áp dụng.
-  User/Doctor/Specialty/Patient map theo DATABASE_DESIGN; MySQL suite dùng DB cô lập, không dùng fixture H2 thay schema.
+- **DB:** V1–V5 của QA đã tích hợp, không sửa migration đã áp dụng.
+  User/Doctor/Specialty/Patient/DoctorSchedule map theo DATABASE_DESIGN; MySQL suite dùng DB cô lập, không dùng fixture H2 thay schema.
   Hibernate chỉ validate, không tự tạo/cập nhật schema. Xem [hướng dẫn backend](../backend/README.md).
 - **Phạm vi:** ma trận quyền xem dữ liệu lâm sàng, slot duration, thời hạn đổi/hủy, audit retention
   và chính sách điều chỉnh hồ sơ hoàn tất còn cần chốt.

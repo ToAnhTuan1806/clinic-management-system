@@ -13,13 +13,13 @@ import org.junit.jupiter.api.Test;
 @Tag("mysql")
 class MySqlMigrationTest {
     @Test
-    void migrateThroughV4ValidateAndRepeatWithoutChangingAppliedHistory() throws Exception {
+    void migrateThroughV5ValidateAndRepeatWithoutChangingAppliedHistory() throws Exception {
         Flyway flyway = MySqlTestDatabase.flyway();
         int pendingBefore = flyway.info().pending().length;
         var result = flyway.migrate();
         assertThat(result.migrationsExecuted).isEqualTo(pendingBefore);
         assertThat(flyway.validateWithResult().validationSuccessful).isTrue();
-        assertThat(flyway.info().applied()).hasSize(4);
+        assertThat(flyway.info().applied()).hasSize(5);
         assertThat(Arrays.stream(flyway.info().applied())
                 .filter(info -> info.getVersion().getVersion().equals("1"))
                 .map(info -> info.getScript()).toList()).containsExactly("V1__create_users.sql");
@@ -29,8 +29,11 @@ class MySqlMigrationTest {
         assertThat(Arrays.stream(flyway.info().applied())
                 .filter(info -> info.getVersion().getVersion().equals("3"))
                 .map(info -> info.getScript()).toList()).containsExactly("V3__create_patients_and_profile_fields.sql");
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("4");
-        assertThat(flyway.info().current().getScript()).isEqualTo("V4__add_profile_contact_fields_to_users.sql");
+        assertThat(Arrays.stream(flyway.info().applied())
+                .filter(info -> info.getVersion().getVersion().equals("4"))
+                .map(info -> info.getScript()).toList()).containsExactly("V4__add_profile_contact_fields_to_users.sql");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("5");
+        assertThat(flyway.info().current().getScript()).isEqualTo("V5__create_doctor_schedules.sql");
         List<String> before = history(flyway);
         assertThat(flyway.migrate().migrationsExecuted).isZero();
         assertThat(history(flyway)).isEqualTo(before);
