@@ -1,0 +1,144 @@
+{
+  "task": "CL-D04-DB-V4",
+  "utc": "2026-11-20T23:28:07.053458+00:00",
+  "source": {
+    "kind": "git-checkout",
+    "revision": "c1f066a01778349f272660554fce1995a9f10db3",
+    "branch": "feature/quynh"
+  },
+  "project": "clinic-d04v4-db-a24ea33b5b",
+  "v1_sha256": "27043f2c2669b8b666d4c17f9be12d14cc40a7e96451ad10b2a99f3b07955edf",
+  "v2_sha256": "1f1f39cdea70eff2fa1198543ffd41b62d874d629d5c530a7c1cf45f89276973",
+  "v3_sha256": "9a9395e048768a87cd54aeaded3cc8c59b97f5a90124a7a2cc52d566fb38e7e0",
+  "v4_sha256": "c2b2f5cc9fbdc27060e426133e541c1e379df3f7d1491d33326f6bbd55d22c6f",
+  "baseline_file_count": 6,
+  "scope": "Only a new isolated MySQL 8.4 instance; shared Clinic, staff fixtures and SmartExpense untouched",
+  "schema_v4": {
+    "target_table": "users",
+    "added_columns": {
+      "phone": "VARCHAR(24) NULL not unique",
+      "address": "VARCHAR(255) NULL not unique"
+    },
+    "added_constraints": [
+      "chk_users_phone: phone IS NULL OR (CHAR_LENGTH(TRIM(phone)) > 0 AND CAST(phone AS BINARY) = CAST(TRIM(phone) AS BINARY))",
+      "chk_users_address: address IS NULL OR CHAR_LENGTH(address) <= 255"
+    ],
+    "rules": [
+      "phone and address are nullable",
+      "phone is not unique (family members may share contact number)",
+      "address is not unique",
+      "phone must be trimmed non-empty if provided (no blank or untrimmed strings)",
+      "address max length is 255 chars with UTF-8 Unicode support",
+      "no dummy default values",
+      "no default account creation",
+      "V1/V2/V3 preserved byte-for-byte",
+      "patients table completely unchanged",
+      "no auto-sync between users.phone and patients.phone",
+      "no auto-sync between users.address and patients.address",
+      "no auto-link between user and patient"
+    ]
+  },
+  "data_preservation": {
+    "existing_users_preserved": true,
+    "existing_users_phone_null": true,
+    "existing_users_address_null": true
+  },
+  "backend_handoff": {
+    "migration_name": "V4__add_profile_contact_fields_to_users.sql",
+    "schema": "ALTER TABLE users ADD COLUMN phone VARCHAR(24) NULL, ADD COLUMN address VARCHAR(255) NULL, ADD CONSTRAINT chk_users_phone CHECK (...), ADD CONSTRAINT chk_users_address CHECK (...)",
+    "user_entity_mapping": {
+      "phone_field": "@Column(name = \"phone\", length = 24) private String phone;",
+      "address_field": "@Column(name = \"address\", length = 255) private String address;"
+    },
+    "nullable_and_validation_rules": {
+      "phone": "Nullable, optional, max 24 chars, must be trimmed, non-blank when provided",
+      "address": "Nullable, optional, max 255 chars, UTF-8 Unicode supported"
+    },
+    "files_to_commit": [
+      "backend/src/main/resources/db/migration/V4__add_profile_contact_fields_to_users.sql",
+      "database/qa/D04DatabaseValidation.java",
+      "database/qa/validate_d04.py",
+      "docs/qa/evidence/CL-D04-DB-V4.json"
+    ]
+  },
+  "security_and_quality": {
+    "synthetic_data_only": true,
+    "real_personal_data_present": false,
+    "credentials_or_jwt_in_evidence": false
+  },
+  "engine": "29.9.2|linux",
+  "sql_checks": [
+    "PASS MYSQL-8.4",
+    "PASS UPGRADE-EMPTY-START",
+    "PASS UPGRADE-V1-APPLIED",
+    "PASS UPGRADE-V2-APPLIED",
+    "PASS UPGRADE-V1-HISTORY-UNCHANGED-AFTER-V2",
+    "PASS UPGRADE-V3-APPLIED",
+    "PASS UPGRADE-V1-HISTORY-UNCHANGED-AFTER-V3",
+    "PASS UPGRADE-V2-HISTORY-UNCHANGED-AFTER-V3",
+    "PASS UPGRADE-V4-APPLIED",
+    "PASS UPGRADE-V1-HISTORY-UNCHANGED-AFTER-V4",
+    "PASS UPGRADE-V2-HISTORY-UNCHANGED-AFTER-V4",
+    "PASS UPGRADE-V3-HISTORY-UNCHANGED-AFTER-V4",
+    "PASS UPGRADE-VALIDATE",
+    "PASS UPGRADE-REPEAT-NOOP",
+    "PASS UPGRADE-CURRENT-V4",
+    "V4_FLYWAY_CHECKSUM=298891223",
+    "PASS SCHEMA-TABLES-TOTAL",
+    "PASS SCHEMA-USERS-COLUMN-COUNT",
+    "PASS SCHEMA-USERS-PHONE-EXISTS",
+    "PASS SCHEMA-USERS-ADDRESS-EXISTS",
+    "PASS SCHEMA-USERS-CHECKS-COUNT",
+    "PASS SCHEMA-USERS-PHONE-CHECK",
+    "PASS SCHEMA-USERS-ADDRESS-CHECK",
+    "PASS SCHEMA-DOCTORS-COLUMN-COUNT",
+    "PASS SCHEMA-PATIENTS-COLUMN-COUNT",
+    "PASS SCHEMA-PATIENTS-CHECKS-COUNT",
+    "PASS SCHEMA-PATIENTS-INDEXES-COUNT",
+    "PASS DATA-PRESERVED-USER-EXISTS",
+    "PASS DATA-PRESERVED-USER-FIELDS-NULL",
+    "PASS DATA-UPDATE-PHONE-VALID",
+    "PASS DATA-UPDATE-ADDRESS-UNICODE-VN",
+    "PASS DATA-CLEAR-CONTACT-TO-NULL",
+    "PASS CONSTRAINT-PHONE-TOO-LONG",
+    "PASS CONSTRAINT-ADDRESS-TOO-LONG",
+    "PASS CONSTRAINT-PHONE-SPACES-ONLY",
+    "PASS CONSTRAINT-PHONE-EMPTY-STRING",
+    "PASS CONSTRAINT-PHONE-UNTRIMMED",
+    "PASS DATA-SAME-PHONE-TWO-USERS-ALLOWED",
+    "PASS DATA-SAME-ADDRESS-TWO-USERS-ALLOWED",
+    "PASS DATA-PATIENTS-UNAFFECTED",
+    "PASS PATIENTS-UNIQUE-CODE-STILL-ENFORCED",
+    "PASS PATIENTS-CHECK-SEX-STILL-ENFORCED",
+    "PASS DATA-ROLLBACK-CLEAN",
+    "PASS DATA-PRESERVED-USER-STILL-INTACT",
+    "PASS FRESH-EMPTY-START",
+    "PASS FRESH-APPLY-V1-V2-V3-V4",
+    "PASS FRESH-VALIDATE",
+    "PASS SCHEMA-TABLES-TOTAL",
+    "PASS SCHEMA-USERS-COLUMN-COUNT",
+    "PASS SCHEMA-USERS-PHONE-EXISTS",
+    "PASS SCHEMA-USERS-ADDRESS-EXISTS",
+    "PASS SCHEMA-USERS-CHECKS-COUNT",
+    "PASS SCHEMA-USERS-PHONE-CHECK",
+    "PASS SCHEMA-USERS-ADDRESS-CHECK",
+    "PASS SCHEMA-DOCTORS-COLUMN-COUNT",
+    "PASS SCHEMA-PATIENTS-COLUMN-COUNT",
+    "PASS SCHEMA-PATIENTS-CHECKS-COUNT",
+    "PASS SCHEMA-PATIENTS-INDEXES-COUNT",
+    "PASS FRESH-NO-USERS-SEED",
+    "PASS FRESH-NO-PATIENTS-SEED",
+    "PASS FRESH-REPEAT-NOOP",
+    "D04_V4_SUMMARY passed=60 failed=0"
+  ],
+  "default_backend_tests": {
+    "tests": 110,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "result": "PASS",
+  "resource_disposition": "Only new QA container stopped; all databases/volumes retained",
+  "v1_v2_v3_preserved": true,
+  "v4_unchanged_after_apply": true
+}
