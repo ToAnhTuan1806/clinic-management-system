@@ -2,14 +2,16 @@
 // Runs in DEV and offline test mode. Enforces idempotency, slot collision detection, and optimistic locking.
 
 import { getAuthSnapshot } from '@/auth/session-store'
-import { fromUtcIsoToVnParts } from '@/schedule/model'
+import { fromUtcIsoToVnParts, getVnTodayString } from '@/schedule/model'
 import { MOCK_DOCTORS } from '@/testing/schedule-mock'
 import {
   BookingError,
+  validateActionDraft,
   validateBookingDraft,
   validateCancelDraft,
   validateChangeSlotDraft,
   type Appointment,
+  type AppointmentActionDraft,
   type AppointmentPage,
   type AppointmentQuery,
   type BookingDraft,
@@ -27,6 +29,8 @@ export function createBookingMock({ latency = 0 } = {}): BookingGateway {
     string,
     { appointmentId: string; requestKey: string }
   >()
+
+  const todayStr = getVnTodayString()
 
   // In-memory appointments list
   const appointments: Appointment[] = [
@@ -88,6 +92,7 @@ export function createBookingMock({ latency = 0 } = {}): BookingGateway {
       endAt: '2029-11-20T02:30:00.000Z',
       status: 'CANCELLED',
       reason: 'Bận việc gia đình đột xuất',
+      cancellationReason: 'Bận việc gia đình đột xuất',
       roomLabel: null,
       version: 1,
       createdAt: new Date().toISOString(),
@@ -114,6 +119,93 @@ export function createBookingMock({ latency = 0 } = {}): BookingGateway {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     },
+    // Synthetic appointments for TODAY (CL-D09 Reception Desk)
+    {
+      id: '101',
+      appointmentCode: `APT_${todayStr.replace(/-/g, '')}_101`,
+      patientId: '10',
+      patientCode: 'PAT001',
+      patientName: 'Nguyễn An (Tiếp đón)',
+      patientPhone: '0912345678',
+      doctorId: '1',
+      doctorName: 'Nguyễn Văn A',
+      doctorCode: 'DOC001',
+      specialtyName: 'Nội tổng quát',
+      scheduleId: '10',
+      startAt: `${todayStr}T08:00:00.000Z`,
+      endAt: `${todayStr}T08:30:00.000Z`,
+      status: 'PENDING',
+      reason: 'Khám tổng quát định kỳ',
+      roomLabel: 'Phòng 101 - Khám nội',
+      version: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+    {
+      id: '102',
+      appointmentCode: `APT_${todayStr.replace(/-/g, '')}_102`,
+      patientId: '11',
+      patientCode: 'PAT011',
+      patientName: 'Trần Bình (Đã xác nhận)',
+      patientPhone: '0923456789',
+      doctorId: '2',
+      doctorName: 'Trần Thị B',
+      doctorCode: 'DOC002',
+      specialtyName: 'Tim mạch',
+      scheduleId: '11',
+      startAt: `${todayStr}T09:00:00.000Z`,
+      endAt: `${todayStr}T09:30:00.000Z`,
+      status: 'CONFIRMED',
+      reason: 'Theo dõi nhịp tim',
+      roomLabel: 'Phòng 202 - Tim mạch',
+      version: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+    {
+      id: '103',
+      appointmentCode: `APT_${todayStr.replace(/-/g, '')}_103`,
+      patientId: '12',
+      patientCode: 'PAT012',
+      patientName: 'Lê Cường (Quá giờ)',
+      patientPhone: '0934567890',
+      doctorId: '1',
+      doctorName: 'Nguyễn Văn A',
+      doctorCode: 'DOC001',
+      specialtyName: 'Nội tổng quát',
+      scheduleId: '10',
+      startAt: `${todayStr}T01:00:00.000Z`,
+      endAt: `${todayStr}T01:30:00.000Z`,
+      status: 'CONFIRMED',
+      reason: 'Khám huyết áp buổi sáng',
+      roomLabel: 'Phòng 101 - Khám nội',
+      version: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+    {
+      id: '104',
+      appointmentCode: `APT_${todayStr.replace(/-/g, '')}_104`,
+      patientId: '13',
+      patientCode: 'PAT013',
+      patientName: 'Phạm Dũng (Đã check-in)',
+      patientPhone: '0945678901',
+      doctorId: '1',
+      doctorName: 'Nguyễn Văn A',
+      doctorCode: 'DOC001',
+      specialtyName: 'Nội tổng quát',
+      scheduleId: '10',
+      startAt: `${todayStr}T02:00:00.000Z`,
+      endAt: `${todayStr}T02:30:00.000Z`,
+      status: 'CHECKED_IN',
+      checkedInAt: new Date().toISOString(),
+      checkedInBy: '200',
+      reason: 'Kiểm tra vết thương',
+      roomLabel: 'Phòng 101 - Khám nội',
+      version: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
   ]
 
   // Record initial booked slots
@@ -128,6 +220,22 @@ export function createBookingMock({ latency = 0 } = {}): BookingGateway {
   bookedSlots.set('8_2029-11-28T02:00:00.000Z', {
     appointmentId: '4',
     requestKey: 'initial_req_4',
+  })
+  bookedSlots.set(`10_${todayStr}T08:00:00.000Z`, {
+    appointmentId: '101',
+    requestKey: 'initial_req_101',
+  })
+  bookedSlots.set(`11_${todayStr}T09:00:00.000Z`, {
+    appointmentId: '102',
+    requestKey: 'initial_req_102',
+  })
+  bookedSlots.set(`10_${todayStr}T01:00:00.000Z`, {
+    appointmentId: '103',
+    requestKey: 'initial_req_103',
+  })
+  bookedSlots.set(`10_${todayStr}T02:00:00.000Z`, {
+    appointmentId: '104',
+    requestKey: 'initial_req_104',
   })
 
   const wait = () =>
@@ -519,6 +627,191 @@ export function createBookingMock({ latency = 0 } = {}): BookingGateway {
       app.cancellationReason = cancelReason || null
       app.cancelledAt = new Date().toISOString()
       app.cancelledBy = userId || '10'
+      app.version = currentVersion + 1
+      app.updatedAt = new Date().toISOString()
+
+      return { ...app }
+    },
+
+    async confirmAppointment(
+      draft: AppointmentActionDraft,
+    ): Promise<Appointment> {
+      await wait()
+      const { role, userId } = checkRoleAccess()
+
+      if (role !== 'RECEPTIONIST' && role !== 'ADMIN') {
+        throw new BookingError(
+          'FORBIDDEN',
+          403,
+          'Chỉ nhân viên lễ tân mới có quyền xác nhận lịch hẹn khám.',
+        )
+      }
+
+      const errors = validateActionDraft(draft)
+      if (Object.keys(errors).length > 0) {
+        throw new BookingError(
+          'VALIDATION_FAILED',
+          400,
+          'Dữ liệu xác nhận lịch hẹn không hợp lệ.',
+          errors,
+        )
+      }
+
+      const app = appointments.find((a) => a.id === draft.appointmentId)
+      if (!app) {
+        throw new BookingError(
+          'NOT_FOUND',
+          404,
+          'Không tìm thấy lịch hẹn cần xác nhận.',
+        )
+      }
+
+      // Optimistic concurrency check
+      const currentVersion = app.version ?? 0
+      if (draft.expectedVersion !== currentVersion) {
+        throw new BookingError(
+          'VERSION_CONFLICT',
+          409,
+          'Dữ liệu cuộc hẹn đã được cập nhật bởi một phiên khác. Vui lòng tải lại dữ liệu mới nhất (409 Conflict).',
+        )
+      }
+
+      if (app.status !== 'PENDING') {
+        throw new BookingError(
+          'INVALID_STATE_TRANSITION',
+          409,
+          `Không thể xác nhận cuộc hẹn đang ở trạng thái ${app.status}. Chỉ cho phép xác nhận cuộc hẹn chờ xử lý (PENDING).`,
+        )
+      }
+
+      app.status = 'CONFIRMED'
+      app.confirmedAt = new Date().toISOString()
+      app.confirmedBy = userId || 'receptionist_1'
+      app.version = currentVersion + 1
+      app.updatedAt = new Date().toISOString()
+
+      return { ...app }
+    },
+
+    async checkInAppointment(
+      draft: AppointmentActionDraft,
+    ): Promise<Appointment> {
+      await wait()
+      const { role, userId } = checkRoleAccess()
+
+      if (role !== 'RECEPTIONIST' && role !== 'ADMIN') {
+        throw new BookingError(
+          'FORBIDDEN',
+          403,
+          'Chỉ nhân viên lễ tân mới có quyền tiếp đón (check-in) bệnh nhân.',
+        )
+      }
+
+      const errors = validateActionDraft(draft)
+      if (Object.keys(errors).length > 0) {
+        throw new BookingError(
+          'VALIDATION_FAILED',
+          400,
+          'Dữ liệu tiếp đón không hợp lệ.',
+          errors,
+        )
+      }
+
+      const app = appointments.find((a) => a.id === draft.appointmentId)
+      if (!app) {
+        throw new BookingError(
+          'NOT_FOUND',
+          404,
+          'Không tìm thấy lịch hẹn để tiếp đón.',
+        )
+      }
+
+      // Idempotency: if already CHECKED_IN, return current record without error
+      if (app.status === 'CHECKED_IN') {
+        return { ...app }
+      }
+
+      // Optimistic concurrency check
+      const currentVersion = app.version ?? 0
+      if (draft.expectedVersion !== currentVersion) {
+        throw new BookingError(
+          'VERSION_CONFLICT',
+          409,
+          'Dữ liệu cuộc hẹn đã được cập nhật bởi một phiên khác. Vui lòng tải lại dữ liệu mới nhất (409 Conflict).',
+        )
+      }
+
+      if (app.status !== 'CONFIRMED') {
+        throw new BookingError(
+          'INVALID_STATE_TRANSITION',
+          409,
+          `Không thể tiếp đón cuộc hẹn đang ở trạng thái ${app.status}. Chỉ cuộc hẹn đã xác nhận (CONFIRMED) mới được tiếp đón.`,
+        )
+      }
+
+      app.status = 'CHECKED_IN'
+      app.checkedInAt = new Date().toISOString()
+      app.checkedInBy = userId || 'receptionist_1'
+      app.version = currentVersion + 1
+      app.updatedAt = new Date().toISOString()
+
+      return { ...app }
+    },
+
+    async markNoShow(draft: AppointmentActionDraft): Promise<Appointment> {
+      await wait()
+      const { role, userId } = checkRoleAccess()
+
+      if (role !== 'RECEPTIONIST' && role !== 'ADMIN') {
+        throw new BookingError(
+          'FORBIDDEN',
+          403,
+          'Chỉ nhân viên lễ tân mới có quyền đánh dấu vắng mặt.',
+        )
+      }
+
+      const errors = validateActionDraft(draft)
+      if (Object.keys(errors).length > 0) {
+        throw new BookingError(
+          'VALIDATION_FAILED',
+          400,
+          'Dữ liệu đánh dấu vắng mặt không hợp lệ.',
+          errors,
+        )
+      }
+
+      const app = appointments.find((a) => a.id === draft.appointmentId)
+      if (!app) {
+        throw new BookingError(
+          'NOT_FOUND',
+          404,
+          'Không tìm thấy lịch hẹn cần đánh dấu vắng mặt.',
+        )
+      }
+
+      // Optimistic concurrency check
+      const currentVersion = app.version ?? 0
+      if (draft.expectedVersion !== currentVersion) {
+        throw new BookingError(
+          'VERSION_CONFLICT',
+          409,
+          'Dữ liệu cuộc hẹn đã được cập nhật bởi một phiên khác. Vui lòng tải lại dữ liệu mới nhất (409 Conflict).',
+        )
+      }
+
+      if (app.status !== 'CONFIRMED' && app.status !== 'PENDING') {
+        throw new BookingError(
+          'INVALID_STATE_TRANSITION',
+          409,
+          `Không thể đánh dấu vắng mặt cuộc hẹn ở trạng thái ${app.status}.`,
+        )
+      }
+
+      // Per MySQL V6 schema contract, NO_SHOW keeps the slot occupied (does not release slot).
+      // Only CANCELLED releases active slot back to AVAILABLE.
+      app.status = 'NO_SHOW'
+      app.noShowAt = new Date().toISOString()
+      app.noShowBy = userId || 'receptionist_1'
       app.version = currentVersion + 1
       app.updatedAt = new Date().toISOString()
 
