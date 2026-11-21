@@ -107,6 +107,36 @@ export function createScheduleMock({ latency = 0 } = {}): ScheduleGateway {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     },
+    // Doctor 1 - Tomorrow morning ACTIVE (08:00 - 12:00)
+    {
+      id: '8',
+      doctorId: '1',
+      doctorName: 'TS.BS Nguyễn Văn A',
+      doctorCode: 'DOC001',
+      specialtyName: 'Nội tổng quát',
+      startsAt: toUtcIso(getOffsetVnDate(1), '08:00'),
+      endsAt: toUtcIso(getOffsetVnDate(1), '12:00'),
+      status: 'ACTIVE',
+      roomLabel: 'Phòng 101 - Khám nội',
+      slotDurationMinutes: 30,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+    // Doctor 1 - Day after tomorrow morning ACTIVE (08:00 - 12:00)
+    {
+      id: '9',
+      doctorId: '1',
+      doctorName: 'TS.BS Nguyễn Văn A',
+      doctorCode: 'DOC001',
+      specialtyName: 'Nội tổng quát',
+      startsAt: toUtcIso(getOffsetVnDate(2), '08:00'),
+      endsAt: toUtcIso(getOffsetVnDate(2), '12:00'),
+      status: 'ACTIVE',
+      roomLabel: 'Phòng 101 - Khám nội',
+      slotDurationMinutes: 30,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
     // Doctor 2 - Today morning BLOCKED (08:30 - 11:30)
     {
       id: '3',
