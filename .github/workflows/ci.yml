@@ -1,0 +1,75 @@
+name: Sprint 1 CI
+
+on:
+  pull_request:
+    branches: [dev]
+  push:
+    branches: [dev, "feature/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend Java 21 / unit and H2
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+          cache-dependency-path: |
+            backend/*.gradle
+            backend/gradle/wrapper/gradle-wrapper.properties
+      - name: Unit and H2 integration tests
+        run: sh ./gradlew --no-daemon test
+      - name: Build
+        if: ${{ !cancelled() }}
+        run: sh ./gradlew --no-daemon build
+      # mysqlTest is deliberately separate: basic CI needs no database or secrets.
+      # Enable a MySQL job only after provisioning a disposable container and
+      # verifying the complete mysqlTest suite against it.
+
+  frontend:
+    name: Frontend Node 26.13.1
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          # Version documented by frontend/README.md and verified locally.
+          node-version: "26.13.1"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked dependencies
+        id: install
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Tests
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run test
+      - name: Build
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run build
+      - name: Check formatting
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run format:check
