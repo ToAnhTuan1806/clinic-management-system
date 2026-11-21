@@ -1,4 +1,5 @@
 import {
+  CalendarClock,
   CalendarDays,
   ClipboardList,
   LayoutDashboard,
@@ -45,6 +46,14 @@ export const navigation = [
     title: 'Quản lý bệnh nhân',
     icon: UsersRound,
     description: 'Không gian dành cho danh sách và thông tin bệnh nhân.',
+  },
+  {
+    path: '/schedules',
+    roles: everyone,
+    label: 'Lịch làm việc',
+    title: 'Lịch làm việc bác sĩ',
+    icon: CalendarClock,
+    description: 'Theo dõi và quản lý ca làm việc của đội ngũ bác sĩ.',
   },
   {
     path: '/appointments',
