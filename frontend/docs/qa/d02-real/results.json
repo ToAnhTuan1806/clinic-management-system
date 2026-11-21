@@ -1,0 +1,201 @@
+{
+  "task": "CL-D02-FE FINAL REVIEW",
+  "source": "REAL HTTP + MYSQL — NOT MOCK",
+  "status": "BLOCKED",
+  "blockers": [
+    "ADMIN/DOCTOR/RECEPTIONIST QA accounts are not available; user confirmed none are provisioned."
+  ],
+  "phases": [
+    {
+      "source": "REAL HTTP + MYSQL — NOT MOCK",
+      "phase": "register",
+      "checks": [
+        {
+          "label": "ProtectedRoute sends anonymous access to Login",
+          "result": "PASS",
+          "source": "REAL HTTP + MYSQL"
+        },
+        {
+          "label": "Register client validation matches D02, including UTF-8 bytes",
+          "result": "PASS",
+          "source": "REAL HTTP + MYSQL"
+        },
+        {
+          "label": "Register creates PATIENT ACTIVE with real 201 and only allowed fields",
+          "result": "PASS",
+          "source": "REAL HTTP + MYSQL"
+        },
+        {
+          "label": "Duplicate email receives real 409 EMAIL_ALREADY_EXISTS and inline feedback",
+          "result": "PASS",
+          "source": "REAL HTTP + MYSQL"
+        }
+      ],
+      "http": [
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/register",
+          "status": 201
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/register",
+          "status": 409
+        }
+      ],
+      "runtimeErrors": 0,
+      "staffRoles": "NOT TESTED — no provisioned accounts",
+      "credentialValuesRecorded": false
+    },
+    {
+      "source": "REAL HTTP + MYSQL — NOT MOCK",
+      "phase": "login",
+      "checks": [
+        {
+          "label": "Wrong password receives real 401 INVALID_CREDENTIALS without a session",
+          "result": "PASS",
+          "source": "REAL HTTP + MYSQL"
+        },
+        {
+          "label": "Correct login and Bearer /me validate real JWT, public DTO and PATIENT redirect",
+          "result": "PASS",
+          "source": "REAL HTTP + MYSQL"
+        },
+        {
+          "label": "RoleGuard rejects real PATIENT session on staff dashboard",
+          "result": "PASS",
+          "source": "REAL HTTP + MYSQL"
+        },
+        {
+          "label": "Real 403 from a denyAll API shows permission feedback and keeps the session",
+          "result": "PASS",
+          "source": "REAL HTTP + MYSQL"
+        }
+      ],
+      "http": [
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/login",
+          "status": 401
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/login",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/patients",
+          "status": 403
+        }
+      ],
+      "runtimeErrors": 0,
+      "staffRoles": "NOT TESTED — no provisioned accounts",
+      "credentialValuesRecorded": false
+    },
+    {
+      "source": "REAL HTTP + MYSQL — NOT MOCK",
+      "phase": "security",
+      "checks": [
+        {
+          "label": "Real invalid-JWT 401 clears token/user and redirects to Login",
+          "result": "PASS",
+          "source": "REAL HTTP + MYSQL"
+        },
+        {
+          "label": "Logout clears the real session locally and ProtectedRoute blocks reuse",
+          "result": "PASS",
+          "source": "REAL HTTP + MYSQL"
+        },
+        {
+          "label": "Offline network fault gives a retryable error without fabricating an API response",
+          "result": "PASS",
+          "source": "REAL HTTP + MYSQL"
+        }
+      ],
+      "http": [
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 401
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/login",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/health",
+          "status": 200
+        }
+      ],
+      "runtimeErrors": 0,
+      "staffRoles": "NOT TESTED — no provisioned accounts",
+      "credentialValuesRecorded": false
+    },
+    {
+      "source": "REAL HTTP + MYSQL — NOT MOCK",
+      "phase": "ui",
+      "checks": [
+        {
+          "label": "Reduced-motion loading still completes a real login",
+          "result": "PASS",
+          "source": "REAL HTTP + MYSQL"
+        },
+        {
+          "label": "Mobile navigation and Light/Dark/System work with real PATIENT auth",
+          "result": "PASS",
+          "source": "REAL HTTP + MYSQL"
+        },
+        {
+          "label": "Responsive auth forms do not overflow at 320/390/768/1440px in Light and Dark",
+          "result": "PASS",
+          "source": "REAL HTTP + MYSQL"
+        },
+        {
+          "label": "Reload forgets the real JWT and no credentials persist in web storage",
+          "result": "PASS",
+          "source": "REAL HTTP + MYSQL"
+        }
+      ],
+      "http": [
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/login",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/login",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/me",
+          "status": 200
+        }
+      ],
+      "runtimeErrors": 0,
+      "staffRoles": "NOT TESTED — no provisioned accounts",
+      "credentialValuesRecorded": false
+    }
+  ],
+  "mainScenarioGroups": 15,
+  "note": "UI reruns required two additional PATIENT registrations via the real public API. No SQL role assignments or schema changes."
+}
