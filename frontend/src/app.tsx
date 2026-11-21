@@ -24,6 +24,7 @@ const NotFound = lazy(() => import('@/pages/not-found'))
 const Directory = lazy(() => import('@/pages/directory'))
 const Patients = lazy(() => import('@/pages/patients'))
 const Profile = lazy(() => import('@/pages/profile'))
+const Schedules = lazy(() => import('@/pages/schedules'))
 
 function RouteEffects() {
   const { pathname } = useLocation()
@@ -93,6 +94,8 @@ export default function App() {
                               <Profile />
                             ) : item.path === '/patients' ? (
                               <Patients />
+                            ) : item.path === '/schedules' ? (
+                              <Schedules />
                             ) : item.path === '/doctors' ||
                               item.path === '/specialties' ? (
                               <Directory
