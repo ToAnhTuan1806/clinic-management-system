@@ -49,6 +49,17 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                     .map(error -> Map.of("field", error.getField(), "message", "Invalid value."))
                     .toList();
             problem.setProperty("errors", errors);
+        } else if (exception instanceof org.springframework.web.method.annotation.HandlerMethodValidationException validationException) {
+            problem.setProperty("code", "VALIDATION_FAILED");
+            List<Map<String, String>> errors = validationException.getAllErrors().stream()
+                    .map(error -> {
+                        String field = error instanceof org.springframework.validation.FieldError fieldError
+                                ? fieldError.getField()
+                                : (error.getCodes() != null && error.getCodes().length > 0 ? error.getCodes()[0] : "field");
+                        return Map.of("field", field, "message", "Invalid value.");
+                    })
+                    .toList();
+            problem.setProperty("errors", errors);
         }
         return super.handleExceptionInternal(exception, problem, headers, statusCode, request);
     }

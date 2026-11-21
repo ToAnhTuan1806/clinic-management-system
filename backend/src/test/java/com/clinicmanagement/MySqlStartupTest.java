@@ -78,7 +78,7 @@ class MySqlStartupTest extends TestSecurityProperties {
                         + ":" + result.getString(4) + ":" + result.getInt(5));
             }
         }
-        assertThat(columns).hasSize(9);
+        assertThat(columns).hasSize(11);
         assertThat(columns.get("id")).isEqualTo("bigint:NO::0");
         assertThat(columns.get("email")).isEqualTo("varchar(254):NO:utf8mb4_bin:0");
         assertThat(columns.get("password_hash")).startsWith("varchar(255):NO:");
@@ -88,6 +88,8 @@ class MySqlStartupTest extends TestSecurityProperties {
         assertThat(columns.get("created_at")).isEqualTo("datetime(6):NO::6");
         assertThat(columns.get("updated_at")).isEqualTo("datetime(6):NO::6");
         assertThat(columns.get("last_login_at")).isEqualTo("datetime(6):YES::6");
+        assertThat(columns.get("phone")).startsWith("varchar(24):YES:");
+        assertThat(columns.get("address")).startsWith("varchar(255):YES:");
         try (var connection = dataSource.getConnection();
              var statement = connection.createStatement();
              var result = statement.executeQuery("SELECT constraint_name, constraint_type "
@@ -98,7 +100,8 @@ class MySqlStartupTest extends TestSecurityProperties {
             }
             assertThat(constraints).containsEntry("PRIMARY", "PRIMARY KEY").containsEntry("uk_users_email", "UNIQUE")
                     .containsEntry("chk_users_email_canonical", "CHECK").containsEntry("chk_users_role", "CHECK")
-                    .containsEntry("chk_users_status", "CHECK");
+                    .containsEntry("chk_users_status", "CHECK").containsEntry("chk_users_phone", "CHECK")
+                    .containsEntry("chk_users_address", "CHECK");
         }
     }
 

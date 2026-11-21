@@ -13,18 +13,24 @@ import org.junit.jupiter.api.Test;
 @Tag("mysql")
 class MySqlMigrationTest {
     @Test
-    void migrateThroughV2ValidateAndRepeatWithoutChangingAppliedHistory() throws Exception {
+    void migrateThroughV4ValidateAndRepeatWithoutChangingAppliedHistory() throws Exception {
         Flyway flyway = MySqlTestDatabase.flyway();
         int pendingBefore = flyway.info().pending().length;
         var result = flyway.migrate();
         assertThat(result.migrationsExecuted).isEqualTo(pendingBefore);
         assertThat(flyway.validateWithResult().validationSuccessful).isTrue();
-        assertThat(flyway.info().applied()).hasSize(2);
+        assertThat(flyway.info().applied()).hasSize(4);
         assertThat(Arrays.stream(flyway.info().applied())
                 .filter(info -> info.getVersion().getVersion().equals("1"))
                 .map(info -> info.getScript()).toList()).containsExactly("V1__create_users.sql");
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("2");
-        assertThat(flyway.info().current().getScript()).isEqualTo("V2__create_specialties_and_doctors.sql");
+        assertThat(Arrays.stream(flyway.info().applied())
+                .filter(info -> info.getVersion().getVersion().equals("2"))
+                .map(info -> info.getScript()).toList()).containsExactly("V2__create_specialties_and_doctors.sql");
+        assertThat(Arrays.stream(flyway.info().applied())
+                .filter(info -> info.getVersion().getVersion().equals("3"))
+                .map(info -> info.getScript()).toList()).containsExactly("V3__create_patients_and_profile_fields.sql");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("4");
+        assertThat(flyway.info().current().getScript()).isEqualTo("V4__add_profile_contact_fields_to_users.sql");
         List<String> before = history(flyway);
         assertThat(flyway.migrate().migrationsExecuted).isZero();
         assertThat(history(flyway)).isEqualTo(before);
