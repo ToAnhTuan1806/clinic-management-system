@@ -94,29 +94,10 @@ export function createProfileApi(client: AxiosInstance): ProfileGateway {
     getProfile: (signal) =>
       request(async () => {
         const current = actor()
-        try {
-          const response = await client.get('/api/v1/me/profile', { signal })
-          unchanged(current.version, signal)
-          if (response.status !== 200) invalid()
-          return decodeUserProfile(data(response.data))
-        } catch (error) {
-          // If BE D04 /me/profile endpoint is not deployed yet but auth session exists,
-          // surface problem error properly or fallback safely if 404
-          const problem = normalizeAuthError(error)
-          if (problem.status === 404) {
-            // Provide base profile from authenticated session if profile extension is 404
-            return {
-              id: current.user.id,
-              email: current.user.email,
-              fullName: current.user.fullName,
-              role: current.user.role,
-              status: 'ACTIVE',
-              phone: '',
-              address: '',
-            }
-          }
-          throw error
-        }
+        const response = await client.get('/api/v1/me/profile', { signal })
+        unchanged(current.version, signal)
+        if (response.status !== 200) invalid()
+        return decodeUserProfile(data(response.data))
       }),
 
     updateProfile: (draft, signal) =>

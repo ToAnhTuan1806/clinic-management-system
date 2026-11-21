@@ -1,0 +1,4 @@
+// Compile the checked-out Backend read-only; all outputs belong to FE QA.
+allprojects {
+    layout.buildDirectory = file(new File(rootDir.parentFile, 'frontend/test-results/d05-runtime/backend-build'))
+}

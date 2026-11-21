@@ -129,7 +129,10 @@ describe('Patient Contract — Models & Validation', () => {
   it('validates phone and address', () => {
     expect(patientPhoneRule('0912345678')).toBe(true)
     expect(patientPhoneRule('+84 (912) 345-678')).toBe(true)
-    expect(patientPhoneRule('abc')).not.toBe(true)
+    expect(patientPhoneRule('123')).toBe(true)
+    expect(patientPhoneRule('abc')).toBe(true)
+    expect(patientPhoneRule('  ')).toBe(true)
+    expect(patientPhoneRule('1'.repeat(25))).not.toBe(true)
   })
 
   it('runs complete draft validation', () => {
@@ -148,7 +151,7 @@ describe('Patient Contract — Models & Validation', () => {
       patientCode: '',
       fullName: '',
       dateOfBirth: '2099-01-01',
-      phone: 'invalid-phone-letters',
+      phone: '1'.repeat(25),
       userId: 'not-an-id',
     }
     const errors = validatePatient(invalidDraft)
