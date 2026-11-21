@@ -33,6 +33,10 @@ public class MedicalRecord {
     private User completedBy;
 
     private Instant completedAt;
+    private Instant releasedAt;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "released_by")
+    private User releasedBy;
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
     @Column(nullable = false)
@@ -74,6 +78,15 @@ public class MedicalRecord {
         Instant timestamp = now.truncatedTo(ChronoUnit.MICROS);
         updatedAt = timestamp.isAfter(updatedAt) ? timestamp : updatedAt.plus(1, ChronoUnit.MICROS);
     }
+
+    public void release(User actor, Instant now) {
+        touch(now);
+        releasedAt = updatedAt;
+        releasedBy = actor;
+    }
+
+    public Instant getReleasedAt() { return releasedAt; }
+    public User getReleasedBy() { return releasedBy; }
 
     private static String normalize(String value) {
         return value.isBlank() ? null : value.strip();

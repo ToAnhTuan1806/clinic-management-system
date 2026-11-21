@@ -1,8 +1,8 @@
-# API Contract — Clinic Management System (Sprint 1: D02–D04, Sprint 2: D06–D07)
+# API Contract — Clinic Management System (D01–D11)
 
-Rà soát ổn định: **CL-D07-BE**; phạm vi API đã triển khai gồm Auth/JWT D02,
-Doctors/Specialties D03, Profile/Patients D04, Doctor Work Schedules D06, và Appointment Booking D07, kế thừa nền tảng D01.
-Contract chính thức cho FE Sprint 2, cập nhật ngày **2026-11-21**.
+Nghiệm thu **CL-D11-BE**, kế thừa Auth/JWT, danh mục, Profile/Patients, lịch làm việc,
+đặt/đổi/hủy và tiếp nhận lịch hẹn, hồ sơ khám D10. D11 bổ sung lịch sử và công bố hồ sơ.
+Contract chính thức cho FE Sprint 3, cập nhật ngày **2026-11-22**.
 `IMPLEMENTED` chỉ áp dụng cho phần đã có code và kiểm thử; `PROPOSED` chưa phải API sử dụng được.
 Phạm vi chức năng: [FR-01–FR-14](requirements/FEATURE_SCOPE.md).
 
@@ -11,9 +11,9 @@ Phạm vi chức năng: [FR-01–FR-14](requirements/FEATURE_SCOPE.md).
 - Base path: `/api/v1`; JSON UTF-8; tên trường camelCase; URL danh từ số nhiều, chữ thường có dấu `-`.
 - GET đọc dữ liệu; POST tạo hoặc thực hiện chuyển trạng thái; PATCH cập nhật một phần.
   DELETE chỉ dùng khi mô hình cho phép xóa, không dùng để xóa lịch sử khám.
-- User, Doctor, Specialty, Patient dùng PK BIGINT signed; API trả id và id liên kết dạng chuỗi
+- User, Doctor, Specialty, Patient, DoctorSchedule, Appointment, MedicalRecord dùng PK BIGINT signed; API trả id và id liên kết dạng chuỗi
   để tránh mất chính xác ở JavaScript. Request id liên kết dùng chuỗi số nguyên dương trong phạm vi BIGINT signed.
-  V1 users, V2 doctor/specialty, V3 patients và V4 profile contacts đã tích hợp;
+  V1–V10 đã tích hợp, gồm bảng hồ sơ khám V9 và công bố/backfill V10;
   migration do Database/QA sở hữu và không bị sửa.
 - Ngày: `YYYY-MM-DD`; thời điểm: ISO-8601 UTC, ví dụ `2026-11-20T02:00:00Z`.
   FE hiển thị theo `Asia/Ho_Chi_Minh`, không gửi thời điểm thiếu offset.
@@ -1040,14 +1040,15 @@ Payload:
 - POST completion nhận `{"expectedVersion":1}`. Bắt buộc có triệu chứng, chẩn đoán
   và kết luận khác rỗng. Backend ghi `completedAt`, `completedBy` cùng với chuyển
   appointment sang `COMPLETED` trong cùng transaction. Bản hoàn tất không cho sửa trực tiếp.
-- DOCTOR chỉ đọc và ghi hồ sơ của appointment được phân công. PATIENT chỉ đọc hồ sơ đã
-  hoàn tất của patient đang liên kết với chính tài khoản JWT. ADMIN và RECEPTIONIST chỉ
+- DOCTOR chỉ đọc và ghi hồ sơ của appointment được phân công. Từ D11, PATIENT chỉ đọc hồ sơ đã
+  hoàn tất và công bố của patient đang liên kết với chính tài khoản JWT. ADMIN và RECEPTIONIST chỉ
   đọc metadata. Backend lấy bác sĩ, bệnh nhân và người ghi từ DB, không nhận các ID đó trong payload ghi.
 
 `data` của mọi response thành công chứa metadata
 `id`, `appointmentId`, `doctorId`, `patientId`, `status`, `createdBy`, `completedBy`,
 `createdAt`, `updatedAt`, `completedAt`, `version`. ID là chuỗi, timestamp ISO-8601 UTC.
 `completedAt` và `completedBy` là null trước khi hoàn tất. `status` lấy từ appointment.
+Từ D11, metadata còn có `releasedAt` và `releasedBy`, cùng null trước khi công bố.
 DOCTOR và PATIENT đủ quyền còn nhận bốn trường lâm sàng ở cùng cấp trong `data`.
 DTO của ADMIN/RECEPTIONIST không chứa các trường lâm sàng. Response có `Cache-Control: no-store`.
 PATCH và completion thành công tăng phiên bản hồ sơ. Phiên bản này độc lập với version của appointment.
@@ -1062,6 +1063,68 @@ PATCH và completion thành công tăng phiên bản hồ sơ. Phiên bản này
 | 409 | VERSION_CONFLICT / MEDICAL_RECORD_CONFLICT | Phiên bản đã đổi hoặc xung đột ràng buộc DB |
 
 Lỗi dùng Problem Details hiện có, không trả nội dung lâm sàng hay chi tiết SQL.
+
+### 3.9 Lịch sử khám và công bố hồ sơ — IMPLEMENTED D11
+
+D11 thay đổi quyền PATIENT so với SRS/D10 ở mục 3.8. Chính sách đích yêu cầu hồ sơ
+vừa COMPLETED vừa được bác sĩ công bố trước khi PATIENT đọc nội dung. Completion
+không tự công bố. Policy chuyển đổi V10 của QA giữ quyền đọc D10 bằng backfill hồ sơ
+cũ của appointment COMPLETED có completed_at/completed_by hợp lệ. Các hồ sơ này có
+released_at = completed_at và released_by = completed_by, giữ nội dung, version và
+timestamps cũ. Đây là ghi nhận quyền lịch sử, không khẳng định bác sĩ đã bấm release.
+Hồ sơ mới sau V10 cần công bố riêng. Điều kiện đọc áp dụng đồng thời cho GET theo
+record ID, lookup theo appointment và lịch sử khám.
+
+Đã tích hợp nguyên bản QA `V10__add_medical_record_release.sql`, blob Git
+`5fb22038f4fafd55dff64d72d654666d4b75b03c`, có trên remote dev tại commit
+`bbdd149e30948904e1fe7ac5a1d92109ed54eed3`. SHA-256
+`c2d3b6ab3688701fa8454849a5b89b4ac360f7fbe1ffe5bd47c2e06fb478893b`.
+Đã bỏ cơ chế fixture thay schema MySQL. Fixture H2 chỉ phục vụ test H2.
+
+| Endpoint D11 | Mục đích | Trạng thái |
+| --- | --- | --- |
+| GET `/api/v1/patients/{id}/medical-history` | Lịch sử phân trang trong phạm vi quyền | IMPLEMENTED D11 |
+| POST `/api/v1/medical-records/{id}/release` | DOCTOR assigned công bố bản hoàn tất với expectedVersion | IMPLEMENTED D11 |
+
+Quyết định BE D11 theo yêu cầu tiếp tục triển khai
+
+- V10 do QA sở hữu. BE giữ Hibernate ddl-auto validate.
+- DOCTOR chỉ nhận lịch sử của lượt do chính mình được phân công. Phân công chỉ gồm
+  appointment khác CANCELLED/NO_SHOW. Không có phân công hợp lệ trả 404. PATIENT
+  đổi patientId sang người khác nhận 404. ADMIN/RECEPTIONIST đọc metadata.
+- Công bố lặp với expectedVersion hiện tại trả 200, không thay thời điểm/người công bố
+  hoặc tăng version. Version cũ trả 409 VERSION_CONFLICT. Hai request cùng version
+  chỉ một request ghi thành công. API lỗi tiếp tục dùng 400/401/403/404/409 và Problem Details.
+
+Mapping theo V10
+
+- V10 bổ sung `released_at DATETIME(6) NULL`, `released_by BIGINT NULL` FK users,
+  hai giá trị cùng null hoặc cùng có giá trị, khi công bố phải có completed_at/completed_by,
+  thời điểm công bố không trước completed_at. FK users dùng ON DELETE/UPDATE RESTRICT,
+  có index released_by. Bản nháp và bản hoàn tất mới sau V10 giữ null đến khi release.
+- Release nhận `{"expectedVersion":1}`, trả 200 `{"data":{...}}` với metadata công bố
+  và version mới. Kiểm tra version trước ghi, version cũ trả 409.
+- History nhận `page=0&size=20`, size 1–100, chỉ liệt kê lượt đã hoàn tất trong phạm vi
+  quyền, sắp xếp `completedAt DESC, id DESC`. Envelope dùng
+  `{"data":{"items":[],"page":0,"size":20,"totalElements":0,"totalPages":0}}`.
+  Dùng projection metadata và count có cùng bộ lọc quyền để tránh N+1 và lộ tổng số bản ghi ngoài scope.
+
+Ví dụ response công bố (các trường lâm sàng chỉ có với DOCTOR được phép)
+
+```json
+{"data":{"id":"10","appointmentId":"100","doctorId":"2","patientId":"3","status":"COMPLETED","createdBy":"8","completedBy":"8","completedAt":"2026-11-22T03:00:00Z","createdAt":"2026-11-22T02:00:00Z","updatedAt":"2026-11-22T04:00:00Z","version":2,"releasedAt":"2026-11-22T04:00:00Z","releasedBy":"8","symptoms":"Synthetic symptoms","diagnosis":"Synthetic diagnosis","notes":null,"conclusion":"Synthetic conclusion"}}
+```
+
+Ví dụ history item (mọi role nhận DTO metadata, không có nội dung lâm sàng)
+
+```json
+{"data":{"items":[{"id":"10","appointmentId":"100","doctorId":"2","completedAt":"2026-11-22T03:00:00Z","releasedAt":"2026-11-22T04:00:00Z","version":2}],"page":0,"size":20,"totalElements":1,"totalPages":1}}
+```
+
+Lịch sử cần lọc quyền tại truy vấn trước count/phân trang, sắp xếp thời gian kèm ID
+để thứ tự ổn định. DTO danh sách chỉ chứa metadata cần thiết, các trường ID là string,
+timestamp UTC, response data wrapper và Cache-Control no-store. PATIENT chỉ thấy
+bản thân và các hồ sơ đã công bố. ADMIN/RECEPTIONIST không nhận nội dung lâm sàng.
 
 ## 4. Error response
 
@@ -1115,12 +1178,12 @@ D07 có `SLOT_ALREADY_BOOKED`, `IDEMPOTENCY_CONFLICT`, `SCHEDULE_HAS_APPOINTMENT
 | RECEPTIONIST | Hồ sơ hành chính bệnh nhân, lịch, xác nhận, check-in | Chỉ metadata vận hành của hồ sơ khám; không sửa chẩn đoán/đơn thuốc |
 | PATIENT | Hồ sơ cá nhân, đặt/đổi/hủy lịch và lịch sử của mình | Kiểm tra ownership ở BE; không tin patientId từ client |
 
-**IMPLEMENTED đến D10:** GET health và POST register/login public; GET auth/me, GET/PATCH me/profile,
+**IMPLEMENTED đến D11:** GET health và POST register/login public; GET auth/me, GET/PATCH me/profile,
 GET/POST patients, GET/PATCH patients/{id}, GET me/patient-profile, GET eligible-users,
 GET/POST/PATCH doctors và specialties, POST/GET/PATCH doctor-schedules, GET schedule-slots
 (đã loại bỏ slot bị chiếm), POST/GET/GET-{id} appointments theo đúng RBAC, ownership,
 double booking prevention (pessimistic lock + DB unique constraint), idempotency và scope bảo mật đã duyệt.
-Các thao tác đổi/hủy, tiếp nhận và hồ sơ khám có quyền riêng ở mục 3.6–3.8.
+Các thao tác đổi/hủy, tiếp nhận, hồ sơ khám, lịch sử và công bố có quyền riêng ở mục 3.6–3.9.
 Mọi API khác denyAll, kể cả ADMIN. HTTP Basic/form login/session cookie không dùng;
 không có tài khoản mặc định. Session policy stateless, request cache tắt.
 CSRF tắt vì credential chỉ được gửi chủ động qua Authorization header, không dùng cookie xác thực.
@@ -1178,11 +1241,12 @@ Các dòng có nhiều method mô tả các API riêng cùng trạng thái tri�
 | FR-08 | POST | `/appointments/{id}/check-in` | RECEPTIONIST | **IMPLEMENTED D09** |
 | FR-08 | POST | `/appointments/{id}/no-show` | RECEPTIONIST | **IMPLEMENTED D09** |
 | FR-09 | POST | `/medical-records` | DOCTOR assigned, lịch đã check-in | **IMPLEMENTED D10** |
-| FR-09 | GET | `/medical-records/{id}` | DOCTOR assigned; PATIENT self bản hoàn tất; ADMIN/RECEPTIONIST metadata | **IMPLEMENTED D10** |
+| FR-09 | GET | `/medical-records/{id}` | DOCTOR assigned; PATIENT self bản hoàn tất và công bố; ADMIN/RECEPTIONIST metadata | **IMPLEMENTED D10, policy D11** |
 | FR-09 | GET | `/medical-records/by-appointment/{id}` | Cùng quyền GET hồ sơ, id là appointmentId | **IMPLEMENTED D10** |
 | FR-09 | PATCH | `/medical-records/{id}` | DOCTOR assigned, bản nháp | **IMPLEMENTED D10** |
 | FR-09 | POST | `/medical-records/{id}/completion` | DOCTOR assigned | **IMPLEMENTED D10** |
-| FR-10 | GET | `/patients/{id}/medical-history` | PATIENT self / DOCTOR assigned; ADMIN/RECEPTIONIST metadata | PROPOSED |
+| FR-09 | POST | `/medical-records/{id}/release` | DOCTOR assigned, bản hoàn tất, expectedVersion | **IMPLEMENTED D11** |
+| FR-10 | GET | `/patients/{id}/medical-history` | PATIENT self đã công bố / DOCTOR assigned; ADMIN/RECEPTIONIST metadata | **IMPLEMENTED D11** |
 | FR-11 | GET | `/medical-records/{id}/prescription` | DOCTOR assigned / PATIENT self bản hoàn tất | PROPOSED |
 | FR-11 | PUT | `/medical-records/{id}/prescription` | DOCTOR assigned, thay toàn bộ đơn nháp mô phỏng | PROPOSED |
 | FR-12 | GET | `/dashboard/summary` | ADMIN/RECEPTIONIST theo phạm vi; DOCTOR self | PROPOSED |

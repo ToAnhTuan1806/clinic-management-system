@@ -8,14 +8,15 @@ import java.time.Instant;
 public sealed interface MedicalRecordView {
     record Metadata(String id, String appointmentId, String doctorId, String patientId, AppointmentStatus status,
                     String createdBy, String completedBy, Instant completedAt, Instant createdAt, Instant updatedAt,
-                    long version) implements MedicalRecordView {
+                    long version, Instant releasedAt, String releasedBy) implements MedicalRecordView {
         public static Metadata from(MedicalRecord record) {
             var appointment = record.getAppointment();
             return new Metadata(record.getId().toString(), appointment.getId().toString(),
                     appointment.getDoctor().getId().toString(), appointment.getPatient().getId().toString(),
                     appointment.getStatus(), record.getCreatedBy().getId().toString(),
                     record.getCompletedBy() == null ? null : record.getCompletedBy().getId().toString(),
-                    record.getCompletedAt(), record.getCreatedAt(), record.getUpdatedAt(), record.getVersion());
+                    record.getCompletedAt(), record.getCreatedAt(), record.getUpdatedAt(), record.getVersion(),
+                    record.getReleasedAt(), record.getReleasedBy() == null ? null : record.getReleasedBy().getId().toString());
         }
     }
 

@@ -7,6 +7,8 @@ CREATE TABLE medical_records (
     conclusion TEXT,
     created_by BIGINT NOT NULL,
     completed_at TIMESTAMP(6),
+    released_at TIMESTAMP(6),
+    released_by BIGINT REFERENCES users(id),
     completed_by BIGINT,
     version BIGINT DEFAULT 0 NOT NULL,
     created_at TIMESTAMP(6) NOT NULL,

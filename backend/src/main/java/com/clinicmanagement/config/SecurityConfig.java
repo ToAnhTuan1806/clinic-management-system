@@ -98,6 +98,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/medical-records/*",
                                 "/api/v1/medical-records/by-appointment/*")
                             .hasAnyRole("ADMIN", "DOCTOR", "RECEPTIONIST", "PATIENT")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/medical-records/*/release").hasRole("DOCTOR")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/patients/*/medical-history")
+                            .hasAnyRole("ADMIN", "DOCTOR", "RECEPTIONIST", "PATIENT")
                         .anyRequest().denyAll())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .requestCache(cache -> cache.disable())

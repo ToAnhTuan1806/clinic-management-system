@@ -2,6 +2,11 @@ package com.clinicmanagement.service;
 
 import com.clinicmanagement.dto.MedicalRecordPatchRequest;
 import com.clinicmanagement.dto.MedicalRecordView;
+import com.clinicmanagement.dto.MedicalHistoryItem;
+import com.clinicmanagement.dto.PageResponse;
+import com.clinicmanagement.entity.Role;
+import com.clinicmanagement.repository.PatientRepository;
+import org.springframework.data.domain.PageRequest;
 import com.clinicmanagement.entity.Appointment;
 import com.clinicmanagement.entity.AppointmentStatus;
 import com.clinicmanagement.entity.MedicalRecord;
@@ -25,13 +30,15 @@ public class MedicalRecordService {
     private final AppointmentRepository appointments;
     private final UserRepository users;
     private final Clock clock;
+    private final PatientRepository patients;
 
     public MedicalRecordService(MedicalRecordRepository records, AppointmentRepository appointments,
-                                UserRepository users, Clock clock) {
+                                UserRepository users, Clock clock, PatientRepository patients) {
         this.records = records;
         this.appointments = appointments;
         this.users = users;
         this.clock = clock;
+        this.patients = patients;
     }
 
     @Transactional
@@ -78,6 +85,7 @@ public class MedicalRecordService {
             case PATIENT -> {
                 User owner = appointment.getPatient().getUser();
                 if (appointment.getStatus() != AppointmentStatus.COMPLETED || record.getCompletedAt() == null
+                        || record.getReleasedAt() == null || record.getReleasedBy() == null
                         || owner == null || !viewer.id().equals(owner.getId())) {
                     throw ManagementException.missing();
                 }
@@ -111,6 +119,47 @@ public class MedicalRecordService {
             throw versionConflict();
         }
         record.complete(users.getReferenceById(viewer.id()), clock.instant());
+        return flush(record);
+    }
+
+    @Transactional(readOnly = true)
+    @PreAuthorize("hasAnyRole('DOCTOR','PATIENT','ADMIN','RECEPTIONIST')")
+    public PageResponse<MedicalHistoryItem> history(AuthenticatedUser viewer, Long patientId, int page, int size) {
+        if (page < 0 || size < 1 || size > 100) {
+            throw validation("Invalid pagination.");
+        }
+        var patient = patients.findById(patientId).orElseThrow(ManagementException::missing);
+        if (viewer.role() == Role.PATIENT && (patient.getUser() == null
+                || !viewer.id().equals(patient.getUser().getId()))) {
+            throw ManagementException.missing();
+        }
+        if (viewer.role() == Role.DOCTOR && !appointments.hasHistoryAssignment(patientId, viewer.id())) {
+            throw ManagementException.missing();
+        }
+        return PageResponse.from(records.history(patientId, viewer.role() == Role.DOCTOR ? viewer.id() : null,
+                viewer.role() == Role.PATIENT, PageRequest.of(page, size)).map(row ->
+                new MedicalHistoryItem(row.getId().toString(), row.getAppointmentId().toString(),
+                        row.getDoctorId().toString(), row.getCompletedAt(), row.getReleasedAt(), row.getVersion())));
+    }
+
+    @Transactional
+    @PreAuthorize("hasRole('DOCTOR')")
+    public MedicalRecordView.Clinical release(AuthenticatedUser viewer, Long id, Long expectedVersion) {
+        Long appointmentId = records.findAppointmentId(id).orElseThrow(ManagementException::missing);
+        Appointment appointment = lockAppointment(appointmentId);
+        requireAssigned(viewer, appointment);
+        requireStatus(appointment, AppointmentStatus.COMPLETED);
+        MedicalRecord record = records.findLocked(id).orElseThrow(ManagementException::missing);
+        if (!record.getVersion().equals(expectedVersion)) {
+            throw versionConflict();
+        }
+        if (record.getCompletedAt() == null || record.getCompletedBy() == null) {
+            throw ManagementException.conflict("INVALID_STATE_TRANSITION", "Medical record is not completed.");
+        }
+        if (record.getReleasedAt() != null) {
+            return MedicalRecordView.Clinical.from(record);
+        }
+        record.release(users.getReferenceById(viewer.id()), clock.instant());
         return flush(record);
     }
 
