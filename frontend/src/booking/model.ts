@@ -32,8 +32,13 @@ export interface Appointment {
   startAt: string // ISO-8601 UTC inclusive
   endAt: string // ISO-8601 UTC exclusive
   status: AppointmentStatus
-  reason?: string | null
+  reason?: string | null // Booking reason (D07, max 500 chars)
+  cancellationReason?: string | null // Cancellation reason (D08 / schema V7, max 255 chars)
+  cancelledAt?: string | null // ISO-8601 UTC timestamp
+  cancelledBy?: string | null // User ID who cancelled
+  rescheduledAt?: string | null // ISO-8601 UTC timestamp
   roomLabel?: string | null
+  version?: number // Optimistic locking version
   createdAt?: string
   updatedAt?: string
 }
@@ -43,9 +48,39 @@ export interface BookingDraft {
   doctorId: string
   date: string // YYYY-MM-DD in Asia/Ho_Chi_Minh
   slot: ScheduleSlot
-  reason?: string
+  reason?: string // Max 500 characters
   patientId?: string // Required only when RECEPTIONIST is booking for a patient; omitted for PATIENT
   requestKey: string // Idempotency key
+}
+
+export interface ChangeSlotDraft {
+  appointmentId: string
+  scheduleId: string
+  startAt: string // ISO-8601 UTC
+  expectedVersion: number
+}
+
+export interface CancelAppointmentDraft {
+  appointmentId: string
+  reason?: string // Cancellation reason (max 255 chars)
+  cancellationReason?: string // Alias for schema V7
+  expectedVersion: number
+}
+
+export interface AppointmentQuery {
+  doctorId?: string
+  patientId?: string
+  date?: string // YYYY-MM-DD in Asia/Ho_Chi_Minh
+  status?: AppointmentStatus | 'ALL'
+  page?: number
+  pageSize?: number
+}
+
+export interface AppointmentPage {
+  items: Appointment[]
+  total: number
+  page: number
+  pageSize: number
 }
 
 export interface BookingGateway {
@@ -56,11 +91,23 @@ export interface BookingGateway {
   ): Promise<Appointment>
   getAppointment(id: string, signal?: AbortSignal): Promise<Appointment>
   listMyAppointments(signal?: AbortSignal): Promise<Appointment[]>
+  listAppointments(
+    query?: AppointmentQuery,
+    signal?: AbortSignal,
+  ): Promise<AppointmentPage>
+  changeSlot(draft: ChangeSlotDraft, signal?: AbortSignal): Promise<Appointment>
+  cancelAppointment(
+    draft: CancelAppointmentDraft,
+    signal?: AbortSignal,
+  ): Promise<Appointment>
 }
 
 export type BookingErrorCode =
   | 'VALIDATION_FAILED'
   | 'SLOT_UNAVAILABLE'
+  | 'VERSION_CONFLICT'
+  | 'INVALID_STATE_TRANSITION'
+  | 'APPOINTMENT_PAST'
   | 'UNAUTHORIZED'
   | 'FORBIDDEN'
   | 'NOT_FOUND'
@@ -91,6 +138,12 @@ export function bookingErrorMessage(code: BookingErrorCode): string {
   switch (code) {
     case 'SLOT_UNAVAILABLE':
       return 'Khung giờ này vừa được người khác đặt trước hoặc không còn khả dụng. Vui lòng chọn khung giờ khác (409 Conflict).'
+    case 'VERSION_CONFLICT':
+      return 'Dữ liệu cuộc hẹn đã được cập nhật bởi một phiên khác. Vui lòng tải lại dữ liệu mới nhất (409 Conflict).'
+    case 'INVALID_STATE_TRANSITION':
+      return 'Không thể thay đổi hoặc hủy cuộc hẹn ở trạng thái hiện tại (409 Conflict).'
+    case 'APPOINTMENT_PAST':
+      return 'Không thể thay đổi hoặc hủy cuộc hẹn đã bắt đầu hoặc đã qua thời gian khám.'
     case 'VALIDATION_FAILED':
       return 'Thông tin đặt lịch không hợp lệ. Vui lòng kiểm tra lại.'
     case 'UNAUTHORIZED':
@@ -100,12 +153,12 @@ export function bookingErrorMessage(code: BookingErrorCode): string {
     case 'NOT_FOUND':
       return 'Không tìm thấy hồ sơ bác sĩ, ca trực hoặc khung giờ khám phù hợp.'
     case 'API_NOT_CONFIGURED':
-      return 'Dịch vụ đặt lịch khám chưa được kết nối Backend D07 (chế độ chờ - pending).'
+      return 'Dịch vụ lịch hẹn chưa được kết nối Backend D07/D08 (chế độ chờ - pending).'
     case 'NETWORK_ERROR':
       return 'Không thể kết nối đến máy chủ phòng khám. Vui lòng kiểm tra kết nối mạng và thử lại.'
     case 'UNKNOWN_ERROR':
     default:
-      return 'Đã xảy ra lỗi khi xử lý đặt lịch khám. Vui lòng thử lại.'
+      return 'Đã xảy ra lỗi khi xử lý lịch hẹn. Vui lòng thử lại.'
   }
 }
 
@@ -184,4 +237,101 @@ export function validateBookingDraft(
   }
 
   return errors
+}
+
+/**
+ * Validates a ChangeSlotDraft before submission.
+ */
+export function validateChangeSlotDraft(
+  draft: Partial<ChangeSlotDraft>,
+): Record<string, string> {
+  const errors: Record<string, string> = {}
+
+  if (!draft.appointmentId || !validId(draft.appointmentId)) {
+    errors.appointmentId = 'Mã cuộc hẹn không hợp lệ.'
+  }
+
+  if (!draft.scheduleId || !validId(draft.scheduleId)) {
+    errors.scheduleId = 'Mã ca làm việc không hợp lệ.'
+  }
+
+  if (!draft.startAt) {
+    errors.startAt = 'Vui lòng chọn khung giờ khám mới.'
+  } else {
+    const slotTime = new Date(draft.startAt).getTime()
+    if (slotTime <= Date.now()) {
+      errors.startAt = 'Không thể chọn khung giờ trong quá khứ.'
+    }
+  }
+
+  if (draft.expectedVersion === undefined || draft.expectedVersion < 0) {
+    errors.expectedVersion = 'Phiên bản dữ liệu (version) không hợp lệ.'
+  }
+
+  return errors
+}
+
+/**
+ * Validates a CancelAppointmentDraft before submission.
+ * Enforces 1–255 characters for cancellation reason according to schema V7.
+ */
+export function validateCancelDraft(
+  draft: Partial<CancelAppointmentDraft>,
+): Record<string, string> {
+  const errors: Record<string, string> = {}
+
+  if (!draft.appointmentId || !validId(draft.appointmentId)) {
+    errors.appointmentId = 'Mã cuộc hẹn không hợp lệ.'
+  }
+
+  const cancelReason = (draft.reason ?? draft.cancellationReason ?? '').trim()
+  if (!cancelReason) {
+    errors.reason = 'Vui lòng nhập lý do hủy lịch khám (1-255 ký tự).'
+  } else if (cancelReason.length > 255) {
+    errors.reason = 'Lý do hủy lịch không được vượt quá 255 ký tự.'
+  }
+
+  if (draft.expectedVersion === undefined || draft.expectedVersion < 0) {
+    errors.expectedVersion = 'Phiên bản dữ liệu (version) không hợp lệ.'
+  }
+
+  return errors
+}
+
+/**
+ * Determines whether the user with the given role can change or cancel the appointment.
+ */
+export function canChangeOrCancelAppointment(
+  appointment: Appointment,
+  role: string,
+): { canChange: boolean; canCancel: boolean; reason?: string } {
+  // Only PATIENT and RECEPTIONIST can change or cancel appointments
+  if (role !== 'PATIENT' && role !== 'RECEPTIONIST') {
+    return {
+      canChange: false,
+      canCancel: false,
+      reason: 'Vai trò hiện tại không có quyền thay đổi hoặc hủy lịch hẹn.',
+    }
+  }
+
+  // Only PENDING and CONFIRMED appointments can be modified
+  if (appointment.status !== 'PENDING' && appointment.status !== 'CONFIRMED') {
+    return {
+      canChange: false,
+      canCancel: false,
+      reason: `Cuộc hẹn đang ở trạng thái "${appointmentStatusLabels[appointment.status] || appointment.status}", không thể thay đổi hoặc hủy.`,
+    }
+  }
+
+  // Appointment must be in the future
+  const startTime = new Date(appointment.startAt).getTime()
+  if (startTime <= Date.now()) {
+    return {
+      canChange: false,
+      canCancel: false,
+      reason: 'Cuộc hẹn đã bắt đầu hoặc đã qua thời gian khám.',
+    }
+  }
+
+  return { canChange: true, canCancel: true }
 }

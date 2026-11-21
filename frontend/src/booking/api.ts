@@ -3,10 +3,16 @@ import { validId } from '@/schedule/model'
 import {
   BookingError,
   validateBookingDraft,
+  validateCancelDraft,
+  validateChangeSlotDraft,
   type Appointment,
+  type AppointmentPage,
+  type AppointmentQuery,
   type AppointmentStatus,
   type BookingDraft,
   type BookingGateway,
+  type CancelAppointmentDraft,
+  type ChangeSlotDraft,
 } from './model'
 
 const invalid = (): never => {
@@ -119,7 +125,38 @@ export function decodeAppointment(value: unknown): Appointment {
     endAt: endIso,
     status,
     reason: nullable(row.reason),
+    cancellationReason: nullable(
+      row.cancellationReason ??
+        row.cancellation_reason ??
+        row.cancelReason ??
+        row.cancel_reason,
+    ),
+    cancelledAt:
+      typeof row.cancelledAt === 'string'
+        ? row.cancelledAt
+        : typeof row.cancelled_at === 'string'
+          ? row.cancelled_at
+          : undefined,
+    cancelledBy:
+      typeof row.cancelledBy === 'string' || typeof row.cancelledBy === 'number'
+        ? String(row.cancelledBy)
+        : typeof row.cancelled_by === 'string' ||
+            typeof row.cancelled_by === 'number'
+          ? String(row.cancelled_by)
+          : undefined,
+    rescheduledAt:
+      typeof row.rescheduledAt === 'string'
+        ? row.rescheduledAt
+        : typeof row.rescheduled_at === 'string'
+          ? row.rescheduled_at
+          : undefined,
     roomLabel: nullable(row.roomLabel ?? row.room_label),
+    version:
+      typeof row.version === 'number'
+        ? row.version
+        : typeof row.version === 'string' && !Number.isNaN(Number(row.version))
+          ? Number(row.version)
+          : 0,
     createdAt: typeof row.createdAt === 'string' ? row.createdAt : undefined,
     updatedAt: typeof row.updatedAt === 'string' ? row.updatedAt : undefined,
   }
@@ -141,8 +178,41 @@ function handleBookingError(error: unknown): never {
     unknown
   >
   const detail = typeof problem.detail === 'string' ? problem.detail : undefined
+  const codeStr = String(problem.code || '').toUpperCase()
+  const detailStr = String(detail || '').toLowerCase()
 
   if (status === 409) {
+    if (
+      codeStr.includes('VERSION_CONFLICT') ||
+      detailStr.includes('version') ||
+      detailStr.includes('phiên bản')
+    ) {
+      throw new BookingError(
+        'VERSION_CONFLICT',
+        409,
+        detail ||
+          'Dữ liệu cuộc hẹn đã được cập nhật bởi một phiên khác. Vui lòng tải lại dữ liệu mới nhất (409 Conflict).',
+      )
+    }
+
+    if (codeStr.includes('INVALID_STATE') || detailStr.includes('trạng thái')) {
+      throw new BookingError(
+        'INVALID_STATE_TRANSITION',
+        409,
+        detail ||
+          'Không thể thay đổi hoặc hủy cuộc hẹn ở trạng thái hiện tại (409 Conflict).',
+      )
+    }
+
+    if (codeStr.includes('PAST') || detailStr.includes('quá khứ')) {
+      throw new BookingError(
+        'APPOINTMENT_PAST',
+        409,
+        detail ||
+          'Không thể thay đổi hoặc hủy cuộc hẹn đã bắt đầu hoặc đã qua thời gian khám.',
+      )
+    }
+
     throw new BookingError(
       'SLOT_UNAVAILABLE',
       409,
@@ -262,6 +332,139 @@ export function createBookingApi(client: AxiosInstance): BookingGateway {
         }
 
         return items.map(decodeAppointment)
+      } catch (err) {
+        handleBookingError(err)
+      }
+    },
+
+    async listAppointments(
+      query?: AppointmentQuery,
+      signal?: AbortSignal,
+    ): Promise<AppointmentPage> {
+      try {
+        const params: Record<string, unknown> = {}
+        if (query?.doctorId) params.doctorId = query.doctorId
+        if (query?.patientId) params.patientId = query.patientId
+        if (query?.date) params.date = query.date
+        if (query?.status && query.status !== 'ALL')
+          params.status = query.status
+        if (query?.page !== undefined) params.page = query.page
+        if (query?.pageSize !== undefined) params.size = query.pageSize
+
+        const res = await client.get('/api/v1/appointments', {
+          params,
+          signal,
+        })
+        const payload = data(res.data)
+
+        let items: unknown[] = []
+        let total = 0
+        let page = query?.page || 0
+        let pageSize = query?.pageSize || 20
+
+        if (payload && typeof payload === 'object') {
+          const obj = payload as Record<string, unknown>
+          if (Array.isArray(obj.items)) {
+            items = obj.items
+            total =
+              typeof obj.total === 'number'
+                ? obj.total
+                : typeof obj.totalElements === 'number'
+                  ? obj.totalElements
+                  : items.length
+            page = typeof obj.page === 'number' ? obj.page : page
+            pageSize =
+              typeof obj.pageSize === 'number'
+                ? obj.pageSize
+                : typeof obj.size === 'number'
+                  ? obj.size
+                  : pageSize
+          } else if (Array.isArray(obj.content)) {
+            items = obj.content
+            total =
+              typeof obj.totalElements === 'number'
+                ? obj.totalElements
+                : items.length
+            page = typeof obj.number === 'number' ? obj.number : page
+            pageSize = typeof obj.size === 'number' ? obj.size : pageSize
+          }
+        } else if (Array.isArray(payload)) {
+          items = payload
+          total = items.length
+        }
+
+        return {
+          items: items.map(decodeAppointment),
+          total,
+          page,
+          pageSize,
+        }
+      } catch (err) {
+        handleBookingError(err)
+      }
+    },
+
+    async changeSlot(
+      draft: ChangeSlotDraft,
+      signal?: AbortSignal,
+    ): Promise<Appointment> {
+      const fieldErrors = validateChangeSlotDraft(draft)
+      if (Object.keys(fieldErrors).length > 0) {
+        throw new BookingError(
+          'VALIDATION_FAILED',
+          400,
+          'Dữ liệu đổi lịch không hợp lệ.',
+          fieldErrors,
+        )
+      }
+
+      try {
+        const payload = {
+          scheduleId: draft.scheduleId,
+          startAt: draft.startAt,
+          expectedVersion: draft.expectedVersion,
+        }
+        const res = await client.patch(
+          `/api/v1/appointments/${draft.appointmentId}/slot`,
+          payload,
+          { signal },
+        )
+        return decodeAppointment(data(res.data))
+      } catch (err) {
+        handleBookingError(err)
+      }
+    },
+
+    async cancelAppointment(
+      draft: CancelAppointmentDraft,
+      signal?: AbortSignal,
+    ): Promise<Appointment> {
+      const fieldErrors = validateCancelDraft(draft)
+      if (Object.keys(fieldErrors).length > 0) {
+        throw new BookingError(
+          'VALIDATION_FAILED',
+          400,
+          'Dữ liệu hủy lịch không hợp lệ.',
+          fieldErrors,
+        )
+      }
+
+      try {
+        const cancelReason = (
+          draft.reason ??
+          draft.cancellationReason ??
+          ''
+        ).trim()
+        const payload = {
+          reason: cancelReason,
+          expectedVersion: draft.expectedVersion,
+        }
+        const res = await client.post(
+          `/api/v1/appointments/${draft.appointmentId}/cancellation`,
+          payload,
+          { signal },
+        )
+        return decodeAppointment(data(res.data))
       } catch (err) {
         handleBookingError(err)
       }

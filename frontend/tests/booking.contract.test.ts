@@ -5,9 +5,15 @@ import {
   appointmentStatusLabels,
   bookingErrorMessage,
   bookingMessage,
+  canChangeOrCancelAppointment,
   generateRequestKey,
   validateBookingDraft,
+  validateCancelDraft,
+  validateChangeSlotDraft,
+  type Appointment,
   type BookingDraft,
+  type CancelAppointmentDraft,
+  type ChangeSlotDraft,
 } from '@/booking/model'
 import { createBookingApi, decodeAppointment } from '@/booking/api'
 import { getVnTodayString } from '@/schedule/model'
@@ -264,6 +270,35 @@ describe('Patient Appointment Booking Contract & Domain Unit Tests (Sprint 2 - D
         BookingError,
       )
     })
+
+    it('correctly decodes cancellation and rescheduling metadata according to schema V7', () => {
+      const rawWithCancel = {
+        id: '800',
+        appointmentCode: 'APT_20261125_008',
+        patientId: '10',
+        doctorId: '2',
+        scheduleId: '100',
+        startAt: '2026-11-25T01:00:00.000Z',
+        endAt: '2026-11-25T01:30:00.000Z',
+        status: 'CANCELLED',
+        reason: 'Khám định kỳ ban đầu (tối đa 500 ký tự)',
+        cancellationReason: 'Bận đột xuất (tối đa 255 ký tự)',
+        cancelledAt: '2026-11-24T10:00:00.000Z',
+        cancelledBy: '10',
+        rescheduledAt: '2026-11-23T08:00:00.000Z',
+        version: 3,
+      }
+
+      const decoded = decodeAppointment(rawWithCancel)
+      expect(decoded.id).toBe('800')
+      expect(decoded.status).toBe('CANCELLED')
+      expect(decoded.reason).toBe('Khám định kỳ ban đầu (tối đa 500 ký tự)')
+      expect(decoded.cancellationReason).toBe('Bận đột xuất (tối đa 255 ký tự)')
+      expect(decoded.cancelledAt).toBe('2026-11-24T10:00:00.000Z')
+      expect(decoded.cancelledBy).toBe('10')
+      expect(decoded.rescheduledAt).toBe('2026-11-23T08:00:00.000Z')
+      expect(decoded.version).toBe(3)
+    })
   })
 
   describe('API Client Layer (createBookingApi)', () => {
@@ -438,6 +473,318 @@ describe('Patient Appointment Booking Contract & Domain Unit Tests (Sprint 2 - D
       await expect(api.bookAppointment(baseValidDraft)).rejects.toMatchObject({
         code: 'NETWORK_ERROR',
         status: 0,
+      })
+    })
+  })
+
+  describe('D08 Change Slot & Cancellation Domain Validation', () => {
+    const validChangeDraft: ChangeSlotDraft = {
+      appointmentId: '10',
+      scheduleId: '5',
+      startAt: '2029-12-28T02:00:00.000Z',
+      expectedVersion: 0,
+    }
+
+    const validCancelDraft: CancelAppointmentDraft = {
+      appointmentId: '10',
+      reason: 'Bận việc gia đình đột xuất',
+      expectedVersion: 0,
+    }
+
+    it('validates ChangeSlotDraft: appointmentId, scheduleId, future startAt, expectedVersion', () => {
+      expect(
+        Object.keys(validateChangeSlotDraft(validChangeDraft)),
+      ).toHaveLength(0)
+
+      expect(
+        validateChangeSlotDraft({ ...validChangeDraft, appointmentId: '' })
+          .appointmentId,
+      ).toBe('Mã cuộc hẹn không hợp lệ.')
+
+      expect(
+        validateChangeSlotDraft({ ...validChangeDraft, scheduleId: 'invalid' })
+          .scheduleId,
+      ).toBe('Mã ca làm việc không hợp lệ.')
+
+      expect(
+        validateChangeSlotDraft({ ...validChangeDraft, startAt: '' }).startAt,
+      ).toBe('Vui lòng chọn khung giờ khám mới.')
+
+      expect(
+        validateChangeSlotDraft({
+          ...validChangeDraft,
+          startAt: '2020-01-01T00:00:00.000Z',
+        }).startAt,
+      ).toBe('Không thể chọn khung giờ trong quá khứ.')
+
+      expect(
+        validateChangeSlotDraft({ ...validChangeDraft, expectedVersion: -1 })
+          .expectedVersion,
+      ).toBe('Phiên bản dữ liệu (version) không hợp lệ.')
+    })
+
+    it('validates CancelAppointmentDraft: appointmentId, reason 1-255 chars (schema V7), expectedVersion', () => {
+      expect(Object.keys(validateCancelDraft(validCancelDraft))).toHaveLength(0)
+
+      expect(
+        validateCancelDraft({ ...validCancelDraft, appointmentId: '0' })
+          .appointmentId,
+      ).toBe('Mã cuộc hẹn không hợp lệ.')
+
+      // Empty or whitespace reason is rejected (must be 1-255 characters)
+      expect(
+        validateCancelDraft({ ...validCancelDraft, reason: '' }).reason,
+      ).toBe('Vui lòng nhập lý do hủy lịch khám (1-255 ký tự).')
+
+      expect(
+        validateCancelDraft({ ...validCancelDraft, reason: '   ' }).reason,
+      ).toBe('Vui lòng nhập lý do hủy lịch khám (1-255 ký tự).')
+
+      // Minimum 1 character
+      expect(
+        validateCancelDraft({ ...validCancelDraft, reason: 'X' }).reason,
+      ).toBeUndefined()
+
+      // Maximum 255 characters
+      const valid255 = 'B'.repeat(255)
+      expect(
+        validateCancelDraft({ ...validCancelDraft, reason: valid255 }).reason,
+      ).toBeUndefined()
+
+      const longReason = 'B'.repeat(256)
+      expect(
+        validateCancelDraft({ ...validCancelDraft, reason: longReason }).reason,
+      ).toBe('Lý do hủy lịch không được vượt quá 255 ký tự.')
+
+      // Also checks cancellationReason alias
+      expect(
+        validateCancelDraft({
+          ...validCancelDraft,
+          reason: undefined,
+          cancellationReason: longReason,
+        }).reason,
+      ).toBe('Lý do hủy lịch không được vượt quá 255 ký tự.')
+
+      expect(
+        validateCancelDraft({ ...validCancelDraft, expectedVersion: -1 })
+          .expectedVersion,
+      ).toBe('Phiên bản dữ liệu (version) không hợp lệ.')
+    })
+
+    it('canChangeOrCancelAppointment enforces role, status, and future date constraints', () => {
+      const futureStart = '2029-12-28T02:00:00.000Z'
+      const pastStart = '2020-01-01T02:00:00.000Z'
+
+      const futurePendingApp: Appointment = {
+        id: '10',
+        appointmentCode: 'APT_10',
+        patientId: '1',
+        doctorId: '2',
+        scheduleId: '3',
+        startAt: futureStart,
+        endAt: '2029-12-28T02:30:00.000Z',
+        status: 'PENDING',
+        version: 0,
+      }
+
+      // PATIENT with future PENDING -> Allowed
+      expect(canChangeOrCancelAppointment(futurePendingApp, 'PATIENT')).toEqual(
+        { canChange: true, canCancel: true },
+      )
+
+      // RECEPTIONIST with future CONFIRMED -> Allowed
+      expect(
+        canChangeOrCancelAppointment(
+          { ...futurePendingApp, status: 'CONFIRMED' },
+          'RECEPTIONIST',
+        ),
+      ).toEqual({ canChange: true, canCancel: true })
+
+      // DOCTOR and ADMIN -> Forbidden
+      expect(
+        canChangeOrCancelAppointment(futurePendingApp, 'DOCTOR').canChange,
+      ).toBe(false)
+      expect(
+        canChangeOrCancelAppointment(futurePendingApp, 'ADMIN').canCancel,
+      ).toBe(false)
+
+      // Past appointment -> Forbidden
+      expect(
+        canChangeOrCancelAppointment(
+          { ...futurePendingApp, startAt: pastStart },
+          'PATIENT',
+        ).canChange,
+      ).toBe(false)
+
+      // CANCELLED or COMPLETED appointment -> Forbidden
+      expect(
+        canChangeOrCancelAppointment(
+          { ...futurePendingApp, status: 'CANCELLED' },
+          'PATIENT',
+        ).canCancel,
+      ).toBe(false)
+      expect(
+        canChangeOrCancelAppointment(
+          { ...futurePendingApp, status: 'COMPLETED' },
+          'PATIENT',
+        ).canChange,
+      ).toBe(false)
+    })
+  })
+
+  describe('D08 API Client Change Slot, Cancellation & Optimistic Locking', () => {
+    it('calls PATCH /api/v1/appointments/{id}/slot with expectedVersion and returns updated appointment', async () => {
+      let capturedUrl = ''
+      let capturedPayload: unknown = null
+
+      const fakeClient = {
+        patch: async (url: string, payload: unknown) => {
+          capturedUrl = url
+          capturedPayload = payload
+          return {
+            data: {
+              data: {
+                id: '10',
+                appointmentCode: 'APT_10',
+                patientId: '1',
+                doctorId: '2',
+                scheduleId: '5',
+                startAt: '2029-12-28T02:00:00.000Z',
+                endAt: '2029-12-28T02:30:00.000Z',
+                status: 'PENDING',
+                version: 1,
+              },
+            },
+          }
+        },
+      } as unknown as AxiosInstance
+
+      const api = createBookingApi(fakeClient)
+      const res = await api.changeSlot({
+        appointmentId: '10',
+        scheduleId: '5',
+        startAt: '2029-12-28T02:00:00.000Z',
+        expectedVersion: 0,
+      })
+
+      expect(capturedUrl).toBe('/api/v1/appointments/10/slot')
+      expect(capturedPayload).toEqual({
+        scheduleId: '5',
+        startAt: '2029-12-28T02:00:00.000Z',
+        expectedVersion: 0,
+      })
+      expect(res.version).toBe(1)
+      expect(res.status).toBe('PENDING')
+    })
+
+    it('calls POST /api/v1/appointments/{id}/cancellation with reason and expectedVersion', async () => {
+      let capturedUrl = ''
+      let capturedPayload: unknown = null
+
+      const fakeClient = {
+        post: async (url: string, payload: unknown) => {
+          capturedUrl = url
+          capturedPayload = payload
+          return {
+            data: {
+              data: {
+                id: '10',
+                appointmentCode: 'APT_10',
+                patientId: '1',
+                doctorId: '2',
+                scheduleId: '5',
+                startAt: '2029-12-28T02:00:00.000Z',
+                endAt: '2029-12-28T02:30:00.000Z',
+                status: 'CANCELLED',
+                reason: 'Lý do bận việc',
+                version: 2,
+              },
+            },
+          }
+        },
+      } as unknown as AxiosInstance
+
+      const api = createBookingApi(fakeClient)
+      const res = await api.cancelAppointment({
+        appointmentId: '10',
+        reason: 'Lý do bận việc',
+        expectedVersion: 1,
+      })
+
+      expect(capturedUrl).toBe('/api/v1/appointments/10/cancellation')
+      expect(capturedPayload).toEqual({
+        reason: 'Lý do bận việc',
+        expectedVersion: 1,
+      })
+      // Strictly verify payload has ONLY reason and expectedVersion (no cancellationReason)
+      expect(
+        Object.keys(capturedPayload as Record<string, unknown>).sort(),
+      ).toEqual(['expectedVersion', 'reason'])
+      expect(capturedPayload).not.toHaveProperty('cancellationReason')
+      expect(res.status).toBe('CANCELLED')
+      expect(res.version).toBe(2)
+    })
+
+    it('translates 409 Conflict with VERSION_CONFLICT to BookingError code VERSION_CONFLICT', async () => {
+      const fakeClient = {
+        patch: async () => {
+          const err = new Error('Stale version') as unknown as {
+            response: { status: number; data: unknown }
+          }
+          err.response = {
+            status: 409,
+            data: {
+              code: 'VERSION_CONFLICT',
+              detail: 'Dữ liệu đã bị thay đổi bởi phiên khác.',
+            },
+          }
+          throw err
+        },
+      } as unknown as AxiosInstance
+
+      const api = createBookingApi(fakeClient)
+      await expect(
+        api.changeSlot({
+          appointmentId: '10',
+          scheduleId: '5',
+          startAt: '2029-12-28T02:00:00.000Z',
+          expectedVersion: 0,
+        }),
+      ).rejects.toMatchObject({
+        name: 'BookingError',
+        code: 'VERSION_CONFLICT',
+        status: 409,
+      })
+    })
+
+    it('translates 409 Conflict with INVALID_STATE_TRANSITION to BookingError code INVALID_STATE_TRANSITION', async () => {
+      const fakeClient = {
+        post: async () => {
+          const err = new Error('Invalid state') as unknown as {
+            response: { status: number; data: unknown }
+          }
+          err.response = {
+            status: 409,
+            data: {
+              code: 'INVALID_STATE_TRANSITION',
+              detail: 'Không thể chuyển đổi trạng thái này.',
+            },
+          }
+          throw err
+        },
+      } as unknown as AxiosInstance
+
+      const api = createBookingApi(fakeClient)
+      await expect(
+        api.cancelAppointment({
+          appointmentId: '10',
+          reason: 'Bận việc cá nhân',
+          expectedVersion: 0,
+        }),
+      ).rejects.toMatchObject({
+        name: 'BookingError',
+        code: 'INVALID_STATE_TRANSITION',
+        status: 409,
       })
     })
   })

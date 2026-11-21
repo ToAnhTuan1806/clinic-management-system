@@ -57,7 +57,7 @@ export const navigation = [
   },
   {
     path: '/appointments',
-    roles: staff,
+    roles: everyone,
     label: 'Lịch hẹn',
     title: 'Quản lý lịch hẹn',
     icon: CalendarDays,

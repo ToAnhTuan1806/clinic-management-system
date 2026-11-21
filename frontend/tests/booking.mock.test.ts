@@ -185,4 +185,287 @@ describe('Patient Appointment Booking Mock Gateway Tests (Sprint 2 - D07)', () =
       })
     })
   })
+
+  describe('Sprint 2 D08 — List Appointments & Filtering', () => {
+    it('PATIENT sees only own linked appointments in listAppointments', async () => {
+      login('PATIENT', '10', 'Bệnh nhân 10')
+      const gateway = createBookingMock()
+
+      const res = await gateway.listAppointments()
+      expect(res.items.length).toBeGreaterThanOrEqual(1)
+      expect(res.items.every((a) => a.patientId === '10')).toBe(true)
+    })
+
+    it('RECEPTIONIST sees clinic-wide appointments and can filter by status', async () => {
+      login('RECEPTIONIST', '200', 'Lễ Tân')
+      const gateway = createBookingMock()
+
+      const allRes = await gateway.listAppointments()
+      expect(allRes.items.length).toBeGreaterThan(1)
+
+      const confirmedRes = await gateway.listAppointments({
+        status: 'CONFIRMED',
+      })
+      expect(confirmedRes.items.every((a) => a.status === 'CONFIRMED')).toBe(
+        true,
+      )
+    })
+
+    it('DOCTOR only sees appointments assigned to their doctorId', async () => {
+      login('DOCTOR', '1', 'Bác sĩ Lê Thị Mai')
+      const gateway = createBookingMock()
+
+      const docRes = await gateway.listAppointments()
+      expect(docRes.items.every((a) => a.doctorId === '1')).toBe(true)
+    })
+  })
+
+  describe('Sprint 2 D08 — Change Slot Flow & Optimistic Concurrency', () => {
+    it('PATIENT changes slot for future appointment, returning PENDING with incremented version', async () => {
+      login('PATIENT', '10', 'Bệnh nhân A')
+      const gateway = createBookingMock()
+
+      // Book a future appointment
+      const app = await gateway.bookAppointment(validDraft)
+      expect(app.version).toBe(0)
+
+      const newStartAt = '2029-11-25T03:00:00.000Z'
+      const updated = await gateway.changeSlot({
+        appointmentId: app.id,
+        scheduleId: '101',
+        startAt: newStartAt,
+        expectedVersion: 0,
+      })
+
+      expect(updated.id).toBe(app.id)
+      expect(updated.startAt).toBe(newStartAt)
+      expect(updated.status).toBe('PENDING')
+      expect(updated.version).toBe(1)
+      expect(updated.rescheduledAt).toBeDefined()
+    })
+
+    it('rejects changeSlot when target slot is already occupied (409 SLOT_UNAVAILABLE)', async () => {
+      login('PATIENT', '10', 'Bệnh nhân A')
+      const gateway = createBookingMock()
+
+      // Book slot 1
+      const app1 = await gateway.bookAppointment(validDraft)
+
+      // Book slot 2 with a different requestKey
+      const draft2: BookingDraft = {
+        ...validDraft,
+        slot: futureSlot2,
+        requestKey: 'req_pat_test_002',
+      }
+      await gateway.bookAppointment(draft2)
+
+      // App 1 tries to change into slot 2 (already booked)
+      await expect(
+        gateway.changeSlot({
+          appointmentId: app1.id,
+          scheduleId: futureSlot2.scheduleId,
+          startAt: futureSlot2.startsAt,
+          expectedVersion: 0,
+        }),
+      ).rejects.toMatchObject({
+        name: 'BookingError',
+        code: 'SLOT_UNAVAILABLE',
+        status: 409,
+      })
+    })
+
+    it('rejects changeSlot with stale expectedVersion (409 VERSION_CONFLICT)', async () => {
+      login('PATIENT', '10', 'Bệnh nhân A')
+      const gateway = createBookingMock()
+
+      const app = await gateway.bookAppointment(validDraft)
+
+      await expect(
+        gateway.changeSlot({
+          appointmentId: app.id,
+          scheduleId: '101',
+          startAt: '2029-11-25T04:00:00.000Z',
+          expectedVersion: 99, // Stale version
+        }),
+      ).rejects.toMatchObject({
+        name: 'BookingError',
+        code: 'VERSION_CONFLICT',
+        status: 409,
+      })
+    })
+
+    it('rejects changeSlot when appointment is CANCELLED (409 INVALID_STATE_TRANSITION)', async () => {
+      login('PATIENT', '10', 'Bệnh nhân A')
+      const gateway = createBookingMock()
+
+      // Initial mock data has app '3' with status CANCELLED
+      await expect(
+        gateway.changeSlot({
+          appointmentId: '3',
+          scheduleId: '101',
+          startAt: '2029-11-25T05:00:00.000Z',
+          expectedVersion: 1,
+        }),
+      ).rejects.toMatchObject({
+        name: 'BookingError',
+        code: 'INVALID_STATE_TRANSITION',
+        status: 409,
+      })
+    })
+
+    it('forbids DOCTOR role from calling changeSlot (403 FORBIDDEN)', async () => {
+      login('DOCTOR', '1', 'Bác sĩ Mai')
+      const gateway = createBookingMock()
+
+      await expect(
+        gateway.changeSlot({
+          appointmentId: '1',
+          scheduleId: '101',
+          startAt: '2029-11-25T06:00:00.000Z',
+          expectedVersion: 0,
+        }),
+      ).rejects.toMatchObject({
+        name: 'BookingError',
+        code: 'FORBIDDEN',
+        status: 403,
+      })
+    })
+  })
+
+  describe('Sprint 2 D08 — Cancel Appointment Flow', () => {
+    it('PATIENT can cancel future appointment with reason <= 255 chars, preserving booking reason and releasing slot', async () => {
+      login('PATIENT', '10', 'Bệnh nhân A')
+      const gateway = createBookingMock()
+
+      const app = await gateway.bookAppointment(validDraft)
+      expect(app.reason).toBe('Đau đầu, muốn kiểm tra định kỳ')
+
+      const cancelled = await gateway.cancelAppointment({
+        appointmentId: app.id,
+        reason: 'Bận công tác đột xuất vào ngày này',
+        expectedVersion: 0,
+      })
+
+      expect(cancelled.status).toBe('CANCELLED')
+      expect(cancelled.version).toBe(1)
+      expect(cancelled.reason).toBe('Đau đầu, muốn kiểm tra định kỳ') // Booking reason preserved!
+      expect(cancelled.cancellationReason).toBe(
+        'Bận công tác đột xuất vào ngày này',
+      ) // Cancellation reason
+      expect(cancelled.cancelledAt).toBeDefined()
+      expect(cancelled.cancelledBy).toBe('10')
+
+      // Released slot can now be booked by another user!
+      login('PATIENT', '20', 'Bệnh nhân B')
+      const anotherBooking = await gateway.bookAppointment({
+        ...validDraft,
+        requestKey: 'req_pat_test_003',
+      })
+      expect(anotherBooking.id).toBeDefined()
+    })
+
+    it('rejects cancelAppointment when cancellation reason exceeds 255 characters (400 VALIDATION_FAILED)', async () => {
+      login('PATIENT', '10', 'Bệnh nhân A')
+      const gateway = createBookingMock()
+
+      const app = await gateway.bookAppointment(validDraft)
+
+      await expect(
+        gateway.cancelAppointment({
+          appointmentId: app.id,
+          reason: 'C'.repeat(256),
+          expectedVersion: 0,
+        }),
+      ).rejects.toMatchObject({
+        name: 'BookingError',
+        code: 'VALIDATION_FAILED',
+        status: 400,
+      })
+    })
+
+    it('rejects cancelAppointment when cancellation reason is empty (400 VALIDATION_FAILED)', async () => {
+      login('PATIENT', '10', 'Bệnh nhân A')
+      const gateway = createBookingMock()
+
+      const app = await gateway.bookAppointment(validDraft)
+
+      await expect(
+        gateway.cancelAppointment({
+          appointmentId: app.id,
+          reason: '',
+          expectedVersion: 0,
+        }),
+      ).rejects.toMatchObject({
+        name: 'BookingError',
+        code: 'VALIDATION_FAILED',
+        status: 400,
+      })
+    })
+
+    it('rejects cancelAppointment with stale expectedVersion (409 VERSION_CONFLICT)', async () => {
+      login('PATIENT', '10', 'Bệnh nhân A')
+      const gateway = createBookingMock()
+
+      const app = await gateway.bookAppointment(validDraft)
+
+      await expect(
+        gateway.cancelAppointment({
+          appointmentId: app.id,
+          reason: 'Hủy lịch',
+          expectedVersion: 88, // Stale
+        }),
+      ).rejects.toMatchObject({
+        name: 'BookingError',
+        code: 'VERSION_CONFLICT',
+        status: 409,
+      })
+    })
+
+    it('rejects cancelAppointment when appointment is already CANCELLED (409 INVALID_STATE_TRANSITION)', async () => {
+      login('PATIENT', '10', 'Bệnh nhân A')
+      const gateway = createBookingMock()
+
+      await expect(
+        gateway.cancelAppointment({
+          appointmentId: '3', // initial mock data has app 3 cancelled
+          reason: 'Hủy lại lần nữa',
+          expectedVersion: 1,
+        }),
+      ).rejects.toMatchObject({
+        name: 'BookingError',
+        code: 'INVALID_STATE_TRANSITION',
+        status: 409,
+      })
+    })
+
+    it('allows RECEPTIONIST to cancel appointment on behalf of patient', async () => {
+      login('RECEPTIONIST', '200', 'Lễ Tân')
+      const gateway = createBookingMock()
+
+      const cancelled = await gateway.cancelAppointment({
+        appointmentId: '1',
+        reason: 'Bệnh nhân gọi điện nhờ hủy',
+        expectedVersion: 0,
+      })
+
+      expect(cancelled.status).toBe('CANCELLED')
+    })
+
+    it('forbids DOCTOR role from calling cancelAppointment (403 FORBIDDEN)', async () => {
+      login('DOCTOR', '1', 'Bác sĩ Mai')
+      const gateway = createBookingMock()
+
+      await expect(
+        gateway.cancelAppointment({
+          appointmentId: '1',
+          reason: 'Bác sĩ tự hủy',
+          expectedVersion: 0,
+        }),
+      ).rejects.toMatchObject({
+        name: 'BookingError',
+        code: 'FORBIDDEN',
+        status: 403,
+      })
+    })
+  })
 })
