@@ -1,0 +1,17 @@
+# Embedded, disposable test database only. Never packaged in the application JAR.
+spring:
+  datasource:
+    url: jdbc:h2:mem:${random.uuid};DB_CLOSE_DELAY=-1
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+  flyway:
+    enabled: true
+    # Keep QA's Flyway checks without executing the MySQL-only V1 on H2.
+    locations: classpath:db/h2-scaffold-only
+    fail-on-missing-locations: false
+  sql:
+    init:
+      # D02 auth/JPA tests still need the separate H2 users fixture.
+      mode: always
+      schema-locations: classpath:fixtures/users-schema.sql,classpath:fixtures/catalog-schema.sql,classpath:fixtures/patient-schema.sql,classpath:fixtures/schedule-schema.sql,classpath:fixtures/appointment-schema.sql
