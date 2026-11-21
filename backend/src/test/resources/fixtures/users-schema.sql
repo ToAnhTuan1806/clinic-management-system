@@ -4,6 +4,8 @@ CREATE TABLE users (
     email VARCHAR(254) NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     full_name VARCHAR(120) NOT NULL,
+    phone VARCHAR(24),
+    address VARCHAR(255),
     role VARCHAR(20) NOT NULL CHECK (role IN ('ADMIN', 'DOCTOR', 'RECEPTIONIST', 'PATIENT')),
     status VARCHAR(16) NOT NULL CHECK (status IN ('ACTIVE', 'DISABLED')),
     last_login_at TIMESTAMP(6),

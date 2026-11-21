@@ -11,6 +11,7 @@ import jakarta.persistence.EntityManagerFactory;
 import com.clinicmanagement.entity.User;
 import com.clinicmanagement.entity.Specialty;
 import com.clinicmanagement.entity.Doctor;
+import com.clinicmanagement.entity.Patient;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -73,15 +74,16 @@ class ApplicationIntegrationTest extends TestSecurityProperties {
     @WithMockUser(roles = "ADMIN")
     void evenAuthenticatedUsersCannotAccessUnimplementedApis() throws Exception {
         MockMvc mvc = MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
-        mvc.perform(get("/api/v1/patients")).andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/appointments")).andExpect(status().isForbidden());
     }
 
     @Test
     void jpaValidatesTheTestOnlyUserFixture() {
-        assertThat(entityManagerFactory.getMetamodel().getEntities()).hasSize(3);
+        assertThat(entityManagerFactory.getMetamodel().getEntities()).hasSize(4);
         assertThat(entityManagerFactory.getMetamodel().entity(User.class).getName()).isEqualTo("User");
         assertThat(entityManagerFactory.getMetamodel().entity(Specialty.class).getName()).isEqualTo("Specialty");
         assertThat(entityManagerFactory.getMetamodel().entity(Doctor.class).getName()).isEqualTo("Doctor");
+        assertThat(entityManagerFactory.getMetamodel().entity(Patient.class).getName()).isEqualTo("Patient");
     }
 
     @Test

@@ -363,6 +363,166 @@ FE flow: gọi eligible-users bằng token ADMIN → dùng item.id làm userId k
 refresh danh sách sau tạo. Kết quả có thể đổi giữa GET và POST; nếu user đã được liên kết hoặc bị khóa,
 POST vẫn kiểm tra lại và trả 409 USER_ALREADY_LINKED/USER_NOT_ELIGIBLE. Không tự tạo tài khoản staff.
 
+### 3.3 Personal Profile & Patient Management (CL-D04-BE — IMPLEMENTED D04)
+
+Bổ sung API hồ sơ cá nhân (FR-02) và quản lý bệnh nhân (FR-05) với RBAC, ownership và Flyway migration V3.
+
+**Phân quyền thực tế D04**
+
+| Endpoint | Method | ADMIN | RECEPTIONIST | DOCTOR | PATIENT |
+| --- | --- | --- | --- | --- | --- |
+| `/api/v1/me/profile` | GET, PATCH | Cho phép (self) | Cho phép (self) | Cho phép (self) | Cho phép (self) |
+| `/api/v1/patients` | GET | Cho phép (toàn bộ) | Cho phép (toàn bộ) | 403 ACCESS_DENIED | 403 ACCESS_DENIED |
+| `/api/v1/patients` | POST | Cho phép | Cho phép | 403 ACCESS_DENIED | 403 ACCESS_DENIED |
+| `/api/v1/patients/{id}` | GET | Cho phép (toàn bộ) | Cho phép (toàn bộ) | 403 (chưa có assignment) | Chỉ profile linked (khác: 404) |
+| `/api/v1/patients/{id}` | PATCH | Cho phép | Cho phép | 403 ACCESS_DENIED | 403 ACCESS_DENIED |
+| `/api/v1/me/patient-profile` | GET | 403 ACCESS_DENIED | 403 ACCESS_DENIED | 403 ACCESS_DENIED | Cho phép (chưa link: 404) |
+
+- Tất cả endpoint yêu cầu JWT Bearer hợp lệ từ user `ACTIVE`; thiếu token trả 401 `AUTHENTICATION_REQUIRED`, token sai/hết hạn trả 401 `INVALID_ACCESS_TOKEN`.
+- DOCTOR chưa có lịch hẹn phân công (appointments D05+): mặc định deny 403 `ACCESS_DENIED` trên `/api/v1/patients` và `/api/v1/patients/{id}`.
+- PATIENT không có quyền đọc danh sách bệnh nhân chung (GET `/patients` nhận 403). Khi gọi `GET /patients/{id}`, nếu `{id}` không thuộc user của mình, trả 404 `RESOURCE_NOT_FOUND` (không làm lộ sự tồn tại của bản ghi người khác).
+- PATIENT gọi `GET /me/patient-profile`: trả hồ sơ bệnh nhân liên kết chính mình. Nếu chưa có liên kết, trả 404 `RESOURCE_NOT_FOUND`; không tự tạo hoặc ghép hồ sơ giả định.
+
+**GET /api/v1/me/profile — 200**
+Trả thông tin tài khoản hiện tại từ JWT principal (cả 4 role):
+```json
+{
+  "data": {
+    "id": "1",
+    "email": "user@example.invalid",
+    "fullName": "Nguyen Van A",
+    "role": "PATIENT",
+    "status": "ACTIVE",
+    "phone": null,
+    "address": null
+  }
+}
+```
+*Ghi chú về Schema & Implementation:*
+- Backend D04 đã tích hợp migration Flyway V4 (`V4__add_profile_contact_fields_to_users.sql`) do QA bàn giao.
+- Response trả đủ 7 trường: `id, email, fullName, role, status, phone, address`. Trường `phone` và `address` có giá trị `null` nếu chưa được thiết lập.
+
+**PATCH /api/v1/me/profile — 200**
+Cập nhật thông tin hồ sơ của chính mình. Request body theo contract thống nhất (hỗ trợ form FE D04):
+```json
+{
+  "fullName": "Nguyen Van B",
+  "phone": "0901234567",
+  "address": "123 Đường XYZ, Hà Nội"
+}
+```
+- **Validation quy chuẩn**:
+  - `fullName`: String bắt buộc, trim, 1–120 ký tự. Không được để trống hoặc chỉ chứa khoảng trắng.
+  - `phone`: String nullable, tối đa 24 ký tự. Nếu gửi rỗng `""` hoặc chỉ chứa khoảng trắng thì chuẩn hóa thành `null`. Không áp dụng ràng buộc UNIQUE trên bảng `users`.
+  - `address`: String nullable, tối đa 255 ký tự. Nếu gửi rỗng `""` hoặc chỉ chứa khoảng trắng thì chuẩn hóa thành `null`.
+- **Bảo mật và bất biến**:
+  - Chỉ cập nhật tài khoản bản thân; không ảnh hưởng user khác.
+  - `id`, `email`, `role`, `status`, `password` là chỉ đọc. Do cấu hình `fail-on-unknown-properties: true`, gửi các trường thừa này sẽ bị từ chối 400 `HTTP_400`.
+- **Schema & Migration V4**:
+  - Migration V4 do QA bàn giao đã được tích hợp:
+    ```sql
+    ALTER TABLE users
+      ADD COLUMN phone VARCHAR(24) NULL AFTER full_name,
+      ADD COLUMN address VARCHAR(255) NULL AFTER phone,
+      ADD CONSTRAINT chk_users_phone CHECK (phone IS NULL OR (CHAR_LENGTH(TRIM(phone)) > 0 AND CAST(phone AS BINARY) = CAST(TRIM(phone) AS BINARY))),
+      ADD CONSTRAINT chk_users_address CHECK (address IS NULL OR CHAR_LENGTH(address) <= 255);
+    ```
+  - Backend đã hoàn thiện ánh xạ `User.java`, `ProfilePatchRequest.java`, `UserProfileResponse.java`, `ProfileService.java` và toàn bộ bộ test tương ứng.
+- **Nguyên tắc phân tách dữ liệu (No Auto-Sync)**:
+  - Tuyệt đối không tự động đồng bộ (two-way sync) giữa `users.phone` / `users.address` và `patients.phone` / `patients.address`.
+  - `users` đại diện cho tài khoản đăng nhập / nhân viên / người dùng hệ thống.
+  - `patients` đại diện cho hồ sơ hành chính y tế tại phòng khám (có thể là hồ sơ của người thân, con nhỏ, bệnh nhân vãng lai không có tài khoản, hoặc dùng chung SĐT gia đình).
+
+**GET /api/v1/patients — ADMIN/RECEPTIONIST, 200**
+- Query: `q` (tìm substring patientCode, fullName hoặc phone, tối đa 120 ký tự, ký tự đặc biệt được escape literal), `isActive` (boolean), `page` (>= 0, mặc định 0), `size` (1–100, mặc định 20).
+- Sắp xếp cố định: `patientCode` ASC, sau đó `id` ASC.
+- Response bọc `data`:
+```json
+{
+  "data": {
+    "items": [
+      {
+        "id": "1",
+        "patientCode": "PAT_001",
+        "fullName": "Nguyen Van C",
+        "dateOfBirth": "1990-05-15",
+        "sex": "MALE",
+        "phone": "0901234567",
+        "address": "123 Đường ABC, Hà Nội",
+        "isActive": true,
+        "userId": "10"
+      }
+    ],
+    "page": 0,
+    "size": 20,
+    "totalElements": 1,
+    "totalPages": 1
+  }
+}
+```
+
+**POST /api/v1/patients — ADMIN/RECEPTIONIST, 201 + Location**
+Tạo hồ sơ bệnh nhân hành chính:
+```json
+{
+  "userId": "10",
+  "patientCode": "PAT_001",
+  "fullName": "Nguyen Van C",
+  "dateOfBirth": "1990-05-15",
+  "sex": "MALE",
+  "phone": "0901234567",
+  "address": "123 Đường ABC, Hà Nội",
+  "isActive": true
+}
+```
+- `patientCode`: Chuỗi canonical uppercase ASCII 1–32 ký tự theo `[A-Z0-9][A-Z0-9_-]{0,31}`, UNIQUE. Nếu bỏ qua (null/rỗng), backend tự động sinh mã duy nhất `PAT` + số ngẫu nhiên 6 chữ số.
+- `fullName`: Bắt buộc, 1–120 ký tự, trim.
+- `dateOfBirth`: DATE nullable (`YYYY-MM-DD`). Bắt buộc trong quá khứ hoặc hiện tại (`@PastOrPresent`), không được ở tương lai (trả 400 `VALIDATION_FAILED`).
+- `sex`: `FEMALE`, `MALE`, `OTHER`, `UNKNOWN` hoặc null.
+- `phone`: Tối đa 24 ký tự, nullable, **không UNIQUE** (nhiều bệnh nhân gia đình có thể dùng chung số điện thoại).
+- `address`: Tối đa 255 ký tự, nullable.
+- `isActive`: Boolean, mặc định true nếu bỏ qua.
+- `userId`: Nullable. Bệnh nhân vãng lai (walk-in) có `userId = null`. Nếu cung cấp:
+  - User phải tồn tại (404 `RESOURCE_NOT_FOUND`).
+  - User phải có role `PATIENT` (409 `USER_NOT_ELIGIBLE`).
+  - User phải có status `ACTIVE` (409 `USER_NOT_ACTIVE`).
+  - User chưa được liên kết với bất kỳ hồ sơ patient nào khác (409 `USER_ALREADY_LINKED`).
+  - Không tự động liên kết tài khoản theo email hoặc số điện thoại.
+
+**GET /api/v1/patients/{id} — 200**
+- ADMIN/RECEPTIONIST: Xem chi tiết bất kỳ bệnh nhân nào.
+- PATIENT: Chỉ xem được hồ sơ có `userId` trùng với mình (khác trả 404).
+- DOCTOR: 403 `ACCESS_DENIED`.
+
+**PATCH /api/v1/patients/{id} — ADMIN/RECEPTIONIST, 200**
+- Cập nhật một phần: `patientCode`, `fullName`, `dateOfBirth`, `sex`, `phone`, `address`, `isActive`, `userId`.
+- Payload rỗng (không có trường nào) trả 400 `VALIDATION_FAILED`.
+- `dateOfBirth` tương lai trả 400 `VALIDATION_FAILED`.
+- Trùng `patientCode` với bệnh nhân khác trả 409 `PATIENT_CODE_EXISTS`.
+- `phone`: Không áp dụng ràng buộc UNIQUE; nhiều bệnh nhân gia đình/người thân có thể dùng chung số điện thoại. Hệ thống KHÔNG sử dụng mã lỗi `PHONE_ALREADY_EXISTS`.
+- Quyền liên kết `userId`: Chỉ ADMIN và RECEPTIONIST mới có quyền gán hoặc thay đổi `userId` qua PATCH. DOCTOR và PATIENT bị từ chối 403 `ACCESS_DENIED`.
+- Kiểm tra tính hợp lệ khi gán `userId`: User phải tồn tại (404 `RESOURCE_NOT_FOUND`), có role `PATIENT` (409 `USER_NOT_ELIGIBLE`), status `ACTIVE` (409 `USER_NOT_ACTIVE`), và không được liên kết với bất kỳ hồ sơ patient nào khác (409 `USER_ALREADY_LINKED`).
+- Soft delete: Đặt `isActive = false` để ngừng hoạt động; không có API hard delete (DELETE nhận 403).
+- Không cho phép cập nhật mật khẩu, role hoặc dữ liệu lâm sàng qua API này.
+
+**GET /api/v1/me/patient-profile — PATIENT, 200**
+- Chỉ PATIENT được truy cập (role khác nhận 403 `ACCESS_DENIED`).
+- Trả hồ sơ bệnh nhân liên kết với tài khoản hiện tại. Nếu chưa có liên kết trả 404 `RESOURCE_NOT_FOUND`.
+
+**Bảng mã lỗi D04**
+
+| HTTP | Code | Trường hợp |
+| --- | --- | --- |
+| 400 | VALIDATION_FAILED / HTTP_400 | Dữ liệu không hợp lệ, ngày sinh ở tương lai, patch rỗng, sai định dạng ID/pagination |
+| 401 | AUTHENTICATION_REQUIRED / INVALID_ACCESS_TOKEN | Chưa xác thực hoặc JWT không hợp lệ/hết hạn |
+| 403 | ACCESS_DENIED | Không có quyền (DOCTOR/PATIENT gọi quản lý bệnh nhân, role khác gọi me/patient-profile) |
+| 404 | RESOURCE_NOT_FOUND | Bệnh nhân không tồn tại, user liên kết không tồn tại, PATIENT xem ngoài ownership |
+| 409 | PATIENT_CODE_EXISTS | Mã bệnh nhân đã tồn tại |
+| 409 | USER_ALREADY_LINKED | Tài khoản đã liên kết với một hồ sơ bệnh nhân khác |
+| 409 | USER_NOT_ELIGIBLE | Tài khoản liên kết không có role PATIENT |
+| 409 | USER_NOT_ACTIVE | Tài khoản liên kết đang bị khóa (DISABLED) |
+| 409 | PATIENT_CONFLICT | Xung đột dữ liệu / ràng buộc cơ sở dữ liệu đồng thời |
+
 ## 4. Error response
 
 Dùng Problem Details theo [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457.html),
@@ -415,8 +575,9 @@ vẫn là đề xuất cho các nghiệp vụ ngày sau.
 | RECEPTIONIST | Hồ sơ hành chính bệnh nhân, lịch, xác nhận, check-in | Chỉ metadata vận hành của hồ sơ khám; không sửa chẩn đoán/đơn thuốc |
 | PATIENT | Hồ sơ cá nhân, đặt/đổi/hủy lịch và lịch sử của mình | Kiểm tra ownership ở BE; không tin patientId từ client |
 
-**D03 IMPLEMENTED:** GET health và POST register/login public; GET auth/me cần JWT hợp lệ.
-Chỉ mở thêm tám API doctor/specialty và eligible-users đúng method/role ở mục 3.2.
+**D04 IMPLEMENTED:** GET health và POST register/login public; GET auth/me, GET/PATCH me/profile,
+GET/POST patients, GET/PATCH patients/{id}, GET me/patient-profile, GET eligible-users,
+GET/POST/PATCH doctors và specialties theo đúng RBAC, ownership và scope bảo mật đã duyệt.
 Mọi API khác denyAll, kể cả ADMIN. HTTP Basic/form login/session cookie không dùng;
 không có tài khoản mặc định. Session policy stateless, request cache tắt.
 CSRF tắt vì credential chỉ được gửi chủ động qua Authorization header, không dùng cookie xác thực.
@@ -450,7 +611,7 @@ Các dòng có nhiều method mô tả các API riêng cùng trạng thái tri�
 | FR-01 | PATCH | `/me/password` | Đã xác thực, self | PROPOSED |
 | FR-01 | GET, POST | `/users` | ADMIN; POST tạo tài khoản nhân viên | PROPOSED |
 | FR-01 | PATCH | `/users/{id}/status`, `/users/{id}/role` | ADMIN | PROPOSED |
-| FR-02 | GET, PATCH | `/me/profile` | Đã xác thực, self | PROPOSED |
+| FR-02 | GET, PATCH | `/me/profile` | Đã xác thực, self | **IMPLEMENTED D04** (`fullName`, `phone`, `address`) |
 | FR-03 | GET | `/doctors`, `/doctors/{id}` | Bốn role theo scope mục 3.2; DOCTOR self, PATIENT active | **IMPLEMENTED D03** |
 | FR-03 | GET | `/doctors/eligible-users` | Chỉ ADMIN; ACTIVE/DOCTOR/unlinked cố định | **IMPLEMENTED D03** |
 | FR-03 | POST | `/doctors` | ADMIN | **IMPLEMENTED D03** |
@@ -458,10 +619,10 @@ Các dòng có nhiều method mô tả các API riêng cùng trạng thái tri�
 | FR-04 | GET | `/specialties`, `/specialties/{id}` | Bốn role theo scope mục 3.2 | **IMPLEMENTED D03** |
 | FR-04 | POST | `/specialties` | ADMIN | **IMPLEMENTED D03** |
 | FR-04 | PATCH | `/specialties/{id}` | ADMIN | **IMPLEMENTED D03** |
-| FR-05 | GET, POST | `/patients` | ADMIN/RECEPTIONIST cho dữ liệu hành chính | PROPOSED |
-| FR-05 | GET | `/patients/{id}` | ADMIN/RECEPTIONIST hành chính; DOCTOR assigned; PATIENT self | PROPOSED |
-| FR-05 | PATCH | `/patients/{id}` | ADMIN/RECEPTIONIST hành chính | PROPOSED |
-| FR-05 | GET | `/me/patient-profile` | PATIENT self | PROPOSED |
+| FR-05 | GET, POST | `/patients` | ADMIN/RECEPTIONIST cho dữ liệu hành chính | **IMPLEMENTED D04** |
+| FR-05 | GET | `/patients/{id}` | ADMIN/RECEPTIONIST hành chính; PATIENT self linked | **IMPLEMENTED D04** |
+| FR-05 | PATCH | `/patients/{id}` | ADMIN/RECEPTIONIST hành chính | **IMPLEMENTED D04** |
+| FR-05 | GET | `/me/patient-profile` | PATIENT self | **IMPLEMENTED D04** |
 | FR-06 | GET | `/work-schedules` | ADMIN/RECEPTIONIST; DOCTOR self | PROPOSED |
 | FR-06 | POST | `/work-schedules` | ADMIN/RECEPTIONIST | PROPOSED |
 | FR-06 | PATCH | `/work-schedules/{id}` | ADMIN/RECEPTIONIST | PROPOSED |
