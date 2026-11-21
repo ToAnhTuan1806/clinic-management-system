@@ -12,6 +12,7 @@ import com.clinicmanagement.entity.User;
 import com.clinicmanagement.entity.Specialty;
 import com.clinicmanagement.entity.Doctor;
 import com.clinicmanagement.entity.Patient;
+import com.clinicmanagement.entity.DoctorSchedule;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -79,11 +80,12 @@ class ApplicationIntegrationTest extends TestSecurityProperties {
 
     @Test
     void jpaValidatesTheTestOnlyUserFixture() {
-        assertThat(entityManagerFactory.getMetamodel().getEntities()).hasSize(4);
+        assertThat(entityManagerFactory.getMetamodel().getEntities()).hasSize(5);
         assertThat(entityManagerFactory.getMetamodel().entity(User.class).getName()).isEqualTo("User");
         assertThat(entityManagerFactory.getMetamodel().entity(Specialty.class).getName()).isEqualTo("Specialty");
         assertThat(entityManagerFactory.getMetamodel().entity(Doctor.class).getName()).isEqualTo("Doctor");
         assertThat(entityManagerFactory.getMetamodel().entity(Patient.class).getName()).isEqualTo("Patient");
+        assertThat(entityManagerFactory.getMetamodel().entity(DoctorSchedule.class).getName()).isEqualTo("DoctorSchedule");
     }
 
     @Test

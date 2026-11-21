@@ -54,6 +54,7 @@ abstract class CatalogHttpTestSupport extends TestSecurityProperties {
                 MySqlTestDatabase.requireIsolatedUrl(connection.getMetaData().getURL());
             }
         }
+        jdbc.execute("DELETE FROM doctor_schedules");
         doctors.deleteAll();
         specialties.deleteAll();
         users.deleteAll();
