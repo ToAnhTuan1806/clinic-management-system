@@ -28,7 +28,8 @@ import org.springframework.http.HttpStatus;
 class DoctorScheduleServiceTest {
     private final DoctorScheduleRepository scheduleRepository = mock(DoctorScheduleRepository.class);
     private final DoctorRepository doctorRepository = mock(DoctorRepository.class);
-    private final DoctorScheduleService service = new DoctorScheduleService(scheduleRepository, doctorRepository);
+    private final com.clinicmanagement.repository.AppointmentRepository appointmentRepository = mock(com.clinicmanagement.repository.AppointmentRepository.class);
+    private final DoctorScheduleService service = new DoctorScheduleService(scheduleRepository, doctorRepository, appointmentRepository);
 
     private Doctor doctor;
     private User doctorUser;
@@ -231,5 +232,50 @@ class DoctorScheduleServiceTest {
         assertThat(slots.get(0).endAt()).isEqualTo(start.plus(Duration.ofMinutes(30)));
         assertThat(slots.get(3).endAt()).isEqualTo(end);
         assertThat(slots.get(0).isAvailable()).isTrue();
+    }
+
+    @Test
+    void getSlotsFiltersOutBookedSlots() {
+        Instant start = futureTime(2, 8, 0);
+        Instant end = futureTime(2, 10, 0);
+        DoctorSchedule schedule = new DoctorSchedule(doctor, start.atZone(DoctorScheduleService.ZONE_VN).toLocalDate(),
+                start, end, 30, ScheduleStatus.ACTIVE);
+        org.springframework.test.util.ReflectionTestUtils.setField(schedule, "id", 1L);
+
+        when(doctorRepository.findById(100L)).thenReturn(Optional.of(doctor));
+        LocalDate queryDate = start.atZone(DoctorScheduleService.ZONE_VN).toLocalDate();
+        when(scheduleRepository.findByDoctorIdAndStatusAndWorkDateBetweenOrderByStartAtAsc(
+                eq(100L), eq(ScheduleStatus.ACTIVE), eq(queryDate), eq(queryDate)))
+                .thenReturn(List.of(schedule));
+
+        Appointment booked = mock(Appointment.class);
+        when(booked.getStartAt()).thenReturn(start); // First slot 8:00 is booked!
+        when(appointmentRepository.findByDoctorIdAndStatusNot(eq(100L), eq(AppointmentStatus.CANCELLED)))
+                .thenReturn(List.of(booked));
+
+        List<ScheduleSlotResponse> slots = service.getSlots(100L, queryDate, null, null);
+        assertThat(slots).hasSize(3); // 4 - 1 = 3
+        assertThat(slots.get(0).startAt()).isEqualTo(start.plus(Duration.ofMinutes(30))); // 8:30 is first
+    }
+
+    @Test
+    void patchScheduleFailsIfActiveAppointmentsExistWhenBlocking() {
+        Instant start = futureTime(2, 8, 0);
+        Instant end = futureTime(2, 12, 0);
+        DoctorSchedule schedule = new DoctorSchedule(doctor, start.atZone(DoctorScheduleService.ZONE_VN).toLocalDate(),
+                start, end, 30, ScheduleStatus.ACTIVE);
+        org.springframework.test.util.ReflectionTestUtils.setField(schedule, "id", 1L);
+
+        when(scheduleRepository.findById(1L)).thenReturn(Optional.of(schedule));
+        when(doctorRepository.findLocked(100L)).thenReturn(Optional.of(doctor));
+
+        Appointment activeApp = mock(Appointment.class);
+        when(appointmentRepository.findByScheduleIdAndStatusNot(eq(1L), eq(AppointmentStatus.CANCELLED)))
+                .thenReturn(List.of(activeApp));
+
+        DoctorSchedulePatchRequest request = new DoctorSchedulePatchRequest(null, null, null, ScheduleStatus.BLOCKED);
+        ManagementException ex = assertThrows(ManagementException.class, () -> service.patch(1L, request));
+        assertThat(ex.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ex.getCode()).isEqualTo("SCHEDULE_HAS_APPOINTMENTS");
     }
 }

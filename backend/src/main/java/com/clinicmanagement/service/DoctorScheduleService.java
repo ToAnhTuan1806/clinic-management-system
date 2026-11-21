@@ -39,10 +39,19 @@ public class DoctorScheduleService {
 
     private final DoctorScheduleRepository scheduleRepository;
     private final DoctorRepository doctorRepository;
+    private final com.clinicmanagement.repository.AppointmentRepository appointmentRepository;
 
-    public DoctorScheduleService(DoctorScheduleRepository scheduleRepository, DoctorRepository doctorRepository) {
+    @org.springframework.beans.factory.annotation.Autowired
+    public DoctorScheduleService(DoctorScheduleRepository scheduleRepository,
+                                 DoctorRepository doctorRepository,
+                                 com.clinicmanagement.repository.AppointmentRepository appointmentRepository) {
         this.scheduleRepository = scheduleRepository;
         this.doctorRepository = doctorRepository;
+        this.appointmentRepository = appointmentRepository;
+    }
+
+    public DoctorScheduleService(DoctorScheduleRepository scheduleRepository, DoctorRepository doctorRepository) {
+        this(scheduleRepository, doctorRepository, null);
     }
 
     @Transactional
@@ -214,6 +223,25 @@ public class DoctorScheduleService {
             }
         }
 
+        if (appointmentRepository != null) {
+            List<com.clinicmanagement.entity.Appointment> activeAppointments =
+                    appointmentRepository.findByScheduleIdAndStatusNot(schedule.getId(), com.clinicmanagement.entity.AppointmentStatus.CANCELLED);
+            if (!activeAppointments.isEmpty()) {
+                if (targetStatus == ScheduleStatus.BLOCKED) {
+                    throw new ManagementException(HttpStatus.CONFLICT, "SCHEDULE_HAS_APPOINTMENTS",
+                            "Cannot block schedule with existing active appointments.");
+                }
+                for (var app : activeAppointments) {
+                    if (app.getStartAt().isBefore(targetStart) || app.getEndAt().isAfter(targetEnd)
+                            || Duration.between(targetStart, app.getStartAt()).toMinutes() % targetSlotMinutes != 0
+                            || Duration.between(app.getStartAt(), app.getEndAt()).toMinutes() != targetSlotMinutes) {
+                        throw new ManagementException(HttpStatus.CONFLICT, "SCHEDULE_HAS_APPOINTMENTS",
+                                "Cannot modify schedule when existing booked appointments would be affected.");
+                    }
+                }
+            }
+        }
+
         schedule.update(startDateLocal, targetStart, targetEnd, targetSlotMinutes, targetStatus);
         return DoctorScheduleResponse.from(scheduleRepository.saveAndFlush(schedule));
     }
@@ -249,6 +277,15 @@ public class DoctorScheduleService {
         List<DoctorSchedule> schedules = scheduleRepository.findByDoctorIdAndStatusAndWorkDateBetweenOrderByStartAtAsc(
                 doctorId, ScheduleStatus.ACTIVE, fromDate, toDate);
 
+        java.util.Set<Instant> bookedStartTimes = java.util.Collections.emptySet();
+        if (appointmentRepository != null) {
+            List<com.clinicmanagement.entity.Appointment> bookedAppointments =
+                    appointmentRepository.findByDoctorIdAndStatusNot(doctorId, com.clinicmanagement.entity.AppointmentStatus.CANCELLED);
+            bookedStartTimes = bookedAppointments.stream()
+                    .map(com.clinicmanagement.entity.Appointment::getStartAt)
+                    .collect(java.util.stream.Collectors.toSet());
+        }
+
         List<ScheduleSlotResponse> slots = new ArrayList<>();
         Instant now = Instant.now();
 
@@ -260,7 +297,7 @@ public class DoctorScheduleService {
             while (cur.plus(slotDur).compareTo(end) <= 0) {
                 Instant slotStart = cur;
                 Instant slotEnd = cur.plus(slotDur);
-                if (slotStart.isAfter(now)) {
+                if (slotStart.isAfter(now) && !bookedStartTimes.contains(slotStart)) {
                     slots.add(new ScheduleSlotResponse(
                             s.getId().toString(),
                             doctorId.toString(),

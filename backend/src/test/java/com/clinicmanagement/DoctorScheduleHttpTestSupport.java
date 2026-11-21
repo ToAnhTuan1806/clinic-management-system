@@ -59,6 +59,9 @@ abstract class DoctorScheduleHttpTestSupport extends TestSecurityProperties {
                 MySqlTestDatabase.requireIsolatedUrl(connection.getMetaData().getURL());
             }
         }
+        jdbc.execute("DELETE FROM appointments");
+        jdbc.execute("DELETE FROM doctor_schedules");
+        jdbc.execute("DELETE FROM patients");
         schedules.deleteAll();
         doctors.deleteAll();
         specialties.deleteAll();

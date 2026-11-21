@@ -1,7 +1,7 @@
-# API Contract — Clinic Management System (Sprint 1: D02–D04)
+# API Contract — Clinic Management System (Sprint 1: D02–D04, Sprint 2: D06–D07)
 
-Rà soát ổn định: **CL-D06-BE**; phạm vi API đã triển khai gồm Auth/JWT D02,
-Doctors/Specialties D03, Profile/Patients D04 và Doctor Work Schedules D06, kế thừa nền tảng D01.
+Rà soát ổn định: **CL-D07-BE**; phạm vi API đã triển khai gồm Auth/JWT D02,
+Doctors/Specialties D03, Profile/Patients D04, Doctor Work Schedules D06, và Appointment Booking D07, kế thừa nền tảng D01.
 Contract chính thức cho FE Sprint 2, cập nhật ngày **2026-11-21**.
 `IMPLEMENTED` chỉ áp dụng cho phần đã có code và kiểm thử; `PROPOSED` chưa phải API sử dụng được.
 Phạm vi chức năng: [FR-01–FR-14](requirements/FEATURE_SCOPE.md).
@@ -22,7 +22,7 @@ Phạm vi chức năng: [FR-01–FR-14](requirements/FEATURE_SCOPE.md).
 - Không nhận trực tiếp JPA entity làm request/response; dùng DTO và Bean Validation;
   giới hạn trường có thể ghi để ngăn cập nhật role/owner trái phép.
 - Không trả mật khẩu/hash/token nội bộ, stack trace, SQL hoặc URL kết nối.
-- Quy ước cụ thể tại các mục **IMPLEMENTED D02/D03/D04/D06** là contract đang sử dụng.
+- Quy ước cụ thể tại các mục **IMPLEMENTED D02/D03/D04/D06/D07** là contract đang sử dụng.
   Các endpoint và mẫu nghiệp vụ ghi **PROPOSED** chưa được triển khai.
 
 ## 2. HTTP status
@@ -674,6 +674,134 @@ Lấy danh sách các khung giờ (slots) có thể đặt khám của bác sĩ:
 | 409 | DOCTOR_INACTIVE | Bác sĩ đang ở trạng thái ngừng hoạt động (`isActive = false`) |
 | 409 | USER_NOT_ACTIVE | Tài khoản người dùng liên kết với bác sĩ đang bị khóa (`DISABLED`) |
 
+### 3.5 Appointment Booking & Slot Reservation (CL-D07-BE — IMPLEMENTED D07)
+
+Bổ sung API đặt lịch khám trực tiếp (FR-07) với kế thừa lịch ca làm việc D06, loại bỏ các slot đã bị chiếm, cơ chế chống double booking đa tầng (transactional pessimistic lock trên parent Doctor kết hợp unique constraint tại DB), kiểm soát Idempotency (SHA-256 fingerprint trên `requestKey`), RBAC & ownership phân tách giữa PATIENT và RECEPTIONIST, bảo vệ ca làm việc D06 khi có lịch hẹn phát sinh (`SCHEDULE_HAS_APPOINTMENTS`), và tích hợp migration Flyway V6 (`V6__create_appointments.sql`).
+
+**Phân quyền thực tế D07**
+
+| Endpoint | Method | ADMIN | RECEPTIONIST | DOCTOR | PATIENT |
+| --- | --- | --- | --- | --- | --- |
+| `/api/v1/appointments` | POST | 403 ACCESS_DENIED | Cho phép (đặt thay cho bệnh nhân hợp lệ) | 403 ACCESS_DENIED | Cho phép (chỉ đặt cho profile linked của bản thân) |
+| `/api/v1/appointments` | GET | Cho phép (toàn bộ lịch hẹn) | Cho phép (toàn bộ lịch hẹn) | Chỉ xem lịch hẹn thuộc bác sĩ mình | Chỉ xem lịch hẹn thuộc profile bệnh nhân linked của mình |
+| `/api/v1/appointments/{id}` | GET | Cho phép (toàn bộ) | Cho phép (toàn bộ) | Chỉ xem lịch hẹn thuộc bác sĩ mình (khác: 404) | Chỉ xem lịch hẹn thuộc profile linked của mình (khác: 404) |
+| `/api/v1/doctors/{id}/schedule-slots` | GET | Cho phép | Cho phép | Cho phép | Cho phép (tự động loại bỏ slot đã được đặt) |
+
+- Tất cả endpoint yêu cầu JWT Bearer hợp lệ từ user `ACTIVE`; thiếu token trả 401 `AUTHENTICATION_REQUIRED`, token sai/hết hạn trả 401 `INVALID_ACCESS_TOKEN`.
+- DOCTOR chỉ được xem danh sách và chi tiết các lịch hẹn thuộc về bác sĩ của mình. Truy cập lịch hẹn của bác sĩ khác trả 404 `RESOURCE_NOT_FOUND` (để tránh suy đoán ID bản ghi).
+- PATIENT chỉ được xem và đặt lịch hẹn cho hồ sơ bệnh nhân liên kết chính mình (`GET /api/v1/me/patient-profile`). Nếu chưa liên kết hồ sơ bệnh nhân, không thể đặt lịch (trả 404 `RESOURCE_NOT_FOUND`). Truy cập lịch hẹn của bệnh nhân khác trả 404 `RESOURCE_NOT_FOUND`.
+- RECEPTIONIST được quyền đặt lịch thay cho bệnh nhân tại quầy (bắt buộc truyền `patientId` hợp lệ).
+- ADMIN xem toàn bộ danh sách và chi tiết phục vụ giám sát vận hành.
+
+**Quy tắc nghiệp vụ & Bảo vệ kép chống Double Booking**:
+1. **Lưới Slot & Tính toán thời gian**:
+   - `scheduleId` và `startAt` là bắt buộc. Client **không** gửi `doctorId`, `endAt`, `status` hay `createdBy` để can thiệp nghiệp vụ.
+   - `startAt` phải nằm trong tương lai (`startAt > now`).
+   - `startAt` phải nằm trong ca làm việc (`schedule.startAt <= startAt` và `startAt + slotMinutes <= schedule.endAt`).
+   - `startAt` phải khớp đúng lưới slot của ca: `(startAt - schedule.startAt) % slotMinutes == 0`.
+   - `endAt` được Backend tự động tính toán: `endAt = startAt + schedule.slotMinutes`.
+2. **Kiểm tra trạng thái đối tượng liên quan**:
+   - Ca làm việc phải tồn tại và `status == ACTIVE`. Ca bị `BLOCKED` trả 409 `SCHEDULE_BLOCKED`.
+   - Bác sĩ phải đang hoạt động (`doctor.isActive == true`), vi phạm trả 409 `DOCTOR_INACTIVE`.
+   - Tài khoản người dùng liên kết với bác sĩ phải đang hoạt động (`user.status == ACTIVE`), vi phạm trả 409 `USER_NOT_ACTIVE`.
+   - Bệnh nhân phải tồn tại và đang hoạt động (`patient.isActive == true`), vi phạm trả 409 `PATIENT_INACTIVE`.
+3. **Chống Double Booking đa tầng (Concurrency Safety)**:
+   - *Tầng 1 (Application & Transaction Lock)*: Trong cùng transaction đặt lịch, hệ thống thực hiện khóa bi quan ghi (`PESSIMISTIC_WRITE`) trên entity `Doctor` cha (`doctorRepository.findLocked(doctorId)`). Sau đó kiểm tra xem slot `[startAt, endAt)` của bác sĩ đã có lịch hẹn nào đang hoạt động (không phải `CANCELLED`) hay chưa. Nếu đã có trả 409 `SLOT_ALREADY_BOOKED`.
+   - *Tầng 2 (Database Constraint)*: Unique index tại cơ sở dữ liệu `uk_appointments_doctor_start_at (doctor_id, start_at_utc)` đóng vai trò phòng vệ cuối cùng. Khi có xung đột đồng thời vượt qua application layer, DataIntegrityViolationException sẽ được bắt và chuyển thành 409 `SLOT_ALREADY_BOOKED`.
+4. **Idempotency (Chống trùng lặp request)**:
+   - Header/trường `requestKey` (bắt buộc, 1–64 ký tự) dùng để đảm bảo tính idempotent của request đặt lịch từ client.
+   - Backend tính mã băm SHA-256 fingerprint trên canonical payload: `patientId:doctorId:scheduleId:startAt:endAt:reason`.
+   - Trùng `requestKey` với **cùng** payload: Trả về bản ghi lịch hẹn đã tạo (HTTP 200 hoặc 201) một cách an toàn mà không đặt trùng lịch.
+   - Trùng `requestKey` nhưng **khác** payload: Trả về lỗi 409 `IDEMPOTENCY_CONFLICT`.
+   - Cơ sở dữ liệu có unique constraint `uk_appointments_created_by_request_key (created_by, request_key)`.
+5. **Nâng cấp GET /api/v1/doctors/{id}/schedule-slots**:
+   - Tự động lọc bỏ các slot đã bị đặt bởi các cuộc hẹn có trạng thái khác `CANCELLED`.
+   - Chỉ trả về các slot thực sự còn khả dụng cho bệnh nhân đặt hẹn.
+6. **Bảo vệ Schedule D06 khi có lịch hẹn**:
+   - Không cho phép PATCH ca làm việc sang `BLOCKED` nếu ca đang có các lịch hẹn chưa hủy (`SCHEDULE_HAS_APPOINTMENTS`, 409).
+   - Không cho phép co hẹp thời gian ca làm việc (`startAt` trễ hơn hoặc `endAt` sớm hơn) hoặc thay đổi `slotMinutes` làm ảnh hưởng đến các lịch hẹn đã được đặt trong ca (`SCHEDULE_HAS_APPOINTMENTS`, 409).
+7. **Trạng thái ban đầu**:
+   - Tất cả lịch hẹn tạo mới đều có trạng thái khởi tạo là `PENDING`.
+   - Các luồng chuyển trạng thái tiếp theo (`CONFIRMED`, `CHECKED_IN`, `IN_PROGRESS`, `COMPLETED`, `CANCELLED`, `NO_SHOW`) thuộc phạm vi D08/D09.
+
+**POST /api/v1/appointments — PATIENT/RECEPTIONIST, 201 + Location**
+
+Payload cho PATIENT (không truyền patientId):
+```json
+{
+  "scheduleId": "100",
+  "startAt": "2026-11-25T08:00:00Z",
+  "requestKey": "req-client-uuid-001",
+  "reason": "Khám tổng quát định kỳ"
+}
+```
+
+Payload cho RECEPTIONIST (bắt buộc patientId):
+```json
+{
+  "scheduleId": "100",
+  "patientId": "50",
+  "startAt": "2026-11-25T08:00:00Z",
+  "requestKey": "req-recep-uuid-002",
+  "reason": "Đặt tại quầy tiếp đón"
+}
+```
+
+Response 201 (hoặc 200 khi replay idempotent):
+```json
+{
+  "data": {
+    "id": "1001",
+    "patientId": "50",
+    "patientCode": "PAT123456",
+    "patientFullName": "Nguyen Van A",
+    "doctorId": "1",
+    "doctorCode": "DOC_001",
+    "doctorFullName": "Bac Si B",
+    "specialtyName": "Noi Khoa",
+    "scheduleId": "100",
+    "startAt": "2026-11-25T08:00:00Z",
+    "endAt": "2026-11-25T08:30:00Z",
+    "status": "PENDING",
+    "reason": "Khám tổng quát định kỳ",
+    "createdAt": "2026-11-21T10:30:00Z",
+    "updatedAt": "2026-11-21T10:30:00Z"
+  }
+}
+```
+
+**GET /api/v1/appointments — ADMIN/RECEPTIONIST/DOCTOR/PATIENT, 200**
+- Query params:
+  - `doctorId`: ID bác sĩ (tùy chọn với ADMIN/RECEPTIONIST; DOCTOR bị khóa vào ID của mình; PATIENT bị bỏ qua hoặc chỉ xem lịch của mình).
+  - `patientId`: ID bệnh nhân (tùy chọn với ADMIN/RECEPTIONIST; PATIENT bị khóa vào profile của mình).
+  - `date`: Lọc theo ngày khám (`YYYY-MM-DD` theo múi giờ `Asia/Ho_Chi_Minh`).
+  - `status`: Lọc theo trạng thái lịch (`PENDING`, `CONFIRMED`, `CHECKED_IN`, `IN_PROGRESS`, `COMPLETED`, `CANCELLED`, `NO_SHOW`).
+  - `page`: Integer >= 0 (mặc định 0).
+  - `size`: Integer 1–100 (mặc định 20).
+- Sắp xếp cố định: `startAt` ASC, sau đó `id` ASC.
+- Response bọc `data.items`, `page`, `size`, `totalElements`, `totalPages`.
+
+**GET /api/v1/appointments/{id} — ADMIN/RECEPTIONIST/DOCTOR/PATIENT, 200**
+- ADMIN/RECEPTIONIST: Xem chi tiết bất kỳ cuộc hẹn nào.
+- DOCTOR: Xem cuộc hẹn thuộc bác sĩ mình (khác trả 404).
+- PATIENT: Xem cuộc hẹn thuộc profile bệnh nhân linked của mình (khác trả 404).
+
+**Bảng mã lỗi D07**
+
+| HTTP | Code | Trường hợp |
+| --- | --- | --- |
+| 400 | VALIDATION_FAILED / HTTP_400 | Dữ liệu không hợp lệ: startAt quá khứ, startAt lệch lưới slot, requestKey rỗng/quá dài, PATIENT truyền patientId, RECEPTIONIST thiếu patientId |
+| 401 | AUTHENTICATION_REQUIRED / INVALID_ACCESS_TOKEN | Chưa xác thực hoặc JWT không hợp lệ/hết hạn |
+| 403 | ACCESS_DENIED | Không có quyền (ADMIN/DOCTOR gọi POST đặt hẹn, CORS không hợp lệ) |
+| 404 | RESOURCE_NOT_FOUND | Ca làm việc, bệnh nhân không tồn tại; PATIENT chưa có hồ sơ liên kết; xem lịch hẹn ngoài ownership |
+| 409 | SLOT_ALREADY_BOOKED | Khung giờ (slot) của bác sĩ đã được người khác đặt trước |
+| 409 | SCHEDULE_BLOCKED | Ca làm việc đang bị khóa (BLOCKED), không nhận đặt hẹn |
+| 409 | DOCTOR_INACTIVE | Bác sĩ của ca làm việc đang ngừng hoạt động (`isActive = false`) |
+| 409 | USER_NOT_ACTIVE | Tài khoản người dùng liên kết với bác sĩ đang bị khóa (`DISABLED`) |
+| 409 | PATIENT_INACTIVE | Hồ sơ bệnh nhân đang ngừng hoạt động (`isActive = false`) |
+| 409 | IDEMPOTENCY_CONFLICT | Dùng lại `requestKey` nhưng nội dung payload đặt hẹn khác với lần gửi trước |
+| 409 | SCHEDULE_HAS_APPOINTMENTS | Không thể khóa hoặc điều chỉnh thời gian ca làm việc khi đã có lịch hẹn phát sinh |
+
 ## 4. Error response
 
 Dùng Problem Details theo [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457.html),
@@ -697,9 +825,9 @@ Dùng Problem Details theo [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457.htm
 - Nền tảng có `AUTHENTICATION_REQUIRED`, `ACCESS_DENIED`, `INTERNAL_ERROR`,
   `HTTP_<status>` và handler `VALIDATION_FAILED` cho DTO có `@Valid`.
 - Validation handler chỉ trả tên trường và thông điệp an toàn, không trả giá trị bị từ chối.
-  D02 đã có RegisterRequest/LoginRequest; DTO nghiệp vụ khám/đặt lịch chưa triển khai.
+  D02 đã có RegisterRequest/LoginRequest; D07 đã có AppointmentBookRequest.
 
-Ví dụ validation **PROPOSED trên endpoint nghiệp vụ**:
+Ví dụ validation **trên endpoint nghiệp vụ**:
 
 ```json
 {
@@ -709,13 +837,13 @@ Ví dụ validation **PROPOSED trên endpoint nghiệp vụ**:
   "detail": "Bad Request",
   "instance": "/api/v1/appointments",
   "code": "VALIDATION_FAILED",
-  "errors": [{"field":"slotId","message":"Invalid value."}]
+  "errors": [{"field":"scheduleId","message":"Schedule ID is required."}]
 }
 ```
 
-D03 đã triển khai `RESOURCE_NOT_FOUND` và các mã catalog ở mục 3.2.
-`APPOINTMENT_SLOT_UNAVAILABLE`, `INVALID_STATE_TRANSITION`, `VERSION_CONFLICT`
-vẫn là đề xuất cho các nghiệp vụ ngày sau.
+D03 đã triển khai `RESOURCE_NOT_FOUND` và các mã catalog ở mục 3.2; D06 có `SCHEDULE_OVERLAP`;
+D07 có `SLOT_ALREADY_BOOKED`, `IDEMPOTENCY_CONFLICT`, `SCHEDULE_HAS_APPOINTMENTS`.
+`INVALID_STATE_TRANSITION`, `VERSION_CONFLICT` vẫn là đề xuất cho các nghiệp vụ ngày sau (D08–D09).
 
 ## 5. Phân quyền và trạng thái bảo mật
 
@@ -726,10 +854,11 @@ vẫn là đề xuất cho các nghiệp vụ ngày sau.
 | RECEPTIONIST | Hồ sơ hành chính bệnh nhân, lịch, xác nhận, check-in | Chỉ metadata vận hành của hồ sơ khám; không sửa chẩn đoán/đơn thuốc |
 | PATIENT | Hồ sơ cá nhân, đặt/đổi/hủy lịch và lịch sử của mình | Kiểm tra ownership ở BE; không tin patientId từ client |
 
-**D06 IMPLEMENTED:** GET health và POST register/login public; GET auth/me, GET/PATCH me/profile,
+**D07 IMPLEMENTED:** GET health và POST register/login public; GET auth/me, GET/PATCH me/profile,
 GET/POST patients, GET/PATCH patients/{id}, GET me/patient-profile, GET eligible-users,
-GET/POST/PATCH doctors và specialties, POST/GET/PATCH doctor-schedules và GET schedule-slots
-theo đúng RBAC, ownership, pessimistic lock và scope bảo mật đã duyệt.
+GET/POST/PATCH doctors và specialties, POST/GET/PATCH doctor-schedules, GET schedule-slots
+(đã loại bỏ slot bị chiếm), POST/GET/GET-{id} appointments theo đúng RBAC, ownership,
+double booking prevention (pessimistic lock + DB unique constraint), idempotency và scope bảo mật đã duyệt.
 Mọi API khác denyAll, kể cả ADMIN. HTTP Basic/form login/session cookie không dùng;
 không có tài khoản mặc định. Session policy stateless, request cache tắt.
 CSRF tắt vì credential chỉ được gửi chủ động qua Authorization header, không dùng cookie xác thực.
@@ -744,7 +873,7 @@ Không cho wildcard/null/pattern/path; chỉ HTTP(S), methods GET/POST/PATCH/OPT
 headers Authorization/Content-Type, exposed Location, allowCredentials=false.
 Origin FE thực tế cần cấu hình ở môi trường; không có origin localhost mặc định ở main.
 
-**PROPOSED:** quyền chi tiết API nghiệp vụ, ownership/phân công, refresh/revoke và quản lý tài khoản nhân viên.
+**PROPOSED:** quyền chi tiết API nghiệp vụ chuyển trạng thái khám, ownership/phân công chẩn đoán, refresh/revoke và quản lý tài khoản nhân viên.
 Role không thay thế kiểm tra dữ liệu ở service/query khi các API đó được triển khai.
 
 ## 6. Danh mục endpoint
@@ -779,10 +908,10 @@ Các dòng có nhiều method mô tả các API riêng cùng trạng thái tri�
 | FR-06 | GET | `/doctor-schedules`, `/doctor-schedules/{id}` | ADMIN/RECEPTIONIST; DOCTOR self | **IMPLEMENTED D06** |
 | FR-06 | PATCH | `/doctor-schedules/{id}` | ADMIN/RECEPTIONIST | **IMPLEMENTED D06** |
 | FR-06 | GET | `/doctors/{id}/schedule-slots` | Cả bốn role; sinh slot khả dụng | **IMPLEMENTED D06** |
-| FR-07 | GET | `/appointments`, `/appointments/{id}` | ADMIN/RECEPTIONIST; DOCTOR assigned; PATIENT self | PROPOSED |
-| FR-07 | POST | `/appointments` | PATIENT self / RECEPTIONIST thay tại quầy | PROPOSED |
-| FR-07 | PATCH | `/appointments/{id}/slot` | PATIENT self / RECEPTIONIST | PROPOSED |
-| FR-07 | POST | `/appointments/{id}/cancellation` | PATIENT self / RECEPTIONIST | PROPOSED |
+| FR-07 | GET | `/appointments`, `/appointments/{id}` | ADMIN/RECEPTIONIST; DOCTOR self; PATIENT self linked | **IMPLEMENTED D07** |
+| FR-07 | POST | `/appointments` | PATIENT self / RECEPTIONIST thay tại quầy (idempotent qua requestKey) | **IMPLEMENTED D07** |
+| FR-07 | PATCH | `/appointments/{id}/slot` | PATIENT self / RECEPTIONIST | PROPOSED D08 |
+| FR-07 | POST | `/appointments/{id}/cancellation` | PATIENT self / RECEPTIONIST | PROPOSED D08 |
 | FR-08 | POST | `/appointments/{id}/confirmation` | RECEPTIONIST | PROPOSED |
 | FR-08 | POST | `/appointments/{id}/check-in` | RECEPTIONIST | PROPOSED |
 | FR-08 | POST | `/appointments/{id}/no-show` | RECEPTIONIST | PROPOSED |
@@ -819,28 +948,32 @@ CONFIRMED -> NO_SHOW
 - Đặt trùng slot hoặc đổi trạng thái trái phép trả 409; DB phải có constraint/khóa phù hợp.
   Đổi slot phải atomic. Mốc thời gian được hủy/check-in/no-show cần phòng khám xác nhận.
 
-Ví dụ POST `/appointments` **PROPOSED**, PATIENT dùng danh tính từ principal:
+Ví dụ POST `/appointments` **IMPLEMENTED D07**, PATIENT dùng danh tính từ principal:
 
 ```json
-{"slotId":"slot-example","reason":"Khám định kỳ"}
+{
+  "scheduleId": "100",
+  "startAt": "2026-11-25T08:00:00Z",
+  "requestKey": "req-client-uuid-001",
+  "reason": "Khám tổng quát định kỳ"
+}
 ```
 
-RECEPTIONIST đặt thay cần thêm `patientId` được BE kiểm tra quyền. Các trường id, trạng thái,
-bác sĩ, thời điểm và version do BE quản lý; không tin các giá trị này từ client.
-Payload/response chi tiết của từng API nghiệp vụ sẽ chốt cùng ERD và màn hình FE ở ngày sau.
+RECEPTIONIST đặt thay cần thêm `patientId` được BE kiểm tra quyền. Các trường id, trạng thái (`PENDING`),
+bác sĩ, thời điểm kết thúc (tự động tính theo `slotMinutes`) và createdBy do BE quản lý; không nhận các giá trị này từ client.
 
 ## 8. Điểm cần đồng bộ
 
-- **FE:** health/register/login/me, tám API catalog, eligible-users, bảy API Profile/Patients và năm API Doctor Schedules/Slots đã có code;
+- **FE:** health/register/login/me, tám API catalog, eligible-users, bảy API Profile/Patients, năm API Doctor Schedules/Slots và ba API Appointments đã có code;
   dùng Bearer header, expiresIn tính bằng giây, id chuỗi, data/Problem Details và logout client-only.
-  DTO/query params/response/errors D03/D04/D06 chính thức ở mục 3.2–3.4; chú ý khác biệt PATCH profile/patient/schedule.
+  DTO/query params/response/errors D03/D04/D06/D07 chính thức ở mục 3.2–3.5; chú ý khác biệt PATCH profile/patient/schedule và POST appointments.
   Không dùng các API PROPOSED như API đã có.
 - **FE + BE:** cấu hình origin chính xác; không gửi credentials cookie; refresh/revoke chưa có;
   UI ẩn nút theo role không thay thế quyền phía BE.
 - **DB + BE:** MySQL version, database rỗng/riêng để kiểm thử, tài khoản qua secret của môi trường,
   quyền Flyway, ERD, loại id, index, timezone, charset/collation và concurrency cho slot.
-- **DB:** V1–V5 của QA đã tích hợp, không sửa migration đã áp dụng.
-  User/Doctor/Specialty/Patient/DoctorSchedule map theo DATABASE_DESIGN; MySQL suite dùng DB cô lập, không dùng fixture H2 thay schema.
+- **DB:** V1–V5 của QA đã tích hợp trên origin/dev; `V6__create_appointments.sql` đã được chuẩn bị tại Backend tương thích schema đã thống nhất với QA.
+  User/Doctor/Specialty/Patient/DoctorSchedule/Appointment map theo DATABASE_DESIGN; MySQL suite dùng DB cô lập, không dùng fixture H2 thay schema.
   Hibernate chỉ validate, không tự tạo/cập nhật schema. Xem [hướng dẫn backend](../backend/README.md).
 - **Phạm vi:** ma trận quyền xem dữ liệu lâm sàng, slot duration, thời hạn đổi/hủy, audit retention
   và chính sách điều chỉnh hồ sơ hoàn tất còn cần chốt.
