@@ -1,7 +1,8 @@
-# API Contract — Clinic Management System (D03)
+# API Contract — Clinic Management System (Sprint 1: D02–D04)
 
-Task hiện tại: **CL-D03-BE**; kế thừa Auth/JWT CL-D02-BE và nền tảng CL-D01-BE.
-Contract chính thức cho FE D03, cập nhật ngày **2026-11-21**.
+Rà soát ổn định: **CL-D05-BE**; phạm vi API đã triển khai gồm Auth/JWT D02,
+Doctors/Specialties D03 và Profile/Patients D04, kế thừa nền tảng D01.
+Contract chính thức cho FE Sprint 1, cập nhật ngày **2026-11-21**.
 `IMPLEMENTED` chỉ áp dụng cho phần đã có code và kiểm thử; `PROPOSED` chưa phải API sử dụng được.
 Phạm vi chức năng: [FR-01–FR-14](requirements/FEATURE_SCOPE.md).
 
@@ -10,16 +11,19 @@ Phạm vi chức năng: [FR-01–FR-14](requirements/FEATURE_SCOPE.md).
 - Base path: `/api/v1`; JSON UTF-8; tên trường camelCase; URL danh từ số nhiều, chữ thường có dấu `-`.
 - GET đọc dữ liệu; POST tạo hoặc thực hiện chuyển trạng thái; PATCH cập nhật một phần.
   DELETE chỉ dùng khi mô hình cho phép xóa, không dùng để xóa lịch sử khám.
-- User, Doctor, Specialty dùng PK BIGINT signed; API trả id dạng chuỗi để tránh mất chính xác ở JavaScript.
-  V1 users và V2 doctor/specialty đã tích hợp; cả hai migration do Database/QA sở hữu và không bị sửa.
+- User, Doctor, Specialty, Patient dùng PK BIGINT signed; API trả id và id liên kết dạng chuỗi
+  để tránh mất chính xác ở JavaScript. Request id liên kết dùng chuỗi số nguyên dương trong phạm vi BIGINT signed.
+  V1 users, V2 doctor/specialty, V3 patients và V4 profile contacts đã tích hợp;
+  migration do Database/QA sở hữu và không bị sửa.
 - Ngày: `YYYY-MM-DD`; thời điểm: ISO-8601 UTC, ví dụ `2026-11-20T02:00:00Z`.
   FE hiển thị theo `Asia/Ho_Chi_Minh`, không gửi thời điểm thiếu offset.
-- Danh sách D03: `page=0&size=20`, size 1–100; thứ tự cố định như mục 3.2,
-  luôn có id làm thứ tự phụ ổn định. D03 chưa hỗ trợ query `sort` do client chọn.
+- Danh sách D03/D04: `page=0&size=20`, size 1–100; thứ tự cố định như mục 3.2–3.3,
+  luôn có id làm thứ tự phụ ổn định. Chưa hỗ trợ query `sort` do client chọn.
 - Không nhận trực tiếp JPA entity làm request/response; dùng DTO và Bean Validation;
   giới hạn trường có thể ghi để ngăn cập nhật role/owner trái phép.
 - Không trả mật khẩu/hash/token nội bộ, stack trace, SQL hoặc URL kết nối.
-- Quy ước phân trang, id, trạng thái nghiệp vụ và mẫu request nghiệp vụ dưới đây là **PROPOSED**.
+- Quy ước cụ thể tại các mục **IMPLEMENTED D02/D03/D04** là contract đang sử dụng.
+  Các endpoint và mẫu nghiệp vụ ghi **PROPOSED** chưa được triển khai.
 
 ## 2. HTTP status
 
@@ -30,10 +34,10 @@ Phạm vi chức năng: [FR-01–FR-14](requirements/FEATURE_SCOPE.md).
 | 204 | Thành công không có body (ví dụ logout/đánh dấu đọc khi đã thống nhất) |
 | 400 | JSON sai cú pháp, kiểu dữ liệu hoặc validation thất bại |
 | 401 | Chưa xác thực hoặc thông tin xác thực không hợp lệ/hết hạn |
-| 403 | Đã xác thực nhưng thiếu quyền, hoặc request bị CSRF chặn |
+| 403 | Đã xác thực nhưng thiếu quyền, hoặc CORS ngoài allowlist (`CORS_REJECTED`) |
 | 404 | Không tìm thấy resource trong phạm vi người dùng được xem |
 | 405 | Resource tồn tại nhưng method không được hỗ trợ, khi đã qua security |
-| 409 | Trùng slot, xung đột version hoặc chuyển trạng thái không hợp lệ |
+| 409 | Trùng email/mã/tên/license, liên kết không hợp lệ hoặc xung đột trạng thái/ràng buộc dữ liệu |
 | 415 | Content-Type không được hỗ trợ |
 | 429 | Vượt giới hạn request, dự kiến khi thêm rate limit |
 | 500 | Lỗi không dự kiến, thông điệp an toàn cho client |
@@ -56,7 +60,7 @@ Health chỉ phản ánh HTTP process đã phục vụ được request (**liven
 trong mỗi request, không phải readiness probe và không trả version, profile, hostname hay cấu hình.
 Ứng dụng mặc định vẫn cần DB khi khởi động vì JPA/Flyway được bật.
 
-Response có body thành công dùng `{"data": ...}`. **IMPLEMENTED D03** cho danh sách doctor/specialty:
+Response có body thành công dùng `{"data": ...}`. **IMPLEMENTED D03/D04** cho danh sách doctor/specialty/patient và eligible-users:
 
 ```json
 {
@@ -379,12 +383,12 @@ Bổ sung API hồ sơ cá nhân (FR-02) và quản lý bệnh nhân (FR-05) v�
 | `/api/v1/me/patient-profile` | GET | 403 ACCESS_DENIED | 403 ACCESS_DENIED | 403 ACCESS_DENIED | Cho phép (chưa link: 404) |
 
 - Tất cả endpoint yêu cầu JWT Bearer hợp lệ từ user `ACTIVE`; thiếu token trả 401 `AUTHENTICATION_REQUIRED`, token sai/hết hạn trả 401 `INVALID_ACCESS_TOKEN`.
-- DOCTOR chưa có lịch hẹn phân công (appointments D05+): mặc định deny 403 `ACCESS_DENIED` trên `/api/v1/patients` và `/api/v1/patients/{id}`.
+- DOCTOR chưa có cơ chế assignment trong Sprint 1: mặc định deny 403 `ACCESS_DENIED` trên `/api/v1/patients` và `/api/v1/patients/{id}`.
 - PATIENT không có quyền đọc danh sách bệnh nhân chung (GET `/patients` nhận 403). Khi gọi `GET /patients/{id}`, nếu `{id}` không thuộc user của mình, trả 404 `RESOURCE_NOT_FOUND` (không làm lộ sự tồn tại của bản ghi người khác).
 - PATIENT gọi `GET /me/patient-profile`: trả hồ sơ bệnh nhân liên kết chính mình. Nếu chưa có liên kết, trả 404 `RESOURCE_NOT_FOUND`; không tự tạo hoặc ghép hồ sơ giả định.
 
 **GET /api/v1/me/profile — 200**
-Trả thông tin tài khoản hiện tại từ JWT principal (cả 4 role):
+Trả thông tin tài khoản hiện tại từ `users`, tra theo id của JWT principal (cả 4 role):
 ```json
 {
   "data": {
@@ -415,9 +419,12 @@ Cập nhật thông tin hồ sơ của chính mình. Request body theo contract 
   - `fullName`: String bắt buộc, trim, 1–120 ký tự. Không được để trống hoặc chỉ chứa khoảng trắng.
   - `phone`: String nullable, tối đa 24 ký tự. Nếu gửi rỗng `""` hoặc chỉ chứa khoảng trắng thì chuẩn hóa thành `null`. Không áp dụng ràng buộc UNIQUE trên bảng `users`.
   - `address`: String nullable, tối đa 255 ký tự. Nếu gửi rỗng `""` hoặc chỉ chứa khoảng trắng thì chuẩn hóa thành `null`.
+  - Đây là payload form D04: `fullName` luôn bắt buộc. `phone`/`address` bị bỏ qua hoặc gửi `null`
+    cũng đặt giá trị về `null`; FE cần gửi lại giá trị hiện tại nếu muốn giữ chúng.
+    Khác với PATCH patient bên dưới, endpoint này không giữ contact khi field bị bỏ qua.
 - **Bảo mật và bất biến**:
   - Chỉ cập nhật tài khoản bản thân; không ảnh hưởng user khác.
-  - `id`, `email`, `role`, `status`, `password` là chỉ đọc. Do cấu hình `fail-on-unknown-properties: true`, gửi các trường thừa này sẽ bị từ chối 400 `HTTP_400`.
+  - `id`, `email`, `role`, `status`, `password`, `passwordHash`, `userId` không được nhận trong payload profile. Do cấu hình `fail-on-unknown-properties: true`, gửi các trường thừa này sẽ bị từ chối 400 `HTTP_400`; password/hash không có trong response profile.
 - **Schema & Migration V4**:
   - Migration V4 do QA bàn giao đã được tích hợp:
     ```sql
@@ -475,7 +482,7 @@ Tạo hồ sơ bệnh nhân hành chính:
   "isActive": true
 }
 ```
-- `patientCode`: Chuỗi canonical uppercase ASCII 1–32 ký tự theo `[A-Z0-9][A-Z0-9_-]{0,31}`, UNIQUE. Nếu bỏ qua (null/rỗng), backend tự động sinh mã duy nhất `PAT` + số ngẫu nhiên 6 chữ số.
+- `patientCode`: Chuỗi canonical uppercase ASCII 1–32 ký tự theo `[A-Z0-9][A-Z0-9_-]{0,31}`, UNIQUE. Nếu bỏ qua, `null`, rỗng hoặc chỉ khoảng trắng, backend tự sinh mã `PAT` + số ngẫu nhiên 6 chữ số (fallback timestamp nếu hết lượt thử); UNIQUE ở DB vẫn bảo vệ request đồng thời, xung đột trả 409 `PATIENT_CONFLICT`.
 - `fullName`: Bắt buộc, 1–120 ký tự, trim.
 - `dateOfBirth`: DATE nullable (`YYYY-MM-DD`). Bắt buộc trong quá khứ hoặc hiện tại (`@PastOrPresent`), không được ở tương lai (trả 400 `VALIDATION_FAILED`).
 - `sex`: `FEMALE`, `MALE`, `OTHER`, `UNKNOWN` hoặc null.
@@ -497,12 +504,17 @@ Tạo hồ sơ bệnh nhân hành chính:
 **PATCH /api/v1/patients/{id} — ADMIN/RECEPTIONIST, 200**
 - Cập nhật một phần: `patientCode`, `fullName`, `dateOfBirth`, `sex`, `phone`, `address`, `isActive`, `userId`.
 - Payload rỗng (không có trường nào) trả 400 `VALIDATION_FAILED`.
+- Field bỏ qua hoặc `null` giữ nguyên. `phone`/`address` chỉ chứa khoảng trắng hoặc chuỗi rỗng
+  cũng được chuẩn hóa như không cập nhật; D04 chưa hỗ trợ xóa các giá trị này qua PATCH patient.
+  Nếu mọi field đều được chuẩn hóa thành không cập nhật, trả 400 `VALIDATION_FAILED`.
 - `dateOfBirth` tương lai trả 400 `VALIDATION_FAILED`.
 - Trùng `patientCode` với bệnh nhân khác trả 409 `PATIENT_CODE_EXISTS`.
 - `phone`: Không áp dụng ràng buộc UNIQUE; nhiều bệnh nhân gia đình/người thân có thể dùng chung số điện thoại. Hệ thống KHÔNG sử dụng mã lỗi `PHONE_ALREADY_EXISTS`.
 - Quyền liên kết `userId`: Chỉ ADMIN và RECEPTIONIST mới có quyền gán hoặc thay đổi `userId` qua PATCH. DOCTOR và PATIENT bị từ chối 403 `ACCESS_DENIED`.
 - Kiểm tra tính hợp lệ khi gán `userId`: User phải tồn tại (404 `RESOURCE_NOT_FOUND`), có role `PATIENT` (409 `USER_NOT_ELIGIBLE`), status `ACTIVE` (409 `USER_NOT_ACTIVE`), và không được liên kết với bất kỳ hồ sơ patient nào khác (409 `USER_ALREADY_LINKED`).
 - Soft delete: Đặt `isActive = false` để ngừng hoạt động; không có API hard delete (DELETE nhận 403).
+- Phục hồi bằng `isActive = true`, giữ nguyên id, patientCode, userId và dữ liệu hành chính.
+  Cờ này không khóa tài khoản users và không thay đổi quyền PATIENT đọc hồ sơ linked của chính mình.
 - Không cho phép cập nhật mật khẩu, role hoặc dữ liệu lâm sàng qua API này.
 
 **GET /api/v1/me/patient-profile — PATIENT, 200**
@@ -679,15 +691,16 @@ Payload/response chi tiết của từng API nghiệp vụ sẽ chốt cùng ERD
 
 ## 8. Điểm cần đồng bộ
 
-- **FE:** health/register/login/me, tám API catalog và eligible-users đã có code;
+- **FE:** health/register/login/me, tám API catalog, eligible-users và bảy API Profile/Patients đã có code;
   dùng Bearer header, expiresIn tính bằng giây, id chuỗi, data/Problem Details và logout client-only.
-  DTO/query params/response/errors D03 chính thức ở mục 3.2; không dùng các API PROPOSED như API đã có.
+  DTO/query params/response/errors D03/D04 chính thức ở mục 3.2–3.3; chú ý khác biệt PATCH profile/patient.
+  Không dùng các API PROPOSED như API đã có.
 - **FE + BE:** cấu hình origin chính xác; không gửi credentials cookie; refresh/revoke chưa có;
   UI ẩn nút theo role không thay thế quyền phía BE.
 - **DB + BE:** MySQL version, database rỗng/riêng để kiểm thử, tài khoản qua secret của môi trường,
   quyền Flyway, ERD, loại id, index, timezone, charset/collation và concurrency cho slot.
-- **DB:** V1/V2 của QA đã tích hợp, không sửa migration đã áp dụng.
-  Doctor/Specialty map theo DATABASE_DESIGN; MySQL suite dùng DB cô lập, không dùng fixture H2 thay schema.
+- **DB:** V1–V4 của QA đã tích hợp, không sửa migration đã áp dụng.
+  User/Doctor/Specialty/Patient map theo DATABASE_DESIGN; MySQL suite dùng DB cô lập, không dùng fixture H2 thay schema.
   Hibernate chỉ validate, không tự tạo/cập nhật schema. Xem [hướng dẫn backend](../backend/README.md).
 - **Phạm vi:** ma trận quyền xem dữ liệu lâm sàng, slot duration, thời hạn đổi/hủy, audit retention
   và chính sách điều chỉnh hồ sơ hoàn tất còn cần chốt.
