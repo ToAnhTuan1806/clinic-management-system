@@ -53,6 +53,7 @@ abstract class PatientAndProfileHttpTestSupport extends TestSecurityProperties {
                 MySqlTestDatabase.requireIsolatedUrl(connection.getMetaData().getURL());
             }
         }
+        jdbc.execute("DELETE FROM doctor_schedules");
         patients.deleteAll();
         doctors.deleteAll();
         specialties.deleteAll();
