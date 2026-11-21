@@ -200,6 +200,11 @@ abstract class AppointmentHttpTestSupport extends TestSecurityProperties {
         assertThat(finalRecord.path("completedBy").asText()).isEqualTo(actors.get(Role.DOCTOR).getId().toString());
         assertThat(finalRecord.path("completedAt").asText()).endsWith("Z");
         var own = send("GET", path, null, patient);
+        assertThat(own.statusCode()).isEqualTo(404);
+        assertThat(send("GET", lookup, null, patient).statusCode()).isEqualTo(404);
+        assertThat(send("POST", path + "/release", "{\"expectedVersion\":3}", doctor).statusCode()).isEqualTo(200);
+        finalRecord = mapper.readTree(send("GET", path, null, doctor).body()).path("data");
+        own = send("GET", path, null, patient);
         assertThat(own.statusCode()).isEqualTo(200);
         assertThat(mapper.readTree(own.body()).path("data").path("symptoms").asText().equals(marker)).isTrue();
         assertThat(mapper.readTree(send("GET", lookup, null, patient).body()).path("data")).isEqualTo(finalRecord);
@@ -271,6 +276,85 @@ abstract class AppointmentHttpTestSupport extends TestSecurityProperties {
         return appointments.saveAndFlush(new Appointment("D10-TEST", mainPatient, mainDoctor, mainSchedule,
                 actors.get(Role.RECEPTIONIST), UUID.randomUUID().toString(), "a".repeat(64),
                 start, start.plusSeconds(1800), status, null));
+    }
+
+    @Test
+    void d11ReleaseChecksOwnershipVersionsAndIsIdempotent() throws Exception {
+        var appointment = d10Appointment(AppointmentStatus.CHECKED_IN);
+        String doctor = token(Role.DOCTOR);
+        String path = d10PreparedRecord(appointment, doctor);
+        assertThat(send("POST", path + "/release", "{\"expectedVersion\":1}", doctor).statusCode()).isEqualTo(409);
+        assertThat(send("POST", path + "/completion", "{\"expectedVersion\":1}", doctor).statusCode()).isEqualTo(200);
+        assertThat(send("POST", path + "/release", "{\"expectedVersion\":2}", null).statusCode()).isEqualTo(401);
+        for (Role role : List.of(Role.ADMIN, Role.RECEPTIONIST, Role.PATIENT)) {
+            assertThat(send("POST", path + "/release", "{\"expectedVersion\":2}", token(role)).statusCode()).isEqualTo(403);
+        }
+        assertThat(send("POST", path + "/release", "{\"expectedVersion\":2}",
+                tokenForUser(secondDoctor.getUser())).statusCode()).isEqualTo(404);
+        assertThat(send("POST", path + "/release", "{}", doctor).statusCode()).isEqualTo(400);
+        assertThat(send("POST", path + "/release", "{\"expectedVersion\":1}", doctor).statusCode()).isEqualTo(409);
+        assertThat(d10Race("POST", path + "/release", "{\"expectedVersion\":2}", doctor))
+                .containsExactlyInAnyOrder(200, 409);
+        var released = send("POST", path + "/release", "{\"expectedVersion\":3}", doctor);
+        assertThat(released.statusCode()).isEqualTo(200);
+        var data = mapper.readTree(released.body()).path("data");
+        assertThat(data.path("version").asLong()).isEqualTo(3);
+        assertThat(data.path("releasedAt").asText()).endsWith("Z");
+        assertThat(data.path("releasedBy").asText()).isEqualTo(actors.get(Role.DOCTOR).getId().toString());
+        assertThat(send("POST", path + "/release", "{\"expectedVersion\":2}", doctor).statusCode()).isEqualTo(409);
+    }
+
+    @Test
+    void d11HistoryFiltersBeforePaginationAndHasStableOrdering() throws Exception {
+        List<Long> ids = new ArrayList<>();
+        Instant now = Instant.now().minusSeconds(60);
+        for (int i = 0; i < 5; i++) {
+            Instant start = mainSchedule.getStartAt().plusSeconds(i * 1800L);
+            var appointment = appointments.saveAndFlush(new Appointment("HISTORY-" + i, mainPatient,
+                    mainDoctor, mainSchedule, actors.get(Role.RECEPTIONIST), UUID.randomUUID().toString(),
+                    "a".repeat(64), start, start.plusSeconds(1800), AppointmentStatus.COMPLETED, null));
+            jdbc.update("""
+                    INSERT INTO medical_records(appointment_id,created_by,completed_by,completed_at,
+                    created_at,updated_at,version,symptoms,diagnosis,conclusion)
+                    VALUES(?,?,?,?,?,?,0,'Synthetic symptom','Synthetic diagnosis','Synthetic conclusion')
+                    """, appointment.getId(), actors.get(Role.DOCTOR).getId(), actors.get(Role.DOCTOR).getId(),
+                    java.sql.Timestamp.from(now), java.sql.Timestamp.from(now.minusSeconds(60)),
+                    java.sql.Timestamp.from(now));
+            Long id = jdbc.queryForObject("SELECT id FROM medical_records WHERE appointment_id=?", Long.class, appointment.getId());
+            ids.add(id);
+            if (i % 2 == 0) {
+                assertThat(send("POST", RECORDS + "/" + id + "/release", "{\"expectedVersion\":0}", token(Role.DOCTOR))
+                        .statusCode()).isEqualTo(200);
+            }
+        }
+        String path = "/api/v1/patients/" + mainPatient.getId() + "/medical-history";
+        assertThat(send("GET", path, null, null).statusCode()).isEqualTo(401);
+        assertThat(send("GET", path, null, tokenForUser(secondPatient.getUser())).statusCode()).isEqualTo(404);
+        assertThat(send("GET", path, null, tokenForUser(secondDoctor.getUser())).statusCode()).isEqualTo(404);
+        assertThat(send("GET", path + "?size=101", null, token(Role.ADMIN)).statusCode()).isEqualTo(400);
+        for (Role role : Role.values()) {
+            var response = send("GET", path + "?size=2", null, token(role));
+            assertThat(response.statusCode()).isEqualTo(200);
+            assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
+            var data = mapper.readTree(response.body()).path("data");
+            assertThat(data.path("totalElements").asInt()).isEqualTo(role == Role.PATIENT ? 3 : 5);
+            assertThat(data.path("items").get(0).path("id").asText()).isEqualTo(ids.get(4).toString());
+            for (var item : data.path("items")) {
+                for (String field : List.of("symptoms", "diagnosis", "notes", "conclusion")) {
+                    assertThat(item.has(field)).isFalse();
+                }
+            }
+        }
+        var secondPage = mapper.readTree(send("GET", path + "?size=2&page=1", null, token(Role.PATIENT)).body()).path("data");
+        assertThat(secondPage.path("items").size()).isEqualTo(1);
+        assertThat(secondPage.path("items").get(0).path("id").asText()).isEqualTo(ids.get(0).toString());
+        assertThat(mapper.readTree(send("GET", path + "?size=2&page=2", null, token(Role.PATIENT))
+                .body()).path("data").path("items").isEmpty()).isTrue();
+        var legacy = ids.get(1);
+        assertThat(send("GET", RECORDS + "/" + legacy, null, token(Role.PATIENT)).statusCode()).isEqualTo(404);
+        Long appointmentId = jdbc.queryForObject("SELECT appointment_id FROM medical_records WHERE id=?", Long.class, legacy);
+        assertThat(send("GET", RECORDS + "/by-appointment/" + appointmentId, null, token(Role.PATIENT))
+                .statusCode()).isEqualTo(404);
     }
 
     private String d10CreateBody(Appointment appointment) {
