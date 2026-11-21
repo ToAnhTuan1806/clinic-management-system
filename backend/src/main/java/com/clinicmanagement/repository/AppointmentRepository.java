@@ -17,10 +17,10 @@ import java.util.Optional;
 
 public interface AppointmentRepository extends JpaRepository<Appointment, Long>, JpaSpecificationExecutor<Appointment> {
 
-    @EntityGraph(attributePaths = {"patient", "doctor", "doctor.user", "doctor.specialty", "schedule", "createdBy", "cancelledBy", "rescheduledBy", "previousSchedule"})
+    @EntityGraph(attributePaths = {"patient", "doctor", "doctor.user", "doctor.specialty", "schedule", "createdBy", "cancelledBy", "rescheduledBy", "previousSchedule", "confirmedBy", "checkedInBy", "noShowBy"})
     Optional<Appointment> findById(Long id);
 
-    @EntityGraph(attributePaths = {"patient", "doctor", "doctor.user", "doctor.specialty", "schedule", "createdBy", "cancelledBy", "rescheduledBy", "previousSchedule"})
+    @EntityGraph(attributePaths = {"patient", "doctor", "doctor.user", "doctor.specialty", "schedule", "createdBy", "cancelledBy", "rescheduledBy", "previousSchedule", "confirmedBy", "checkedInBy", "noShowBy"})
     Optional<Appointment> findByCreatedByIdAndRequestKey(Long createdById, String requestKey);
 
     boolean existsByAppointmentCode(String appointmentCode);
@@ -54,6 +54,6 @@ public interface AppointmentRepository extends JpaRepository<Appointment, Long>,
             @Param("excludedStatus") AppointmentStatus excludedStatus);
 
     @Override
-    @EntityGraph(attributePaths = {"patient", "doctor", "doctor.user", "doctor.specialty", "schedule", "createdBy", "cancelledBy", "rescheduledBy", "previousSchedule"})
+    @EntityGraph(attributePaths = {"patient", "doctor", "doctor.user", "doctor.specialty", "schedule", "createdBy", "cancelledBy", "rescheduledBy", "previousSchedule", "confirmedBy", "checkedInBy", "noShowBy"})
     Page<Appointment> findAll(Specification<Appointment> spec, Pageable pageable);
 }

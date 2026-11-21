@@ -948,6 +948,72 @@ Response 200:
 | 409 | USER_NOT_ACTIVE | Tài khoản người dùng của bác sĩ bị khóa |
 | 409 | PATIENT_INACTIVE | Hồ sơ bệnh nhân của cuộc hẹn ngừng hoạt động |
 
+### 3.7. Tiếp nhận, Xác nhận lịch, Check-in và Đánh dấu Vắng mặt (CL-D09-BE) — IMPLEMENTED D09
+
+Hoàn thiện quy trình tiếp đón và quản lý trạng thái tiếp nhận bệnh nhân tại phòng khám (FR-08), kế thừa cấu trúc từ D07/D08 với bảo vệ concurrency, optimistic locking và Flyway migration V8:
+
+| Endpoint | Method | ADMIN | RECEPTIONIST | DOCTOR | PATIENT |
+| --- | --- | --- | --- | --- | --- |
+| `/api/v1/appointments/{id}/confirmation` | POST | 403 ACCESS_DENIED | Cho phép | 403 ACCESS_DENIED | 403 ACCESS_DENIED |
+| `/api/v1/appointments/{id}/check-in` | POST | 403 ACCESS_DENIED | Cho phép | 403 ACCESS_DENIED | 403 ACCESS_DENIED |
+| `/api/v1/appointments/{id}/no-show` | POST | 403 ACCESS_DENIED | Cho phép | 403 ACCESS_DENIED | 403 ACCESS_DENIED |
+
+**POST /api/v1/appointments/{id}/confirmation — RECEPTIONIST, 200**
+
+Payload:
+```json
+{
+  "expectedVersion": 0
+}
+```
+
+- Chuyển trạng thái từ `PENDING` -> `CONFIRMED`.
+- Thời điểm thực hiện phải trước giờ khám (`startAtUtc > now`). Vi phạm trả 409 `INVALID_STATE_TRANSITION`.
+- Ghi nhận `confirmed_at` (UTC) và `confirmed_by` (ID lễ tân) trong cùng transaction.
+- Tăng `version` để bảo vệ optimistic locking.
+- Trả về 200 `{"data": AppointmentResponse}`.
+
+**POST /api/v1/appointments/{id}/check-in — RECEPTIONIST, 200**
+
+Payload:
+```json
+{
+  "expectedVersion": 1
+}
+```
+
+- Chuyển trạng thái từ `CONFIRMED` -> `CHECKED_IN`.
+- Không cho phép check-in trực tiếp từ `PENDING` (trả 409 `INVALID_STATE_TRANSITION`).
+- Thời điểm check-in hợp lệ: trong ngày khám theo múi giờ `Asia/Ho_Chi_Minh` và trước khi ca/slot khám kết thúc (`now < endAtUtc`). Vi phạm trả 409 `INVALID_STATE_TRANSITION`.
+- Check-in lặp: Gửi lại yêu cầu check-in trên lịch đã `CHECKED_IN` sẽ trả về lịch hiện tại (HTTP 200), không ghi nhận thêm lần check-in hay tăng version.
+- Ghi nhận `checked_in_at` (UTC) và `checked_in_by` (ID lễ tân) trong cùng transaction.
+- Tăng `version` với thao tác chuyển trạng thái mới.
+- Cuộc hẹn đã `CHECKED_IN` không được phép đổi slot hoặc hủy lịch.
+- Trả về 200 `{"data": AppointmentResponse}`.
+
+**POST /api/v1/appointments/{id}/no-show — RECEPTIONIST, 200**
+
+Payload:
+```json
+{
+  "expectedVersion": 1
+}
+```
+
+- Chuyển trạng thái từ `CONFIRMED` -> `NO_SHOW`.
+- Thời điểm thực hiện phải sau khi slot khám đã kết thúc (`now > endAtUtc`). Vi phạm trả 409 `INVALID_STATE_TRANSITION`.
+- Ghi nhận `no_show_at` (UTC) và `no_show_by` (ID lễ tân) trong cùng transaction.
+- Tăng `version` để bảo vệ optimistic locking.
+- Không thể chuyển lùi hoặc đổi slot/hủy trên lịch đã `NO_SHOW`.
+- Trả về 200 `{"data": AppointmentResponse}`.
+
+**Quy tắc nghiệp vụ & Concurrency D09**:
+1. **Phân quyền nghiêm ngặt**: Chỉ `RECEPTIONIST` có quyền thực hiện. Các vai trò `ADMIN`, `DOCTOR`, `PATIENT` đều bị từ chối với 403 `ACCESS_DENIED`. Chưa đăng nhập trả 401 `AUTHENTICATION_REQUIRED`.
+2. **Khóa đồng thời đa tầng**: Tái sử dụng khóa bi quan `PESSIMISTIC_WRITE` trên entity `Doctor` cha và kiểm soát phiên bản lạc quan qua `@Version`.
+3. **Idempotency & Check-in trùng request**: Hai request check-in đồng thời hoặc check-in lặp đều trả về 200 OK với trạng thái `CHECKED_IN` mà không gây xung đột hay lỗi dữ liệu.
+4. **Bảo toàn dữ liệu**: Không can thiệp hoặc thay đổi `appointment.reason` khám ban đầu, không tạo hồ sơ bệnh án (medical record) tại D09.
+5. **Schema Migration V8**: Thêm các cột `confirmed_at`, `confirmed_by`, `checked_in_at`, `checked_in_by`, `no_show_at`, `no_show_by` cùng các khóa ngoại và check constraints tương ứng, giữ nguyên vẹn logic generated column và unique slot của V6.
+
 ## 4. Error response
 
 Dùng Problem Details theo [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457.html),
@@ -1058,9 +1124,9 @@ Các dòng có nhiều method mô tả các API riêng cùng trạng thái tri�
 | FR-07 | POST | `/appointments` | PATIENT self / RECEPTIONIST thay tại quầy (idempotent qua requestKey) | **IMPLEMENTED D07** |
 | FR-07 | PATCH | `/appointments/{id}/slot` | PATIENT self / RECEPTIONIST | **IMPLEMENTED D08** |
 | FR-07 | POST | `/appointments/{id}/cancellation` | PATIENT self / RECEPTIONIST | **IMPLEMENTED D08** |
-| FR-08 | POST | `/appointments/{id}/confirmation` | RECEPTIONIST | PROPOSED |
-| FR-08 | POST | `/appointments/{id}/check-in` | RECEPTIONIST | PROPOSED |
-| FR-08 | POST | `/appointments/{id}/no-show` | RECEPTIONIST | PROPOSED |
+| FR-08 | POST | `/appointments/{id}/confirmation` | RECEPTIONIST | **IMPLEMENTED D09** |
+| FR-08 | POST | `/appointments/{id}/check-in` | RECEPTIONIST | **IMPLEMENTED D09** |
+| FR-08 | POST | `/appointments/{id}/no-show` | RECEPTIONIST | **IMPLEMENTED D09** |
 | FR-09 | POST | `/medical-records` | DOCTOR assigned, lịch đã check-in | PROPOSED |
 | FR-09 | GET | `/medical-records/{id}` | DOCTOR assigned; PATIENT self bản hoàn tất; ADMIN/RECEPTIONIST metadata | PROPOSED |
 | FR-09 | PATCH | `/medical-records/{id}` | DOCTOR assigned, bản nháp | PROPOSED |

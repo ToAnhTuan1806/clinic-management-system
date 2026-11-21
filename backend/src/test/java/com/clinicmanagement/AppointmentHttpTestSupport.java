@@ -1104,4 +1104,387 @@ abstract class AppointmentHttpTestSupport extends TestSecurityProperties {
         List<Integer> statuses2 = List.of(rescheduleStatus.get(), cancelStatus.get());
         assertThat(statuses2).contains(200).contains(409);
     }
+
+    @Test
+    void d09RbacPermissionsOnConfirmationCheckInAndNoShow() throws Exception {
+        Instant slot = futureTime(3, 8, 30);
+        String bookBody = mapper.writeValueAsString(Map.of(
+                "scheduleId", mainSchedule.getId().toString(),
+                "startAt", slot.toString(),
+                "requestKey", "d09-rbac-test"
+        ));
+        HttpResponse<String> bookRes = send("POST", "/api/v1/appointments", bookBody, token(Role.PATIENT));
+        assertThat(bookRes.statusCode()).isEqualTo(201);
+        String appId = mapper.readTree(bookRes.body()).path("data").path("id").asText();
+
+        String transitionBody = mapper.writeValueAsString(Map.of("expectedVersion", 0));
+
+        // 401 unauthenticated
+        for (String action : List.of("confirmation", "check-in", "no-show")) {
+            HttpResponse<String> unauthRes = send("POST", "/api/v1/appointments/" + appId + "/" + action, transitionBody, null);
+            assertThat(unauthRes.statusCode()).isEqualTo(401);
+        }
+
+        // 403 for ADMIN, DOCTOR, PATIENT
+        for (Role role : List.of(Role.ADMIN, Role.DOCTOR, Role.PATIENT)) {
+            for (String action : List.of("confirmation", "check-in", "no-show")) {
+                HttpResponse<String> forbiddenRes = send("POST", "/api/v1/appointments/" + appId + "/" + action, transitionBody, token(role));
+                assertThat(forbiddenRes.statusCode()).isEqualTo(403);
+            }
+        }
+
+        // 200 for RECEPTIONIST on confirmation
+        HttpResponse<String> okRes = send("POST", "/api/v1/appointments/" + appId + "/confirmation", transitionBody, token(Role.RECEPTIONIST));
+        assertThat(okRes.statusCode()).isEqualTo(200);
+        JsonNode data = mapper.readTree(okRes.body()).path("data");
+        assertThat(data.path("status").asText()).isEqualTo("CONFIRMED");
+        assertThat(data.path("version").asLong()).isEqualTo(1L);
+        assertThat(data.path("confirmedAt").asText()).isNotEmpty();
+        assertThat(data.path("confirmedBy").asText()).isEqualTo(actors.get(Role.RECEPTIONIST).getId().toString());
+    }
+
+    @Test
+    void d09ConfirmationCheckInLifecycleAndRepeatedCheckIn() throws Exception {
+        // Create schedule for today in VN timezone
+        LocalDate todayVn = LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh"));
+        Instant todayStart = Instant.now().plus(Duration.ofMinutes(2)).truncatedTo(java.time.temporal.ChronoUnit.MINUTES);
+        Instant todayEnd = todayStart.plus(Duration.ofMinutes(30));
+        DoctorSchedule todaySchedule = schedules.saveAndFlush(new DoctorSchedule(
+                mainDoctor, todayVn, todayStart, todayEnd, 30, ScheduleStatus.ACTIVE));
+
+        String bookBody = mapper.writeValueAsString(Map.of(
+                "scheduleId", todaySchedule.getId().toString(),
+                "startAt", todayStart.toString(),
+                "requestKey", "d09-lifecycle-test",
+                "patientId", mainPatient.getId().toString()
+        ));
+        HttpResponse<String> bookRes = send("POST", "/api/v1/appointments", bookBody, token(Role.RECEPTIONIST));
+        assertThat(bookRes.statusCode()).isEqualTo(201);
+        String appId = mapper.readTree(bookRes.body()).path("data").path("id").asText();
+
+        // 1. Check-in directly from PENDING should fail with 409 INVALID_STATE_TRANSITION
+        String checkInBody0 = mapper.writeValueAsString(Map.of("expectedVersion", 0));
+        HttpResponse<String> prematureCheckIn = send("POST", "/api/v1/appointments/" + appId + "/check-in", checkInBody0, token(Role.RECEPTIONIST));
+        assertThat(prematureCheckIn.statusCode()).isEqualTo(409);
+        assertThat(mapper.readTree(prematureCheckIn.body()).path("code").asText()).isEqualTo("INVALID_STATE_TRANSITION");
+
+        // 2. Confirm appointment
+        String confirmBody = mapper.writeValueAsString(Map.of("expectedVersion", 0));
+        HttpResponse<String> confirmRes = send("POST", "/api/v1/appointments/" + appId + "/confirmation", confirmBody, token(Role.RECEPTIONIST));
+        assertThat(confirmRes.statusCode()).isEqualTo(200);
+        JsonNode confirmData = mapper.readTree(confirmRes.body()).path("data");
+        assertThat(confirmData.path("status").asText()).isEqualTo("CONFIRMED");
+        assertThat(confirmData.path("version").asLong()).isEqualTo(1L);
+
+        // 3. Confirm again with stale version -> 409 VERSION_CONFLICT
+        HttpResponse<String> staleConfirm = send("POST", "/api/v1/appointments/" + appId + "/confirmation", confirmBody, token(Role.RECEPTIONIST));
+        assertThat(staleConfirm.statusCode()).isEqualTo(409);
+        assertThat(mapper.readTree(staleConfirm.body()).path("code").asText()).isEqualTo("VERSION_CONFLICT");
+
+        // 4. Confirm again with current version (1) -> 409 INVALID_STATE_TRANSITION (already CONFIRMED)
+        String confirmBody1 = mapper.writeValueAsString(Map.of("expectedVersion", 1));
+        HttpResponse<String> repeatedConfirm = send("POST", "/api/v1/appointments/" + appId + "/confirmation", confirmBody1, token(Role.RECEPTIONIST));
+        assertThat(repeatedConfirm.statusCode()).isEqualTo(409);
+        assertThat(mapper.readTree(repeatedConfirm.body()).path("code").asText()).isEqualTo("INVALID_STATE_TRANSITION");
+
+        // 5. Check-in with version mismatch -> 409 VERSION_CONFLICT
+        HttpResponse<String> wrongVersionCheckIn = send("POST", "/api/v1/appointments/" + appId + "/check-in", checkInBody0, token(Role.RECEPTIONIST));
+        assertThat(wrongVersionCheckIn.statusCode()).isEqualTo(409);
+        assertThat(mapper.readTree(wrongVersionCheckIn.body()).path("code").asText()).isEqualTo("VERSION_CONFLICT");
+
+        // 6. Check-in successfully with version 1
+        HttpResponse<String> checkInRes = send("POST", "/api/v1/appointments/" + appId + "/check-in", confirmBody1, token(Role.RECEPTIONIST));
+        assertThat(checkInRes.statusCode()).isEqualTo(200);
+        JsonNode checkInData = mapper.readTree(checkInRes.body()).path("data");
+        assertThat(checkInData.path("status").asText()).isEqualTo("CHECKED_IN");
+        assertThat(checkInData.path("version").asLong()).isEqualTo(2L);
+        assertThat(checkInData.path("checkedInAt").asText()).isNotEmpty();
+        assertThat(checkInData.path("checkedInBy").asText()).isEqualTo(actors.get(Role.RECEPTIONIST).getId().toString());
+
+        // 7. Repeated check-in with replay version (1) -> 200 OK, same version 2, no increment
+        HttpResponse<String> replayCheckIn = send("POST", "/api/v1/appointments/" + appId + "/check-in", confirmBody1, token(Role.RECEPTIONIST));
+        assertThat(replayCheckIn.statusCode()).isEqualTo(200);
+        JsonNode replayData = mapper.readTree(replayCheckIn.body()).path("data");
+        assertThat(replayData.path("status").asText()).isEqualTo("CHECKED_IN");
+        assertThat(replayData.path("version").asLong()).isEqualTo(2L);
+
+        // 8. Repeated check-in with current version (2) -> 200 OK, same version 2
+        String checkInBody2 = mapper.writeValueAsString(Map.of("expectedVersion", 2));
+        HttpResponse<String> currentCheckIn = send("POST", "/api/v1/appointments/" + appId + "/check-in", checkInBody2, token(Role.RECEPTIONIST));
+        assertThat(currentCheckIn.statusCode()).isEqualTo(200);
+        assertThat(mapper.readTree(currentCheckIn.body()).path("data").path("version").asLong()).isEqualTo(2L);
+
+        // 9. Check-in with future version (99) -> 409 VERSION_CONFLICT
+        String futureVersionBody = mapper.writeValueAsString(Map.of("expectedVersion", 99));
+        HttpResponse<String> futureCheckIn = send("POST", "/api/v1/appointments/" + appId + "/check-in", futureVersionBody, token(Role.RECEPTIONIST));
+        assertThat(futureCheckIn.statusCode()).isEqualTo(409);
+        assertThat(mapper.readTree(futureCheckIn.body()).path("code").asText()).isEqualTo("VERSION_CONFLICT");
+
+        // 10. Check-in appointment cannot be cancelled or rescheduled -> 409 INVALID_STATE_TRANSITION
+        String cancelBody = mapper.writeValueAsString(Map.of("reason", "Cannot cancel", "expectedVersion", 2));
+        HttpResponse<String> cancelRes = send("POST", "/api/v1/appointments/" + appId + "/cancellation", cancelBody, token(Role.RECEPTIONIST));
+        assertThat(cancelRes.statusCode()).isEqualTo(409);
+        assertThat(mapper.readTree(cancelRes.body()).path("code").asText()).isEqualTo("INVALID_STATE_TRANSITION");
+    }
+
+    @Test
+    void d09TimeBoundariesAndNoShowLifecycle() throws Exception {
+        // Appointment in the future (3 days later)
+        Instant futureSlot = futureTime(3, 8, 30);
+        String bookBody = mapper.writeValueAsString(Map.of(
+                "scheduleId", mainSchedule.getId().toString(),
+                "startAt", futureSlot.toString(),
+                "requestKey", "d09-future-test"
+        ));
+        HttpResponse<String> bookRes = send("POST", "/api/v1/appointments", bookBody, token(Role.PATIENT));
+        String appId = mapper.readTree(bookRes.body()).path("data").path("id").asText();
+
+        // Confirm it
+        send("POST", "/api/v1/appointments/" + appId + "/confirmation",
+                mapper.writeValueAsString(Map.of("expectedVersion", 0)), token(Role.RECEPTIONIST));
+
+        // Check-in on different date (not today) -> 409 INVALID_STATE_TRANSITION
+        HttpResponse<String> wrongDateCheckIn = send("POST", "/api/v1/appointments/" + appId + "/check-in",
+                mapper.writeValueAsString(Map.of("expectedVersion", 1)), token(Role.RECEPTIONIST));
+        assertThat(wrongDateCheckIn.statusCode()).isEqualTo(409);
+        assertThat(mapper.readTree(wrongDateCheckIn.body()).path("code").asText()).isEqualTo("INVALID_STATE_TRANSITION");
+
+        // No-show before endAt (future slot) -> 409 INVALID_STATE_TRANSITION
+        HttpResponse<String> prematureNoShow = send("POST", "/api/v1/appointments/" + appId + "/no-show",
+                mapper.writeValueAsString(Map.of("expectedVersion", 1)), token(Role.RECEPTIONIST));
+        assertThat(prematureNoShow.statusCode()).isEqualTo(409);
+        assertThat(mapper.readTree(prematureNoShow.body()).path("code").asText()).isEqualTo("INVALID_STATE_TRANSITION");
+
+        // Create an appointment with endAt in the past via JPA to simulate ended appointment
+        Appointment appToUpdate = appointments.findById(Long.parseLong(appId)).orElseThrow();
+        Instant pastStart = Instant.now().minus(Duration.ofHours(2));
+        Instant pastEnd = Instant.now().minus(Duration.ofHours(1));
+        org.springframework.test.util.ReflectionTestUtils.setField(appToUpdate, "startAt", pastStart);
+        org.springframework.test.util.ReflectionTestUtils.setField(appToUpdate, "endAt", pastEnd);
+        Appointment savedApp = appointments.saveAndFlush(appToUpdate);
+
+        // Now endAt is past, mark as NO_SHOW with current version -> 200 OK
+        Long currentVersion = savedApp.getVersion();
+        HttpResponse<String> noShowRes = send("POST", "/api/v1/appointments/" + appId + "/no-show",
+                mapper.writeValueAsString(Map.of("expectedVersion", currentVersion)), token(Role.RECEPTIONIST));
+        assertThat(noShowRes.statusCode()).as("noShow body: %s", noShowRes.body()).isEqualTo(200);
+        JsonNode noShowData = mapper.readTree(noShowRes.body()).path("data");
+        assertThat(noShowData.path("status").asText()).isEqualTo("NO_SHOW");
+        assertThat(noShowData.path("noShowAt").asText()).isNotEmpty();
+        assertThat(noShowData.path("noShowBy").asText()).isEqualTo(actors.get(Role.RECEPTIONIST).getId().toString());
+        assertThat(noShowData.path("version").asLong()).isEqualTo(currentVersion + 1);
+
+        // Mark no-show again on already NO_SHOW appointment -> 409 INVALID_STATE_TRANSITION
+        HttpResponse<String> repeatedNoShow = send("POST", "/api/v1/appointments/" + appId + "/no-show",
+                mapper.writeValueAsString(Map.of("expectedVersion", currentVersion + 1)), token(Role.RECEPTIONIST));
+        assertThat(repeatedNoShow.statusCode()).isEqualTo(409);
+        assertThat(mapper.readTree(repeatedNoShow.body()).path("code").asText()).isEqualTo("INVALID_STATE_TRANSITION");
+    }
+
+    @Test
+    void d09ConcurrentConfirmVsRescheduleRace() throws Exception {
+        Instant slot1 = futureTime(3, 8, 30);
+        Instant slot2 = futureTime(3, 9, 0);
+
+        String bookBody = mapper.writeValueAsString(Map.of(
+                "scheduleId", mainSchedule.getId().toString(),
+                "startAt", slot1.toString(),
+                "requestKey", "d09-race-confirm-resched"
+        ));
+        HttpResponse<String> bookRes = send("POST", "/api/v1/appointments", bookBody, token(Role.PATIENT));
+        String appId = mapper.readTree(bookRes.body()).path("data").path("id").asText();
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+
+        AtomicInteger confirmStatus = new AtomicInteger(0);
+        AtomicInteger rescheduleStatus = new AtomicInteger(0);
+
+        Future<?> f1 = executor.submit(() -> {
+            ready.countDown();
+            try {
+                start.await();
+                String confirmBody = mapper.writeValueAsString(Map.of("expectedVersion", 0));
+                HttpResponse<String> res = send("POST", "/api/v1/appointments/" + appId + "/confirmation", confirmBody, token(Role.RECEPTIONIST));
+                confirmStatus.set(res.statusCode());
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        Future<?> f2 = executor.submit(() -> {
+            ready.countDown();
+            try {
+                start.await();
+                String reschedBody = mapper.writeValueAsString(Map.of(
+                        "scheduleId", mainSchedule.getId().toString(),
+                        "startAt", slot2.toString(),
+                        "expectedVersion", 0
+                ));
+                HttpResponse<String> res = send("PATCH", "/api/v1/appointments/" + appId + "/slot", reschedBody, token(Role.PATIENT));
+                rescheduleStatus.set(res.statusCode());
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        ready.await();
+        start.countDown();
+        f1.get(10, TimeUnit.SECONDS);
+        f2.get(10, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        List<Integer> statuses = List.of(confirmStatus.get(), rescheduleStatus.get());
+        assertThat(statuses).contains(200).contains(409);
+    }
+
+    @Test
+    void d09ConcurrentCheckInDuplicateRequestRace() throws Exception {
+        LocalDate todayVn = LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh"));
+        Instant todayStart = Instant.now().plus(Duration.ofMinutes(2)).truncatedTo(java.time.temporal.ChronoUnit.MINUTES);
+        Instant todayEnd = todayStart.plus(Duration.ofMinutes(30));
+        DoctorSchedule todaySchedule = schedules.saveAndFlush(new DoctorSchedule(
+                mainDoctor, todayVn, todayStart, todayEnd, 30, ScheduleStatus.ACTIVE));
+
+        String bookBody = mapper.writeValueAsString(Map.of(
+                "scheduleId", todaySchedule.getId().toString(),
+                "startAt", todayStart.toString(),
+                "requestKey", "d09-race-checkin-dup",
+                "patientId", mainPatient.getId().toString()
+        ));
+        HttpResponse<String> bookRes = send("POST", "/api/v1/appointments", bookBody, token(Role.RECEPTIONIST));
+        String appId = mapper.readTree(bookRes.body()).path("data").path("id").asText();
+
+        // Confirm first
+        send("POST", "/api/v1/appointments/" + appId + "/confirmation",
+                mapper.writeValueAsString(Map.of("expectedVersion", 0)), token(Role.RECEPTIONIST));
+
+        // Two concurrent threads both send check-in with expectedVersion 1 (check-in trùng request)
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+
+        AtomicInteger status1 = new AtomicInteger(0);
+        AtomicInteger status2 = new AtomicInteger(0);
+        java.util.concurrent.atomic.AtomicReference<String> body1 = new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicReference<String> body2 = new java.util.concurrent.atomic.AtomicReference<>();
+
+        Future<?> f1 = executor.submit(() -> {
+            ready.countDown();
+            try {
+                start.await();
+                String body = mapper.writeValueAsString(Map.of("expectedVersion", 1));
+                HttpResponse<String> res = send("POST", "/api/v1/appointments/" + appId + "/check-in", body, token(Role.RECEPTIONIST));
+                status1.set(res.statusCode());
+                body1.set(res.body());
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        Future<?> f2 = executor.submit(() -> {
+            ready.countDown();
+            try {
+                start.await();
+                String body = mapper.writeValueAsString(Map.of("expectedVersion", 1));
+                HttpResponse<String> res = send("POST", "/api/v1/appointments/" + appId + "/check-in", body, token(Role.RECEPTIONIST));
+                status2.set(res.statusCode());
+                body2.set(res.body());
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        ready.await();
+        start.countDown();
+        f1.get(10, TimeUnit.SECONDS);
+        f2.get(10, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        // At least one thread succeeds with 200; the other gets 200 (if serialized) or 409 VERSION_CONFLICT (if concurrent conflict)
+        List<Integer> statuses = List.of(status1.get(), status2.get());
+        assertThat(statuses).contains(200);
+        for (int st : statuses) {
+            assertThat(st).isIn(200, 409);
+        }
+
+        // Sequential replay of check-in MUST always return 200 OK without increasing version
+        HttpResponse<String> replayRes = send("POST", "/api/v1/appointments/" + appId + "/check-in",
+                mapper.writeValueAsString(Map.of("expectedVersion", 1)), token(Role.RECEPTIONIST));
+        assertThat(replayRes.statusCode()).isEqualTo(200);
+        assertThat(mapper.readTree(replayRes.body()).path("data").path("status").asText()).isEqualTo("CHECKED_IN");
+        assertThat(mapper.readTree(replayRes.body()).path("data").path("version").asLong()).isEqualTo(2L);
+
+        // Verify final appointment state in DB
+        Appointment finalApp = appointments.findById(Long.parseLong(appId)).orElseThrow();
+        assertThat(finalApp.getStatus()).isEqualTo(AppointmentStatus.CHECKED_IN);
+        assertThat(finalApp.getVersion()).isEqualTo(2L);
+    }
+
+    @Test
+    void d09ConcurrentNoShowVsCheckInRace() throws Exception {
+        LocalDate todayVn = LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh"));
+        Instant todayStart = Instant.now().plus(Duration.ofMinutes(2)).truncatedTo(java.time.temporal.ChronoUnit.MINUTES);
+        Instant todayEnd = todayStart.plus(Duration.ofMinutes(30));
+        DoctorSchedule todaySchedule = schedules.saveAndFlush(new DoctorSchedule(
+                mainDoctor, todayVn, todayStart, todayEnd, 30, ScheduleStatus.ACTIVE));
+
+        String bookBody = mapper.writeValueAsString(Map.of(
+                "scheduleId", todaySchedule.getId().toString(),
+                "startAt", todayStart.toString(),
+                "requestKey", "d09-race-noshow-checkin",
+                "patientId", mainPatient.getId().toString()
+        ));
+        HttpResponse<String> bookRes = send("POST", "/api/v1/appointments", bookBody, token(Role.RECEPTIONIST));
+        String appId = mapper.readTree(bookRes.body()).path("data").path("id").asText();
+
+        // Confirm
+        send("POST", "/api/v1/appointments/" + appId + "/confirmation",
+                mapper.writeValueAsString(Map.of("expectedVersion", 0)), token(Role.RECEPTIONIST));
+
+        // Two concurrent threads race:
+        // Thread 1: Check-in
+        // Thread 2: No-show (would fail if before endAt, or race with check-in)
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+
+        AtomicInteger checkInStatus = new AtomicInteger(0);
+        AtomicInteger noShowStatus = new AtomicInteger(0);
+
+        Future<?> f1 = executor.submit(() -> {
+            ready.countDown();
+            try {
+                start.await();
+                String body = mapper.writeValueAsString(Map.of("expectedVersion", 1));
+                HttpResponse<String> res = send("POST", "/api/v1/appointments/" + appId + "/check-in", body, token(Role.RECEPTIONIST));
+                checkInStatus.set(res.statusCode());
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        Future<?> f2 = executor.submit(() -> {
+            ready.countDown();
+            try {
+                start.await();
+                String body = mapper.writeValueAsString(Map.of("expectedVersion", 1));
+                HttpResponse<String> res = send("POST", "/api/v1/appointments/" + appId + "/no-show", body, token(Role.RECEPTIONIST));
+                noShowStatus.set(res.statusCode());
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        ready.await();
+        start.countDown();
+        f1.get(10, TimeUnit.SECONDS);
+        f2.get(10, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        // Check-in succeeds with 200 (since it's within appointment slot), no-show fails with 409
+        assertThat(checkInStatus.get()).isEqualTo(200);
+        assertThat(noShowStatus.get()).isEqualTo(409);
+    }
 }
