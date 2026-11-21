@@ -92,6 +92,12 @@ public class SecurityConfig {
                             .hasAnyRole("RECEPTIONIST", "PATIENT")
                         .requestMatchers(HttpMethod.GET, "/api/v1/appointments", "/api/v1/appointments/*")
                             .hasAnyRole("ADMIN", "RECEPTIONIST", "DOCTOR", "PATIENT")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/medical-records",
+                                "/api/v1/medical-records/*/completion").hasRole("DOCTOR")
+                        .requestMatchers(HttpMethod.PATCH, "/api/v1/medical-records/*").hasRole("DOCTOR")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/medical-records/*",
+                                "/api/v1/medical-records/by-appointment/*")
+                            .hasAnyRole("ADMIN", "DOCTOR", "RECEPTIONIST", "PATIENT")
                         .anyRequest().denyAll())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .requestCache(cache -> cache.disable())

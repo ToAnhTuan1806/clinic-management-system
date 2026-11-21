@@ -325,4 +325,19 @@ public class Appointment {
         this.noShowBy = actor;
         this.updatedAt = Instant.now();
     }
+
+    public void startExamination() {
+        transitionExamination(AppointmentStatus.CHECKED_IN, AppointmentStatus.IN_PROGRESS);
+    }
+
+    public void completeExamination() {
+        transitionExamination(AppointmentStatus.IN_PROGRESS, AppointmentStatus.COMPLETED);
+    }
+
+    private void transitionExamination(AppointmentStatus from, AppointmentStatus to) {
+        if (status != from) {
+            throw new IllegalStateException("Invalid examination transition.");
+        }
+        status = to;
+    }
 }

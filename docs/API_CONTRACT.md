@@ -1014,6 +1014,55 @@ Payload:
 4. **Bảo toàn dữ liệu**: Không can thiệp hoặc thay đổi `appointment.reason` khám ban đầu, không tạo hồ sơ bệnh án (medical record) tại D09.
 5. **Schema Migration V8**: Thêm các cột `confirmed_at`, `confirmed_by`, `checked_in_at`, `checked_in_by`, `no_show_at`, `no_show_by` cùng các khóa ngoại và check constraints tương ứng, giữ nguyên vẹn logic generated column và unique slot của V6.
 
+### 3.8 Hồ sơ khám (CL-D10-BE) — IMPLEMENTED D10
+
+| Method | Path dưới `/api/v1` | Thành công |
+| --- | --- | --- |
+| POST | `/medical-records` | 201, Location, hồ sơ nháp |
+| GET | `/medical-records/{id}` | 200, DTO theo quyền |
+| GET | `/medical-records/by-appointment/{id}` | 200, DTO theo quyền, tra bằng appointmentId |
+| PATCH | `/medical-records/{id}` | 200, hồ sơ sau cập nhật |
+| POST | `/medical-records/{id}/completion` | 200, hồ sơ hoàn tất |
+
+- POST tạo nhận `{"appointmentId":"100"}`. DOCTOR được phân công mới có thể tạo từ
+  appointment `CHECKED_IN`. Tạo hồ sơ version 0 và chuyển appointment sang `IN_PROGRESS`
+  trong cùng transaction. Một appointment có tối đa một hồ sơ, kể cả khi gửi đồng thời.
+- FE tải lại appointment đang IN_PROGRESS bằng GET `/medical-records/by-appointment/{appointmentId}`.
+  Response dùng cùng DTO và RBAC với GET theo record ID. `data.id` là medicalRecordId,
+  `data.version` là expectedVersion để lưu tiếp. Chưa có hồ sơ hoặc ngoài scope trả 404
+  RESOURCE_NOT_FOUND, thiếu JWT trả 401, ID không hợp lệ trả 400. ADMIN/RECEPTIONIST chỉ nhận metadata.
+  Khi gặp 409 sau lưu/hoàn tất, FE tải lại hồ sơ và đối chiếu thay đổi trước khi gửi lại.
+  Không dùng POST tạo để tiếp tục hồ sơ đã mở. POST chỉ nhận appointmentId, trường thừa trả 400 HTTP_400.
+- PATCH nhận `expectedVersion` (số nguyên không âm, bắt buộc) và ít nhất một trường khác
+  null trong `symptoms`, `diagnosis`, `notes`, `conclusion`. Bỏ qua hoặc gửi null
+  giữ nguyên trường. Chuỗi rỗng hoặc toàn khoảng trắng xóa giá trị. Mỗi chuỗi tối đa
+  5.000 đơn vị UTF-16 trước khi bỏ khoảng trắng đầu/cuối. Hồ sơ phải đang `IN_PROGRESS`.
+- POST completion nhận `{"expectedVersion":1}`. Bắt buộc có triệu chứng, chẩn đoán
+  và kết luận khác rỗng. Backend ghi `completedAt`, `completedBy` cùng với chuyển
+  appointment sang `COMPLETED` trong cùng transaction. Bản hoàn tất không cho sửa trực tiếp.
+- DOCTOR chỉ đọc và ghi hồ sơ của appointment được phân công. PATIENT chỉ đọc hồ sơ đã
+  hoàn tất của patient đang liên kết với chính tài khoản JWT. ADMIN và RECEPTIONIST chỉ
+  đọc metadata. Backend lấy bác sĩ, bệnh nhân và người ghi từ DB, không nhận các ID đó trong payload ghi.
+
+`data` của mọi response thành công chứa metadata
+`id`, `appointmentId`, `doctorId`, `patientId`, `status`, `createdBy`, `completedBy`,
+`createdAt`, `updatedAt`, `completedAt`, `version`. ID là chuỗi, timestamp ISO-8601 UTC.
+`completedAt` và `completedBy` là null trước khi hoàn tất. `status` lấy từ appointment.
+DOCTOR và PATIENT đủ quyền còn nhận bốn trường lâm sàng ở cùng cấp trong `data`.
+DTO của ADMIN/RECEPTIONIST không chứa các trường lâm sàng. Response có `Cache-Control: no-store`.
+PATCH và completion thành công tăng phiên bản hồ sơ. Phiên bản này độc lập với version của appointment.
+
+| HTTP | Code | Trường hợp |
+| --- | --- | --- |
+| 400 | VALIDATION_FAILED / HTTP_400 | ID, JSON, version hoặc nội dung sai, thiếu trường khi hoàn tất |
+| 401 | AUTHENTICATION_REQUIRED / INVALID_ACCESS_TOKEN | JWT thiếu hoặc không hợp lệ |
+| 403 | ACCESS_DENIED | Role không được phép thực hiện thao tác |
+| 404 | RESOURCE_NOT_FOUND | Không tìm thấy hoặc ngoài quyền đọc/ghi, gồm PATIENT đọc nháp |
+| 409 | INVALID_STATE_TRANSITION | Sai trạng thái, tạo lặp hoặc sửa/hoàn tất lại hồ sơ đã hoàn tất |
+| 409 | VERSION_CONFLICT / MEDICAL_RECORD_CONFLICT | Phiên bản đã đổi hoặc xung đột ràng buộc DB |
+
+Lỗi dùng Problem Details hiện có, không trả nội dung lâm sàng hay chi tiết SQL.
+
 ## 4. Error response
 
 Dùng Problem Details theo [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457.html),
@@ -1055,7 +1104,7 @@ Ví dụ validation **trên endpoint nghiệp vụ**:
 
 D03 đã triển khai `RESOURCE_NOT_FOUND` và các mã catalog ở mục 3.2; D06 có `SCHEDULE_OVERLAP`;
 D07 có `SLOT_ALREADY_BOOKED`, `IDEMPOTENCY_CONFLICT`, `SCHEDULE_HAS_APPOINTMENTS`.
-`INVALID_STATE_TRANSITION`, `VERSION_CONFLICT` vẫn là đề xuất cho các nghiệp vụ ngày sau (D08–D09).
+`INVALID_STATE_TRANSITION` và `VERSION_CONFLICT` đã dùng trong luồng lịch hẹn và hồ sơ khám.
 
 ## 5. Phân quyền và trạng thái bảo mật
 
@@ -1066,11 +1115,12 @@ D07 có `SLOT_ALREADY_BOOKED`, `IDEMPOTENCY_CONFLICT`, `SCHEDULE_HAS_APPOINTMENT
 | RECEPTIONIST | Hồ sơ hành chính bệnh nhân, lịch, xác nhận, check-in | Chỉ metadata vận hành của hồ sơ khám; không sửa chẩn đoán/đơn thuốc |
 | PATIENT | Hồ sơ cá nhân, đặt/đổi/hủy lịch và lịch sử của mình | Kiểm tra ownership ở BE; không tin patientId từ client |
 
-**D07 IMPLEMENTED:** GET health và POST register/login public; GET auth/me, GET/PATCH me/profile,
+**IMPLEMENTED đến D10:** GET health và POST register/login public; GET auth/me, GET/PATCH me/profile,
 GET/POST patients, GET/PATCH patients/{id}, GET me/patient-profile, GET eligible-users,
 GET/POST/PATCH doctors và specialties, POST/GET/PATCH doctor-schedules, GET schedule-slots
 (đã loại bỏ slot bị chiếm), POST/GET/GET-{id} appointments theo đúng RBAC, ownership,
 double booking prevention (pessimistic lock + DB unique constraint), idempotency và scope bảo mật đã duyệt.
+Các thao tác đổi/hủy, tiếp nhận và hồ sơ khám có quyền riêng ở mục 3.6–3.8.
 Mọi API khác denyAll, kể cả ADMIN. HTTP Basic/form login/session cookie không dùng;
 không có tài khoản mặc định. Session policy stateless, request cache tắt.
 CSRF tắt vì credential chỉ được gửi chủ động qua Authorization header, không dùng cookie xác thực.
@@ -1127,10 +1177,11 @@ Các dòng có nhiều method mô tả các API riêng cùng trạng thái tri�
 | FR-08 | POST | `/appointments/{id}/confirmation` | RECEPTIONIST | **IMPLEMENTED D09** |
 | FR-08 | POST | `/appointments/{id}/check-in` | RECEPTIONIST | **IMPLEMENTED D09** |
 | FR-08 | POST | `/appointments/{id}/no-show` | RECEPTIONIST | **IMPLEMENTED D09** |
-| FR-09 | POST | `/medical-records` | DOCTOR assigned, lịch đã check-in | PROPOSED |
-| FR-09 | GET | `/medical-records/{id}` | DOCTOR assigned; PATIENT self bản hoàn tất; ADMIN/RECEPTIONIST metadata | PROPOSED |
-| FR-09 | PATCH | `/medical-records/{id}` | DOCTOR assigned, bản nháp | PROPOSED |
-| FR-09 | POST | `/medical-records/{id}/completion` | DOCTOR assigned | PROPOSED |
+| FR-09 | POST | `/medical-records` | DOCTOR assigned, lịch đã check-in | **IMPLEMENTED D10** |
+| FR-09 | GET | `/medical-records/{id}` | DOCTOR assigned; PATIENT self bản hoàn tất; ADMIN/RECEPTIONIST metadata | **IMPLEMENTED D10** |
+| FR-09 | GET | `/medical-records/by-appointment/{id}` | Cùng quyền GET hồ sơ, id là appointmentId | **IMPLEMENTED D10** |
+| FR-09 | PATCH | `/medical-records/{id}` | DOCTOR assigned, bản nháp | **IMPLEMENTED D10** |
+| FR-09 | POST | `/medical-records/{id}/completion` | DOCTOR assigned | **IMPLEMENTED D10** |
 | FR-10 | GET | `/patients/{id}/medical-history` | PATIENT self / DOCTOR assigned; ADMIN/RECEPTIONIST metadata | PROPOSED |
 | FR-11 | GET | `/medical-records/{id}/prescription` | DOCTOR assigned / PATIENT self bản hoàn tất | PROPOSED |
 | FR-11 | PUT | `/medical-records/{id}/prescription` | DOCTOR assigned, thay toàn bộ đơn nháp mô phỏng | PROPOSED |
@@ -1152,8 +1203,8 @@ PENDING | CONFIRMED -> CANCELLED
 CONFIRMED -> NO_SHOW
 ```
 
-- Tạo hồ sơ khám chuyển CHECKED_IN sang IN_PROGRESS trong cùng transaction;
-  hoàn tất hồ sơ chuyển IN_PROGRESS sang COMPLETED.
+- FR-09 D10 tạo hồ sơ khám và chuyển CHECKED_IN sang IN_PROGRESS trong cùng transaction.
+  Hoàn tất hồ sơ và chuyển IN_PROGRESS sang COMPLETED cũng trong cùng transaction.
 - Chỉ đổi slot ở PENDING/CONFIRMED; đổi slot đưa lịch về PENDING để xác nhận lại.
 - CANCELLED, COMPLETED, NO_SHOW là trạng thái kết thúc; không cho chuyển lùi tùy ý.
 - Check-in lại lịch đã CHECKED_IN trả kết quả hiện có, không tạo lượt khám mới.

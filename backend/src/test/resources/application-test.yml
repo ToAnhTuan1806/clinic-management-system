@@ -14,4 +14,4 @@ spring:
     init:
       # D02 auth/JPA tests still need the separate H2 users fixture.
       mode: always
-      schema-locations: classpath:fixtures/users-schema.sql,classpath:fixtures/catalog-schema.sql,classpath:fixtures/patient-schema.sql,classpath:fixtures/schedule-schema.sql,classpath:fixtures/appointment-schema.sql
+      schema-locations: classpath:fixtures/users-schema.sql,classpath:fixtures/catalog-schema.sql,classpath:fixtures/patient-schema.sql,classpath:fixtures/schedule-schema.sql,classpath:fixtures/appointment-schema.sql,classpath:fixtures/medical-record-schema.sql
