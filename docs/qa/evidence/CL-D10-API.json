@@ -1,0 +1,340 @@
+{
+  "task": "CL-D10-LOOKUP-API-REGRESSION",
+  "migration_sha256": {
+    "V1__create_users.sql": "27043f2c2669b8b666d4c17f9be12d14cc40a7e96451ad10b2a99f3b07955edf",
+    "V2__create_specialties_and_doctors.sql": "1f1f39cdea70eff2fa1198543ffd41b62d874d629d5c530a7c1cf45f89276973",
+    "V3__create_patients_and_profile_fields.sql": "9a9395e048768a87cd54aeaded3cc8c59b97f5a90124a7a2cc52d566fb38e7e0",
+    "V4__add_profile_contact_fields_to_users.sql": "c2b2f5cc9fbdc27060e426133e541c1e379df3f7d1491d33326f6bbd55d22c6f",
+    "V5__create_doctor_schedules.sql": "65de95a05969411f0f15c9bc19d44399fff72b507da2fc2fe1fb7685b86ee71d",
+    "V6__create_appointments.sql": "9d5e1a3742364515afc660a4635ffe73690219b45cd12d2a2947e5aea5d7cc64",
+    "V7__appointment_lifecycle.sql": "245e8b189bb6fe4e18261dbaf5b6be746e54feaf878b32024d999ce31192f363",
+    "V8__appointment_reception_lifecycle.sql": "3aa1e76d4e27da0342e1b4a5c7e751733d4377a035fa012955f5778e5e132a20",
+    "V9__create_medical_records.sql": "75dc648044e795c168e0bc787a3f86d112ca3d542567f23040e061eba104d1bf"
+  },
+  "backend_v9_bytes_identical": true,
+  "backend_v1_v9_sql_identical": true,
+  "backend_older_migrations_eol_only_difference": [
+    "V1__create_users.sql",
+    "V2__create_specialties_and_doctors.sql",
+    "V3__create_patients_and_profile_fields.sql",
+    "V4__add_profile_contact_fields_to_users.sql"
+  ],
+  "backend_source_sha256": "07dc612110a7c8106e9edfcec0fc774b0f2afc721489ee20975ee91d68c1c752",
+  "container": "clinic-d10-api-b927a18e0591",
+  "database": "clinic_d02_be_it_d10_api_b927a18e0591",
+  "synthetic_only": true,
+  "branch": "feature/quynh",
+  "backend_contract_sha256": "29e7575a05624fa968eb26c747102131803f2061426633e9bd10e1f35a04bcea",
+  "mysql_version": "8.4.11",
+  "test": {
+    "pass": 280,
+    "fail": 0,
+    "skipped": 0
+  },
+  "mysqlTest": {
+    "pass": 193,
+    "fail": 0,
+    "skipped": 0
+  },
+  "backend_jar_sha256": "fc023f3cfbc76585cb94fa2003c161d2dcedfda1d1d28ba4778e90718a3d6dc3",
+  "hibernate_validate": "PASS",
+  "flyway_history": [
+    [
+      "1",
+      "1116148885",
+      "1"
+    ],
+    [
+      "2",
+      "196944325",
+      "1"
+    ],
+    [
+      "3",
+      "-886210658",
+      "1"
+    ],
+    [
+      "4",
+      "298891223",
+      "1"
+    ],
+    [
+      "5",
+      "896140493",
+      "1"
+    ],
+    [
+      "6",
+      "-1170755572",
+      "1"
+    ],
+    [
+      "7",
+      "-1671883013",
+      "1"
+    ],
+    [
+      "8",
+      "-1556733829",
+      "1"
+    ],
+    [
+      "9",
+      "-210924162",
+      "1"
+    ]
+  ],
+  "postman": {
+    "cases": [
+      {
+        "name": "01 Anonymous read rejected",
+        "status": 401,
+        "assertions": 3,
+        "failures": []
+      },
+      {
+        "name": "02 Create CHECKED_IN draft",
+        "status": 201,
+        "assertions": 5,
+        "failures": []
+      },
+      {
+        "name": "03 Duplicate create rejected",
+        "status": 409,
+        "assertions": 3,
+        "failures": []
+      },
+      {
+        "name": "04 PENDING create rejected",
+        "status": 409,
+        "assertions": 3,
+        "failures": []
+      },
+      {
+        "name": "05 CONFIRMED create rejected",
+        "status": 409,
+        "assertions": 3,
+        "failures": []
+      },
+      {
+        "name": "06 Patch draft clinical content",
+        "status": 200,
+        "assertions": 5,
+        "failures": []
+      },
+      {
+        "name": "07 Stale version rejected",
+        "status": 409,
+        "assertions": 3,
+        "failures": []
+      },
+      {
+        "name": "08 Complete examination",
+        "status": 200,
+        "assertions": 5,
+        "failures": []
+      },
+      {
+        "name": "09 Completed record immutable",
+        "status": 409,
+        "assertions": 3,
+        "failures": []
+      },
+      {
+        "name": "10 Other doctor cannot read",
+        "status": 404,
+        "assertions": 3,
+        "failures": []
+      },
+      {
+        "name": "11 Other patient cannot read",
+        "status": 404,
+        "assertions": 3,
+        "failures": []
+      },
+      {
+        "name": "12 Owner cannot read draft",
+        "status": 404,
+        "assertions": 3,
+        "failures": []
+      },
+      {
+        "name": "13 Owner reads completed by appointment",
+        "status": 200,
+        "assertions": 5,
+        "failures": []
+      },
+      {
+        "name": "14 Admin reads metadata only",
+        "status": 200,
+        "assertions": 6,
+        "failures": []
+      },
+      {
+        "name": "15 Receptionist reads metadata only",
+        "status": 200,
+        "assertions": 6,
+        "failures": []
+      }
+    ],
+    "assertions": {
+      "total": 59,
+      "pending": 0,
+      "failed": 0
+    },
+    "requestCount": 15,
+    "failures": 0,
+    "case_counts": {
+      "pass": 15,
+      "fail": 0,
+      "skipped": 0
+    }
+  },
+  "postman_collection_sha256": "2bccc60e264add56d6337990ef5670d0bc26cc06bc9d6ec4fc4eba327ae77854",
+  "lifecycle_sql": "PASS",
+  "lookup_postman": {
+    "cases": [
+      {
+        "name": "L01 Assigned doctor reads IN_PROGRESS",
+        "status": 200,
+        "assertions": 6,
+        "failures": []
+      },
+      {
+        "name": "L02 Reload preserves record version and content",
+        "status": 200,
+        "assertions": 6,
+        "failures": []
+      },
+      {
+        "name": "L03 Existing appointment without record",
+        "status": 404,
+        "assertions": 4,
+        "failures": []
+      },
+      {
+        "name": "L04 Patient cannot read own IN_PROGRESS",
+        "status": 404,
+        "assertions": 4,
+        "failures": []
+      },
+      {
+        "name": "L05 Patient reads own COMPLETED",
+        "status": 200,
+        "assertions": 6,
+        "failures": []
+      },
+      {
+        "name": "L06 Patient cannot read another completed record",
+        "status": 404,
+        "assertions": 4,
+        "failures": []
+      },
+      {
+        "name": "L07 ADMIN sees draft metadata only",
+        "status": 200,
+        "assertions": 7,
+        "failures": []
+      },
+      {
+        "name": "L08 RECEPTIONIST sees draft metadata only",
+        "status": 200,
+        "assertions": 7,
+        "failures": []
+      },
+      {
+        "name": "L09 Other doctor cannot read draft",
+        "status": 404,
+        "assertions": 4,
+        "failures": []
+      },
+      {
+        "name": "L10 Assigned doctor reloads COMPLETED version",
+        "status": 200,
+        "assertions": 6,
+        "failures": []
+      }
+    ],
+    "assertions": {
+      "total": 54,
+      "pending": 0,
+      "failed": 0
+    },
+    "requestCount": 10,
+    "failures": 0,
+    "case_counts": {
+      "pass": 10,
+      "fail": 0,
+      "skipped": 0
+    }
+  },
+  "lookup_collection_sha256": "3dcf06572e3e6c2a1fd1d2f1f2401ed37dad39b564bdc1116098fd4e9fbdafb7",
+  "lookup_get_nonmutation": {
+    "tables": [
+      "users",
+      "specialties",
+      "doctors",
+      "patients",
+      "doctor_schedules",
+      "appointments",
+      "medical_records"
+    ],
+    "all_columns_compared": true,
+    "unchanged": true,
+    "row_counts": {
+      "users": 6,
+      "specialties": 1,
+      "doctors": 2,
+      "patients": 2,
+      "doctor_schedules": 1,
+      "appointments": 8,
+      "medical_records": 2
+    }
+  },
+  "write_rbac": {
+    "pass": 11,
+    "fail": 0
+  },
+  "real_http_database_failure_rollback": {
+    "pass": 2,
+    "fail": 0
+  },
+  "concurrency": {
+    "create": [
+      201,
+      409
+    ],
+    "patch": [
+      200,
+      409
+    ],
+    "complete": [
+      200,
+      409
+    ],
+    "final_consistency": true
+  },
+  "log_redaction": "PASS",
+  "result": "PASS",
+  "current_backend_and_postman_case_counts": {
+    "pass": 498,
+    "fail": 0,
+    "skipped": 0
+  },
+  "owned_container_stopped": true,
+  "volume_retained": true,
+  "recorded_at_utc": "2026-11-21T19:28:27.438582+00:00",
+  "migration_bytes_preserved": true,
+  "base_revision": "120c0067b3047bc7eb35ca52f3222b3ea4bd8f1b",
+  "v1_v8_byte_identical_to_head": true,
+  "newman_version": "6.2.3",
+  "status": "READY FOR COMMIT",
+  "supplementary_checks_not_added_to_case_total": [
+    "SQL snapshot nonmutation across all columns of seven domain tables",
+    "11 denied write requests",
+    "2 real HTTP database-failure rollbacks",
+    "3 two-request concurrency scenarios",
+    "lifecycle SQL consistency and log redaction"
+  ]
+}

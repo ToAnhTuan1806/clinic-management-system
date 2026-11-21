@@ -1,0 +1,406 @@
+{
+  "info": {
+    "name": "CL-D10 FR-09 Lookup by Appointment Regression",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "GET-only regression against real isolated synthetic QA. Seed a populated IN_PROGRESS record at version 1, a COMPLETED owner record at version 2, and an existing appointment with no record. Runner checks all domain rows before/after this collection. Tokens injected in memory only."
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8080"
+    },
+    {
+      "key": "enableD10",
+      "value": "false"
+    },
+    {
+      "key": "assignedDoctorToken",
+      "value": ""
+    },
+    {
+      "key": "otherDoctorToken",
+      "value": ""
+    },
+    {
+      "key": "ownerPatientToken",
+      "value": ""
+    },
+    {
+      "key": "otherPatientToken",
+      "value": ""
+    },
+    {
+      "key": "adminToken",
+      "value": ""
+    },
+    {
+      "key": "receptionistToken",
+      "value": ""
+    },
+    {
+      "key": "lookupDraftAppointmentId",
+      "value": ""
+    },
+    {
+      "key": "lookupDraftRecordId",
+      "value": ""
+    },
+    {
+      "key": "lookupCompletedAppointmentId",
+      "value": ""
+    },
+    {
+      "key": "lookupCompletedRecordId",
+      "value": ""
+    },
+    {
+      "key": "lookupMissingAppointmentId",
+      "value": ""
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "if (pm.variables.get('enableD10') !== 'true') pm.execution.skipRequest();",
+          "if (!/^http:\\/\\/(127\\.0\\.0\\.1|localhost):[0-9]+$/.test(pm.variables.get('baseUrl'))) pm.execution.skipRequest();"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "L01 Assigned doctor reads IN_PROGRESS",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json, application/problem+json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{assignedDoctorToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/medical-records/by-appointment/{{lookupDraftAppointmentId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Expected HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('No secrets or stack traces', () => pm.expect(pm.response.text()).not.to.match(/passwordHash|password_hash|stackTrace/i));",
+              "const d=pm.response.json().data;",
+              "pm.test('No-store response', () => pm.expect(pm.response.headers.get('Cache-Control')).to.include('no-store'));",
+              "pm.test('Correct appointment and record identity', () => { pm.expect(d.appointmentId).to.eql(pm.variables.get('lookupDraftAppointmentId')); pm.expect(d.id).to.eql(pm.variables.get('lookupDraftRecordId')); });",
+              "pm.test('Expected lifecycle and version', () => { pm.expect(d.status).to.eql('IN_PROGRESS'); pm.expect(d.version).to.eql(1); });",
+              "pm.variables.set('lookupDraftSnapshot',JSON.stringify(d));",
+              "pm.test('Populated clinical fields', () => ['symptoms','diagnosis','notes','conclusion'].forEach(k => pm.expect(d[k]).to.eql('Synthetic lookup '+k)));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "L02 Reload preserves record version and content",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json, application/problem+json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{assignedDoctorToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/medical-records/by-appointment/{{lookupDraftAppointmentId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Expected HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('No secrets or stack traces', () => pm.expect(pm.response.text()).not.to.match(/passwordHash|password_hash|stackTrace/i));",
+              "const d=pm.response.json().data;",
+              "pm.test('No-store response', () => pm.expect(pm.response.headers.get('Cache-Control')).to.include('no-store'));",
+              "pm.test('Correct appointment and record identity', () => { pm.expect(d.appointmentId).to.eql(pm.variables.get('lookupDraftAppointmentId')); pm.expect(d.id).to.eql(pm.variables.get('lookupDraftRecordId')); });",
+              "pm.test('Expected lifecycle and version', () => { pm.expect(d.status).to.eql('IN_PROGRESS'); pm.expect(d.version).to.eql(1); });",
+              "pm.test('Reload returns identical content and timestamps', () => pm.expect(d).to.deep.eql(JSON.parse(pm.variables.get('lookupDraftSnapshot'))));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "L03 Existing appointment without record",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json, application/problem+json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{assignedDoctorToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/medical-records/by-appointment/{{lookupMissingAppointmentId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Expected HTTP 404', () => pm.response.to.have.status(404));",
+              "pm.test('No secrets or stack traces', () => pm.expect(pm.response.text()).not.to.match(/passwordHash|password_hash|stackTrace/i));",
+              "pm.test('Official missing/out-of-scope contract', () => { const p=pm.response.json(); pm.expect(p.code).to.eql('RESOURCE_NOT_FOUND'); pm.expect(p.status).to.eql(404); pm.expect(p).not.to.have.property('data'); });",
+              "pm.test('No clinical marker in error', () => pm.expect(pm.response.text()).not.to.match(/Synthetic lookup|Synthetic notes D10|Synthetic diagnosis D10/));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "L04 Patient cannot read own IN_PROGRESS",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json, application/problem+json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{ownerPatientToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/medical-records/by-appointment/{{lookupDraftAppointmentId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Expected HTTP 404', () => pm.response.to.have.status(404));",
+              "pm.test('No secrets or stack traces', () => pm.expect(pm.response.text()).not.to.match(/passwordHash|password_hash|stackTrace/i));",
+              "pm.test('Official missing/out-of-scope contract', () => { const p=pm.response.json(); pm.expect(p.code).to.eql('RESOURCE_NOT_FOUND'); pm.expect(p.status).to.eql(404); pm.expect(p).not.to.have.property('data'); });",
+              "pm.test('No clinical marker in error', () => pm.expect(pm.response.text()).not.to.match(/Synthetic lookup|Synthetic notes D10|Synthetic diagnosis D10/));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "L05 Patient reads own COMPLETED",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json, application/problem+json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{ownerPatientToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/medical-records/by-appointment/{{lookupCompletedAppointmentId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Expected HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('No secrets or stack traces', () => pm.expect(pm.response.text()).not.to.match(/passwordHash|password_hash|stackTrace/i));",
+              "const d=pm.response.json().data;",
+              "pm.test('No-store response', () => pm.expect(pm.response.headers.get('Cache-Control')).to.include('no-store'));",
+              "pm.test('Correct appointment and record identity', () => { pm.expect(d.appointmentId).to.eql(pm.variables.get('lookupCompletedAppointmentId')); pm.expect(d.id).to.eql(pm.variables.get('lookupCompletedRecordId')); });",
+              "pm.test('Expected lifecycle and version', () => { pm.expect(d.status).to.eql('COMPLETED'); pm.expect(d.version).to.eql(2); });",
+              "pm.test('Completed clinical data and metadata', () => { pm.expect(d.notes).to.eql('Synthetic notes D10'); pm.expect(d.completedAt).to.be.a('string'); pm.expect(d.completedBy).to.be.a('string'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "L06 Patient cannot read another completed record",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json, application/problem+json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{otherPatientToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/medical-records/by-appointment/{{lookupCompletedAppointmentId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Expected HTTP 404', () => pm.response.to.have.status(404));",
+              "pm.test('No secrets or stack traces', () => pm.expect(pm.response.text()).not.to.match(/passwordHash|password_hash|stackTrace/i));",
+              "pm.test('Official missing/out-of-scope contract', () => { const p=pm.response.json(); pm.expect(p.code).to.eql('RESOURCE_NOT_FOUND'); pm.expect(p.status).to.eql(404); pm.expect(p).not.to.have.property('data'); });",
+              "pm.test('No clinical marker in error', () => pm.expect(pm.response.text()).not.to.match(/Synthetic lookup|Synthetic notes D10|Synthetic diagnosis D10/));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "L07 ADMIN sees draft metadata only",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json, application/problem+json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/medical-records/by-appointment/{{lookupDraftAppointmentId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Expected HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('No secrets or stack traces', () => pm.expect(pm.response.text()).not.to.match(/passwordHash|password_hash|stackTrace/i));",
+              "const d=pm.response.json().data;",
+              "pm.test('No-store response', () => pm.expect(pm.response.headers.get('Cache-Control')).to.include('no-store'));",
+              "pm.test('Correct appointment and record identity', () => { pm.expect(d.appointmentId).to.eql(pm.variables.get('lookupDraftAppointmentId')); pm.expect(d.id).to.eql(pm.variables.get('lookupDraftRecordId')); });",
+              "pm.test('Expected lifecycle and version', () => { pm.expect(d.status).to.eql('IN_PROGRESS'); pm.expect(d.version).to.eql(1); });",
+              "pm.test('Exact metadata keys only', () => pm.expect(Object.keys(d).sort()).to.deep.eql(['id','appointmentId','doctorId','patientId','status','createdBy','completedBy','completedAt','createdAt','updatedAt','version'].sort()));",
+              "pm.test('No clinical markers leaked', () => pm.expect(pm.response.text()).not.to.include('Synthetic lookup'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "L08 RECEPTIONIST sees draft metadata only",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json, application/problem+json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{receptionistToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/medical-records/by-appointment/{{lookupDraftAppointmentId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Expected HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('No secrets or stack traces', () => pm.expect(pm.response.text()).not.to.match(/passwordHash|password_hash|stackTrace/i));",
+              "const d=pm.response.json().data;",
+              "pm.test('No-store response', () => pm.expect(pm.response.headers.get('Cache-Control')).to.include('no-store'));",
+              "pm.test('Correct appointment and record identity', () => { pm.expect(d.appointmentId).to.eql(pm.variables.get('lookupDraftAppointmentId')); pm.expect(d.id).to.eql(pm.variables.get('lookupDraftRecordId')); });",
+              "pm.test('Expected lifecycle and version', () => { pm.expect(d.status).to.eql('IN_PROGRESS'); pm.expect(d.version).to.eql(1); });",
+              "pm.test('Exact metadata keys only', () => pm.expect(Object.keys(d).sort()).to.deep.eql(['id','appointmentId','doctorId','patientId','status','createdBy','completedBy','completedAt','createdAt','updatedAt','version'].sort()));",
+              "pm.test('No clinical markers leaked', () => pm.expect(pm.response.text()).not.to.include('Synthetic lookup'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "L09 Other doctor cannot read draft",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json, application/problem+json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{otherDoctorToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/medical-records/by-appointment/{{lookupDraftAppointmentId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Expected HTTP 404', () => pm.response.to.have.status(404));",
+              "pm.test('No secrets or stack traces', () => pm.expect(pm.response.text()).not.to.match(/passwordHash|password_hash|stackTrace/i));",
+              "pm.test('Official missing/out-of-scope contract', () => { const p=pm.response.json(); pm.expect(p.code).to.eql('RESOURCE_NOT_FOUND'); pm.expect(p.status).to.eql(404); pm.expect(p).not.to.have.property('data'); });",
+              "pm.test('No clinical marker in error', () => pm.expect(pm.response.text()).not.to.match(/Synthetic lookup|Synthetic notes D10|Synthetic diagnosis D10/));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "L10 Assigned doctor reloads COMPLETED version",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json, application/problem+json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{assignedDoctorToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/medical-records/by-appointment/{{lookupCompletedAppointmentId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Expected HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('No secrets or stack traces', () => pm.expect(pm.response.text()).not.to.match(/passwordHash|password_hash|stackTrace/i));",
+              "const d=pm.response.json().data;",
+              "pm.test('No-store response', () => pm.expect(pm.response.headers.get('Cache-Control')).to.include('no-store'));",
+              "pm.test('Correct appointment and record identity', () => { pm.expect(d.appointmentId).to.eql(pm.variables.get('lookupCompletedAppointmentId')); pm.expect(d.id).to.eql(pm.variables.get('lookupCompletedRecordId')); });",
+              "pm.test('Expected lifecycle and version', () => { pm.expect(d.status).to.eql('COMPLETED'); pm.expect(d.version).to.eql(2); });",
+              "pm.test('Completed clinical data and metadata', () => { pm.expect(d.notes).to.eql('Synthetic notes D10'); pm.expect(d.completedAt).to.be.a('string'); pm.expect(d.completedBy).to.be.a('string'); });"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

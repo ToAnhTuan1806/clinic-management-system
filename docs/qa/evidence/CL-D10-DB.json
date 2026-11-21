@@ -1,0 +1,94 @@
+{
+  "task": "CL-D10-DB",
+  "migration_sha256": {
+    "V1__create_users.sql": "27043f2c2669b8b666d4c17f9be12d14cc40a7e96451ad10b2a99f3b07955edf",
+    "V2__create_specialties_and_doctors.sql": "1f1f39cdea70eff2fa1198543ffd41b62d874d629d5c530a7c1cf45f89276973",
+    "V3__create_patients_and_profile_fields.sql": "9a9395e048768a87cd54aeaded3cc8c59b97f5a90124a7a2cc52d566fb38e7e0",
+    "V4__add_profile_contact_fields_to_users.sql": "c2b2f5cc9fbdc27060e426133e541c1e379df3f7d1491d33326f6bbd55d22c6f",
+    "V5__create_doctor_schedules.sql": "65de95a05969411f0f15c9bc19d44399fff72b507da2fc2fe1fb7685b86ee71d",
+    "V6__create_appointments.sql": "9d5e1a3742364515afc660a4635ffe73690219b45cd12d2a2947e5aea5d7cc64",
+    "V7__appointment_lifecycle.sql": "245e8b189bb6fe4e18261dbaf5b6be746e54feaf878b32024d999ce31192f363",
+    "V8__appointment_reception_lifecycle.sql": "3aa1e76d4e27da0342e1b4a5c7e751733d4377a035fa012955f5778e5e132a20",
+    "V9__create_medical_records.sql": "75dc648044e795c168e0bc787a3f86d112ca3d542567f23040e061eba104d1bf"
+  },
+  "isolated_container": "clinic-d10-qa-0e0ea7e0acc0",
+  "h2_and_unit": {
+    "pass": 275,
+    "fail": 0,
+    "skipped": 0
+  },
+  "mysql_version": "8.4.11",
+  "mysql": {
+    "pass": 191,
+    "fail": 0,
+    "skipped": 0
+  },
+  "v9_flyway_checksums": {
+    "UPGRADE": "-210924162",
+    "FRESH": "-210924162"
+  },
+  "result": "PASS",
+  "container_stopped": true,
+  "migration_bytes_preserved": true,
+  "branch": "feature/quynh",
+  "base_revision": "120c0067b3047bc7eb35ca52f3222b3ea4bd8f1b",
+  "v1_v8_byte_identical_to_head": true,
+  "frontend": {
+    "pass": 208,
+    "fail": 0,
+    "skipped": 0,
+    "lint": "PASS",
+    "build": "PASS"
+  },
+  "files_changed": [
+    "backend/src/main/resources/db/migration/V9__create_medical_records.sql",
+    "backend/src/test/java/com/clinicmanagement/MedicalRecordSchemaTest.java",
+    "backend/src/test/resources/fixtures/medical-record-schema.sql",
+    "backend/src/test/resources/application-test.yml",
+    "database/qa/validate_d10.py",
+    "docs/qa/postman/CL-D10-Medical-Records.postman_collection.json",
+    "docs/qa/evidence/CL-D10-DB.json",
+    "docs/qa/CL-D10-DB.md",
+    "database/qa/validate_d10_api.py",
+    "docs/qa/evidence/CL-D10-API.json",
+    "docs/qa/postman/CL-D10-Lookup.postman_collection.json"
+  ],
+  "initial_application_qa": {
+    "postman": {
+      "prepared": 15,
+      "executed": 0,
+      "skipped": 15,
+      "reason": "FR-09 routes still proposed in available BE contract"
+    },
+    "total": {
+      "pass": 674,
+      "fail": 0,
+      "skipped": 15
+    },
+    "application_fr09": "PENDING_BE",
+    "superseded_by": "CL-D10-API.json"
+  },
+  "final_api_evidence": "CL-D10-API.json",
+  "postman": {
+    "executed": 15,
+    "pass": 15,
+    "fail": 0,
+    "skipped": 0,
+    "assertions_pass": 59
+  },
+  "application_fr09": "PASS",
+  "final_backend_and_postman_counts": {
+    "pass": 498,
+    "fail": 0,
+    "skipped": 0
+  },
+  "status": "READY FOR COMMIT",
+  "lookup_postman": {
+    "executed": 10,
+    "pass": 10,
+    "fail": 0,
+    "skipped": 0,
+    "assertions_pass": 54,
+    "get_nonmutation": "PASS"
+  }
+}
