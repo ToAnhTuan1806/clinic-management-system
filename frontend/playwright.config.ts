@@ -15,6 +15,11 @@ export default defineConfig({
     command: 'npm run dev -- --host 127.0.0.1 --port 5174 --strictPort',
     url: 'http://127.0.0.1:5174/login',
     reuseExistingServer: !process.env.CI,
-    env: { VITE_AUTH_MOCK: 'true', VITE_DIRECTORY_MOCK: 'true' },
+    env: {
+      VITE_AUTH_MOCK: 'true',
+      VITE_DIRECTORY_MOCK: 'true',
+      VITE_SCHEDULE_MOCK: 'true',
+      VITE_BOOKING_MOCK: 'true',
+    },
   },
 })

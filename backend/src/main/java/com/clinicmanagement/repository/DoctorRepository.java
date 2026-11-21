@@ -13,6 +13,7 @@ public interface DoctorRepository extends JpaRepository<Doctor, Long>, JpaSpecif
     boolean existsByDoctorCodeAndIdNot(String code, Long id);
     boolean existsByLicenseNumberAndIdNot(String license, Long id);
     boolean existsByUserId(Long id);
+    Optional<Doctor> findByUserId(Long userId);
     boolean existsBySpecialtyIdAndActiveTrue(Long id);
 
     @Override @EntityGraph(attributePaths = {"user", "specialty"})

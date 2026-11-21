@@ -1,10 +1,12 @@
 import {
+  CalendarClock,
   CalendarDays,
   ClipboardList,
   LayoutDashboard,
   Layers2,
   Settings2,
   Stethoscope,
+  UserCheck,
   UserRound,
   UsersRound,
 } from 'lucide-react'
@@ -47,20 +49,37 @@ export const navigation = [
     description: 'Không gian dành cho danh sách và thông tin bệnh nhân.',
   },
   {
+    path: '/schedules',
+    roles: everyone,
+    label: 'Lịch làm việc',
+    title: 'Lịch làm việc bác sĩ',
+    icon: CalendarClock,
+    description: 'Theo dõi và quản lý ca làm việc của đội ngũ bác sĩ.',
+  },
+  {
     path: '/appointments',
-    roles: staff,
+    roles: everyone,
     label: 'Lịch hẹn',
     title: 'Quản lý lịch hẹn',
     icon: CalendarDays,
     description: 'Theo dõi lịch khám và điều phối các cuộc hẹn.',
   },
   {
+    path: '/reception/appointments',
+    roles: ['RECEPTIONIST'] as readonly Role[],
+    label: 'Tiếp đón',
+    title: 'Bàn tiếp đón & Điều phối lịch khám',
+    icon: UserCheck,
+    description:
+      'Quản lý lịch hẹn hôm nay, tiếp đón, xác nhận và xử lý vắng mặt.',
+  },
+  {
     path: '/medical-records',
     roles: ['DOCTOR'] as readonly Role[],
-    label: 'Hồ sơ bệnh án',
-    title: 'Hồ sơ bệnh án',
+    label: 'Khám bệnh',
+    title: 'Không gian khám bệnh',
     icon: ClipboardList,
-    description: 'Không gian dành cho hồ sơ khám và lịch sử điều trị.',
+    description: 'Hàng đợi và hồ sơ khám của bác sĩ.',
   },
   {
     path: '/profile',
@@ -80,7 +99,7 @@ export const navigation = [
   },
   {
     path: '/booking',
-    roles: ['PATIENT'] as readonly Role[],
+    roles: ['PATIENT', 'RECEPTIONIST'] as readonly Role[],
     label: 'Đặt lịch khám',
     title: 'Đặt lịch khám',
     icon: CalendarDays,

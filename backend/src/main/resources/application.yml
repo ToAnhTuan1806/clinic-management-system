@@ -40,6 +40,9 @@ clinic:
 logging:
   level:
     org.hibernate.orm.jdbc.bind: OFF
+    # Database error messages can include row values. API errors are sanitized separately.
+    org.hibernate.orm.jdbc.error: OFF
+    org.hibernate.engine.jdbc.spi.SqlExceptionHelper: OFF
     org.springframework.security: INFO
     org.springframework.web: INFO
 

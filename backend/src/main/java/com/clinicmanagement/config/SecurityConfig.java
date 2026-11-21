@@ -71,6 +71,33 @@ public class SecurityConfig {
                             .hasAnyRole("ADMIN", "DOCTOR", "RECEPTIONIST", "PATIENT")
                         .requestMatchers(HttpMethod.POST, "/api/v1/doctors", "/api/v1/specialties").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PATCH, "/api/v1/doctors/*", "/api/v1/specialties/*").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/doctor-schedules")
+                            .hasAnyRole("ADMIN", "RECEPTIONIST")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/doctor-schedules", "/api/v1/doctor-schedules/*")
+                            .hasAnyRole("ADMIN", "RECEPTIONIST", "DOCTOR")
+                        .requestMatchers(HttpMethod.PATCH, "/api/v1/doctor-schedules/*")
+                            .hasAnyRole("ADMIN", "RECEPTIONIST")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/doctors/*/schedule-slots")
+                            .hasAnyRole("ADMIN", "RECEPTIONIST", "DOCTOR", "PATIENT")
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/appointments/*/confirmation",
+                                "/api/v1/appointments/*/check-in",
+                                "/api/v1/appointments/*/no-show")
+                            .hasRole("RECEPTIONIST")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/appointments")
+                            .hasAnyRole("RECEPTIONIST", "PATIENT")
+                        .requestMatchers(HttpMethod.PATCH, "/api/v1/appointments/*/slot")
+                            .hasAnyRole("RECEPTIONIST", "PATIENT")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/appointments/*/cancellation")
+                            .hasAnyRole("RECEPTIONIST", "PATIENT")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/appointments", "/api/v1/appointments/*")
+                            .hasAnyRole("ADMIN", "RECEPTIONIST", "DOCTOR", "PATIENT")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/medical-records",
+                                "/api/v1/medical-records/*/completion").hasRole("DOCTOR")
+                        .requestMatchers(HttpMethod.PATCH, "/api/v1/medical-records/*").hasRole("DOCTOR")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/medical-records/*",
+                                "/api/v1/medical-records/by-appointment/*")
+                            .hasAnyRole("ADMIN", "DOCTOR", "RECEPTIONIST", "PATIENT")
                         .anyRequest().denyAll())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .requestCache(cache -> cache.disable())
