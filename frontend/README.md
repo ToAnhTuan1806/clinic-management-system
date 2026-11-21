@@ -2,6 +2,22 @@
 
 React + TypeScript + Vite, Tailwind CSS v4, shadcn/ui, Lucide, React Router, Axios và Magic UI. Giữ scaffold Modern Medical Dashboard D01 và bổ sung auth UI/routing D02.
 
+### D10 · Không gian khám bệnh
+
+`/medical-records` dành cho DOCTOR. Hàng đợi thật dùng GET appointments với phạm vi bác sĩ do Backend quyết định, lọc ngày Việt Nam và hai trạng thái `CHECKED_IN` / `IN_PROGRESS`. Tìm kiếm và phân trang hoạt động trên tập lịch của ngày đã chọn.
+
+Adapter đã đối chiếu mục 3.8 trong `F:/RikkeiEdu/clinic-management-system/docs/API_CONTRACT.md` và DTO Java của Backend D10. POST chỉ gửi `appointmentId`; PATCH gửi `symptoms/diagnosis/notes/conclusion/expectedVersion`; completion gửi `expectedVersion`. Response dùng trạng thái `IN_PROGRESS/COMPLETED`. Kết luận, triệu chứng và chẩn đoán bắt buộc trước completion; validation tối đa 5000 đơn vị UTF-16 áp dụng trước trim. Khi cấu hình `VITE_API_BASE_URL`, adapter gọi HTTP thật với Axios/interceptor Auth hiện tại.
+
+**D10 final lookup integration — READY FOR COMMIT.** Đã đọc contract chính thức, MedicalRecordController/Service và DTO tại worktree Backend. Mỗi lần mở hoặc tải lại, FE GET appointment rồi lookup `/api/v1/medical-records/by-appointment/{id}`, dùng data.id và data.version từ server. Lookup 404 chỉ cho tạo khi appointment vẫn CHECKED_IN. IN_PROGRESS + 404 hiển thị lỗi dữ liệu và chặn tạo. Đã bỏ record-link/sessionStorage, không lưu quyền sở hữu/version/nội dung khám cục bộ.
+
+Playwright MCP **real D10 7/7 nhóm PASS** trên MySQL 8.4.11 cô lập, migrations V1–V9 success. Luồng CHECKED_IN → IN_PROGRESS → COMPLETED đã kiểm chứng bằng UI và HTTP thật. POST thực đã commit 201 rồi transport bị abort để thử mất response; UI lookup lại được hồ sơ mà không tạo lần hai. Reload và browser context độc lập tìm được hồ sơ khi sessionStorage rỗng. PATCH dùng version server, stale update 409 được tải lại trước retry; duplicate tạo 409; bản hoàn tất không sửa/hoàn tất lại được. PATIENT/ADMIN/RECEPTIONIST POST/PATCH/completion đều 403; doctor khác và PATIENT đọc nháp nhận 404; metadata staff không chứa nội dung lâm sàng; PATIENT self đọc bản COMPLETED thành công. Có negative 400/401 thật.
+
+**Vitest 219/219 PASS**, 12 files; lint, format:check và build PASS. Mock và real được kiểm tra riêng. Mock runner kiểm tra 7 nhóm UI/RBAC/error/theme/mobile/focus. Mock IN_PROGRESS lookup 404 kiểm tra thông báo lỗi dữ liệu và chặn tạo. Dữ liệu đều synthetic; không tạo screenshot/video/trace hoặc ghi credential/token vào evidence. Các thay đổi FE cũ được giữ nguyên, không chỉnh Backend/DB source hoặc migrations, không add/commit/push/merge/PR.
+
+[Real runner](tests/e2e/examination-real-runner.mjs) chạy trên Chrome CDP của [D10 host helper](tests/runtime/D10-Acceptance-Host.ps1), với Backend artifact bàn giao SHA-256 `2BDB7C3324408561482BDA6401ED993E31E15E4F28DC948024E131164D1B8482`, Vite `127.0.0.1:5192`, tất cả mock flags=false. Source QA D03 chỉ dùng làm dữ liệu nền để copy vào volume riêng; runtime kiểm thử là Backend D10 và DB V9. Source không đổi, ID 5 vẫn eligible. Runtime riêng được dừng sau QA, các volume được giữ lại. Credential Manager handoff chỉ dùng trong host/Chrome RAM, host log audit PASS.
+
+Để chạy lại mock, dùng Vite development với VITE_AUTH_MOCK=true, VITE_EXAMINATION_MOCK=true rồi gọi runExaminationMock(page, origin) từ [mock runner](tests/e2e/examination-mock-runner.mjs). Để chạy lại real, dùng StartClone của D10 helper, chạy real runner, Verify/Audit rồi Cleanup. Real runner có thể nhận existingAppointmentId của fixture QA đang CHECKED_IN để tiếp tục sau gián đoạn setup. Mọi thao tác ghi chỉ được chạy trên bản sao QA có scope được helper xác minh.
+
 **Auth D02 đã nghiệm thu đủ bốn role qua HTTP/MySQL thật: READY FOR COMMIT.** Playwright MCP đạt 32/32 nhóm scenario với PATIENT/ADMIN/DOCTOR/RECEPTIONIST; 21/21 unit/contract/mock tests được báo riêng. Xem [trạng thái contract](docs/auth-contract-status.md) và [QA thật](docs/qa/d02-real/README.md).
 
 ## CL-D05-FE — Sprint 1 integration QA

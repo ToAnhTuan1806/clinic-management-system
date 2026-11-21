@@ -76,10 +76,10 @@ export const navigation = [
   {
     path: '/medical-records',
     roles: ['DOCTOR'] as readonly Role[],
-    label: 'Hồ sơ bệnh án',
-    title: 'Hồ sơ bệnh án',
+    label: 'Khám bệnh',
+    title: 'Không gian khám bệnh',
     icon: ClipboardList,
-    description: 'Không gian dành cho hồ sơ khám và lịch sử điều trị.',
+    description: 'Hàng đợi và hồ sơ khám của bác sĩ.',
   },
   {
     path: '/profile',
