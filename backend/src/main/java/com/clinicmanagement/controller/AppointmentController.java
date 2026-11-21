@@ -68,4 +68,28 @@ public class AppointmentController {
             @Valid @RequestBody AppointmentCancelRequest request) {
         return new ApiResponse<>(appointmentService.cancelAppointment(actor, id, request));
     }
+
+    @PostMapping("/{id}/confirmation")
+    public ApiResponse<AppointmentResponse> confirm(
+            @AuthenticationPrincipal AuthenticatedUser actor,
+            @PathVariable @Positive Long id,
+            @Valid @RequestBody AppointmentTransitionRequest request) {
+        return new ApiResponse<>(appointmentService.confirmAppointment(actor, id, request));
+    }
+
+    @PostMapping("/{id}/check-in")
+    public ApiResponse<AppointmentResponse> checkIn(
+            @AuthenticationPrincipal AuthenticatedUser actor,
+            @PathVariable @Positive Long id,
+            @Valid @RequestBody AppointmentTransitionRequest request) {
+        return new ApiResponse<>(appointmentService.checkInAppointment(actor, id, request));
+    }
+
+    @PostMapping("/{id}/no-show")
+    public ApiResponse<AppointmentResponse> markNoShow(
+            @AuthenticationPrincipal AuthenticatedUser actor,
+            @PathVariable @Positive Long id,
+            @Valid @RequestBody AppointmentTransitionRequest request) {
+        return new ApiResponse<>(appointmentService.markNoShow(actor, id, request));
+    }
 }

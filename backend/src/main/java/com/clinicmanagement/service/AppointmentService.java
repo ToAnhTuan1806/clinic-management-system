@@ -5,6 +5,8 @@ import com.clinicmanagement.entity.*;
 import com.clinicmanagement.exception.ManagementException;
 import com.clinicmanagement.repository.*;
 import com.clinicmanagement.security.AuthenticatedUser;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -23,28 +25,34 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Optional;
 
 @Service
 @Transactional(readOnly = true)
 public class AppointmentService {
+    public static final ZoneId ZONE_VN = ZoneId.of("Asia/Ho_Chi_Minh");
     private final AppointmentRepository appointmentRepository;
     private final DoctorScheduleRepository scheduleRepository;
     private final DoctorRepository doctorRepository;
     private final PatientRepository patientRepository;
     private final UserRepository userRepository;
+    @PersistenceContext
+    private final EntityManager entityManager;
     private final SecureRandom random = new SecureRandom();
 
     public AppointmentService(AppointmentRepository appointmentRepository,
                               DoctorScheduleRepository scheduleRepository,
                               DoctorRepository doctorRepository,
                               PatientRepository patientRepository,
-                              UserRepository userRepository) {
+                              UserRepository userRepository,
+                              EntityManager entityManager) {
         this.appointmentRepository = appointmentRepository;
         this.scheduleRepository = scheduleRepository;
         this.doctorRepository = doctorRepository;
         this.patientRepository = patientRepository;
         this.userRepository = userRepository;
+        this.entityManager = entityManager;
     }
 
     @Transactional
@@ -485,6 +493,168 @@ public class AppointmentService {
         freshAppointment.cancel(actorUser, reason);
         try {
             Appointment saved = appointmentRepository.saveAndFlush(freshAppointment);
+            return AppointmentResponse.from(saved);
+        } catch (org.springframework.orm.ObjectOptimisticLockingFailureException | jakarta.persistence.OptimisticLockException ex) {
+            throw new ManagementException(HttpStatus.CONFLICT, "VERSION_CONFLICT", "Appointment has been modified by another concurrent transaction.");
+        }
+    }
+
+    @Transactional
+    @PreAuthorize("hasRole('RECEPTIONIST')")
+    public AppointmentResponse confirmAppointment(AuthenticatedUser actor, Long appointmentId, AppointmentTransitionRequest request) {
+        if (request == null) {
+            throw new ManagementException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "Request body is required.");
+        }
+        if (request.expectedVersion() == null || request.expectedVersion() < 0) {
+            throw new ManagementException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "Expected version must be a non-negative integer.");
+        }
+
+        Appointment appointment = appointmentRepository.findById(appointmentId)
+                .orElseThrow(ManagementException::missing);
+
+        doctorRepository.findLocked(appointment.getDoctor().getId()).orElseThrow(ManagementException::missing);
+        entityManager.refresh(appointment);
+        Appointment fresh = appointment;
+
+        if (!fresh.getVersion().equals(request.expectedVersion())) {
+            throw new ManagementException(HttpStatus.CONFLICT, "VERSION_CONFLICT",
+                    "Appointment version mismatch. Expected: " + request.expectedVersion() + ", actual: " + fresh.getVersion());
+        }
+
+        if (fresh.getStatus() != AppointmentStatus.PENDING) {
+            throw new ManagementException(HttpStatus.CONFLICT, "INVALID_STATE_TRANSITION",
+                    "Only PENDING appointments can be confirmed. Current status: " + fresh.getStatus());
+        }
+
+        if (!fresh.getStartAt().isAfter(Instant.now())) {
+            throw new ManagementException(HttpStatus.CONFLICT, "INVALID_STATE_TRANSITION",
+                    "Cannot confirm an appointment that has already started or passed.");
+        }
+
+        User actorUser = userRepository.findById(actor.id())
+                .orElseThrow(() -> new ManagementException(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", "User not found."));
+
+        fresh.confirm(actorUser);
+
+        try {
+            Appointment saved = appointmentRepository.saveAndFlush(fresh);
+            return AppointmentResponse.from(saved);
+        } catch (org.springframework.orm.ObjectOptimisticLockingFailureException | jakarta.persistence.OptimisticLockException ex) {
+            throw new ManagementException(HttpStatus.CONFLICT, "VERSION_CONFLICT", "Appointment has been modified by another concurrent transaction.");
+        }
+    }
+
+    @Transactional
+    @PreAuthorize("hasRole('RECEPTIONIST')")
+    public AppointmentResponse checkInAppointment(AuthenticatedUser actor, Long appointmentId, AppointmentTransitionRequest request) {
+        if (request == null) {
+            throw new ManagementException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "Request body is required.");
+        }
+        if (request.expectedVersion() == null || request.expectedVersion() < 0) {
+            throw new ManagementException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "Expected version must be a non-negative integer.");
+        }
+
+        Appointment appointment = appointmentRepository.findById(appointmentId)
+                .orElseThrow(ManagementException::missing);
+
+        doctorRepository.findLocked(appointment.getDoctor().getId()).orElseThrow(ManagementException::missing);
+        entityManager.refresh(appointment);
+        Appointment fresh = appointment;
+
+        // Check-in lặp: nếu đã CHECKED_IN, trả lịch hiện tại không ghi nhận thêm hoặc tăng version
+        if (fresh.getStatus() == AppointmentStatus.CHECKED_IN) {
+            if (request.expectedVersion() > fresh.getVersion()) {
+                throw new ManagementException(HttpStatus.CONFLICT, "VERSION_CONFLICT",
+                        "Appointment version mismatch. Expected: " + request.expectedVersion() + ", actual: " + fresh.getVersion());
+            }
+            return AppointmentResponse.from(fresh);
+        }
+
+        if (!fresh.getVersion().equals(request.expectedVersion())) {
+            throw new ManagementException(HttpStatus.CONFLICT, "VERSION_CONFLICT",
+                    "Appointment version mismatch. Expected: " + request.expectedVersion() + ", actual: " + fresh.getVersion());
+        }
+
+        if (fresh.getStatus() == AppointmentStatus.PENDING) {
+            throw new ManagementException(HttpStatus.CONFLICT, "INVALID_STATE_TRANSITION",
+                    "Cannot check in an appointment with status: PENDING. Appointment must be CONFIRMED first.");
+        }
+
+        if (fresh.getStatus() != AppointmentStatus.CONFIRMED) {
+            throw new ManagementException(HttpStatus.CONFLICT, "INVALID_STATE_TRANSITION",
+                    "Only CONFIRMED appointments can be checked in. Current status: " + fresh.getStatus());
+        }
+
+        Instant freshNow = Instant.now();
+        LocalDate freshTodayVn = freshNow.atZone(ZONE_VN).toLocalDate();
+        LocalDate freshAppointmentDateVn = fresh.getStartAt().atZone(ZONE_VN).toLocalDate();
+
+        if (!freshTodayVn.equals(freshAppointmentDateVn)) {
+            throw new ManagementException(HttpStatus.CONFLICT, "INVALID_STATE_TRANSITION",
+                    "Check-in is only allowed on the scheduled appointment date in Asia/Ho_Chi_Minh.");
+        }
+
+        if (!freshNow.isBefore(fresh.getEndAt())) {
+            throw new ManagementException(HttpStatus.CONFLICT, "INVALID_STATE_TRANSITION",
+                    "Cannot check in after appointment slot has ended.");
+        }
+
+        User actorUser = userRepository.findById(actor.id())
+                .orElseThrow(() -> new ManagementException(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", "User not found."));
+
+        fresh.checkIn(actorUser);
+
+        try {
+            Appointment saved = appointmentRepository.saveAndFlush(fresh);
+            return AppointmentResponse.from(saved);
+        } catch (org.springframework.orm.ObjectOptimisticLockingFailureException | jakarta.persistence.OptimisticLockException ex) {
+            throw new ManagementException(HttpStatus.CONFLICT, "VERSION_CONFLICT", "Appointment has been modified by another concurrent transaction.");
+        }
+    }
+
+    @Transactional
+    @PreAuthorize("hasRole('RECEPTIONIST')")
+    public AppointmentResponse markNoShow(AuthenticatedUser actor, Long appointmentId, AppointmentTransitionRequest request) {
+        if (request == null) {
+            throw new ManagementException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "Request body is required.");
+        }
+        if (request.expectedVersion() == null || request.expectedVersion() < 0) {
+            throw new ManagementException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "Expected version must be a non-negative integer.");
+        }
+
+        Appointment appointment = appointmentRepository.findById(appointmentId)
+                .orElseThrow(ManagementException::missing);
+
+        doctorRepository.findLocked(appointment.getDoctor().getId()).orElseThrow(ManagementException::missing);
+        entityManager.refresh(appointment);
+        Appointment fresh = appointment;
+
+        if (!fresh.getVersion().equals(request.expectedVersion())) {
+            throw new ManagementException(HttpStatus.CONFLICT, "VERSION_CONFLICT",
+                    "Appointment version mismatch. Expected: " + request.expectedVersion() + ", actual: " + fresh.getVersion());
+        }
+
+        if (fresh.getStatus() == AppointmentStatus.NO_SHOW) {
+            throw new ManagementException(HttpStatus.CONFLICT, "INVALID_STATE_TRANSITION", "Appointment is already marked as NO_SHOW.");
+        }
+
+        if (fresh.getStatus() != AppointmentStatus.CONFIRMED) {
+            throw new ManagementException(HttpStatus.CONFLICT, "INVALID_STATE_TRANSITION",
+                    "Only CONFIRMED appointments can be marked as NO_SHOW. Current status: " + fresh.getStatus());
+        }
+
+        if (!Instant.now().isAfter(fresh.getEndAt())) {
+            throw new ManagementException(HttpStatus.CONFLICT, "INVALID_STATE_TRANSITION",
+                    "Cannot mark appointment as NO_SHOW before the appointment slot has ended.");
+        }
+
+        User actorUser = userRepository.findById(actor.id())
+                .orElseThrow(() -> new ManagementException(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", "User not found."));
+
+        fresh.markNoShow(actorUser);
+
+        try {
+            Appointment saved = appointmentRepository.saveAndFlush(fresh);
             return AppointmentResponse.from(saved);
         } catch (org.springframework.orm.ObjectOptimisticLockingFailureException | jakarta.persistence.OptimisticLockException ex) {
             throw new ManagementException(HttpStatus.CONFLICT, "VERSION_CONFLICT", "Appointment has been modified by another concurrent transaction.");

@@ -1,0 +1,365 @@
+{
+  "info": {
+    "_postman_id": "c1-d09-reception-lifecycle-collection",
+    "name": "CL-D09 Reception Lifecycle QA",
+    "description": "Postman test suite for FR-08 Reception Lifecycle: appointment confirmation, check-in, and no-show operations, security role gating, concurrency, and idempotency.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8080",
+      "type": "string"
+    },
+    {
+      "key": "receptionistToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "adminToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "doctorToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "patientToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "targetAppointmentId",
+      "value": "1",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "01 Security & Role Gating",
+      "item": [
+        {
+          "name": "SEC-D09-01 Confirmation Unauthenticated -> 401",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expectedVersion\": 0\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/appointments/{{targetAppointmentId}}/confirmation",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "appointments", "{{targetAppointmentId}}", "confirmation"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "SEC-D09-02 Confirmation Doctor Role -> 403",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{doctorToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expectedVersion\": 0\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/appointments/{{targetAppointmentId}}/confirmation",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "appointments", "{{targetAppointmentId}}", "confirmation"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "SEC-D09-03 Confirmation Patient Role -> 403",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{patientToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expectedVersion\": 0\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/appointments/{{targetAppointmentId}}/confirmation",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "appointments", "{{targetAppointmentId}}", "confirmation"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "SEC-D09-04 Check-in Admin Role -> 403",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expectedVersion\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/appointments/{{targetAppointmentId}}/check-in",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "appointments", "{{targetAppointmentId}}", "check-in"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "SEC-D09-05 No-show Doctor Role -> 403",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{doctorToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expectedVersion\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/appointments/{{targetAppointmentId}}/no-show",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "appointments", "{{targetAppointmentId}}", "no-show"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "02 Functional Lifecycle",
+      "item": [
+        {
+          "name": "LIFE-D09-01 Receptionist Confirms Appointment (PENDING -> CONFIRMED)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{receptionistToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expectedVersion\": 0\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/appointments/{{targetAppointmentId}}/confirmation",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "appointments", "{{targetAppointmentId}}", "confirmation"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "LIFE-D09-02 Receptionist Check-in (CONFIRMED -> CHECKED_IN)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{receptionistToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expectedVersion\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/appointments/{{targetAppointmentId}}/check-in",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "appointments", "{{targetAppointmentId}}", "check-in"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "LIFE-D09-03 Idempotent Repeat Check-in Returns 200",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{receptionistToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expectedVersion\": 2\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/appointments/{{targetAppointmentId}}/check-in",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "appointments", "{{targetAppointmentId}}", "check-in"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "LIFE-D09-04 Receptionist Marks No-show on Confirmed Appointment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{receptionistToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expectedVersion\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/appointments/{{targetAppointmentId}}/no-show",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "appointments", "{{targetAppointmentId}}", "no-show"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "03 Negative Transitions & Concurrency",
+      "item": [
+        {
+          "name": "NEG-D09-01 Check-in Directly on PENDING -> 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{receptionistToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expectedVersion\": 0\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/appointments/{{targetAppointmentId}}/check-in",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "appointments", "{{targetAppointmentId}}", "check-in"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "NEG-D09-02 Confirmation on CANCELLED -> 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{receptionistToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expectedVersion\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/appointments/{{targetAppointmentId}}/confirmation",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "appointments", "{{targetAppointmentId}}", "confirmation"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "NEG-D09-03 Stale Version Conflict -> 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{receptionistToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expectedVersion\": 999\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/appointments/{{targetAppointmentId}}/check-in",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "appointments", "{{targetAppointmentId}}", "check-in"]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

@@ -79,6 +79,11 @@ public class SecurityConfig {
                             .hasAnyRole("ADMIN", "RECEPTIONIST")
                         .requestMatchers(HttpMethod.GET, "/api/v1/doctors/*/schedule-slots")
                             .hasAnyRole("ADMIN", "RECEPTIONIST", "DOCTOR", "PATIENT")
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/appointments/*/confirmation",
+                                "/api/v1/appointments/*/check-in",
+                                "/api/v1/appointments/*/no-show")
+                            .hasRole("RECEPTIONIST")
                         .requestMatchers(HttpMethod.POST, "/api/v1/appointments")
                             .hasAnyRole("RECEPTIONIST", "PATIENT")
                         .requestMatchers(HttpMethod.PATCH, "/api/v1/appointments/*/slot")
