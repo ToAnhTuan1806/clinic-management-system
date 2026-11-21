@@ -16,6 +16,12 @@ CREATE TABLE IF NOT EXISTS appointments (
     rescheduled_by BIGINT,
     previous_schedule_id BIGINT,
     previous_start_at_utc TIMESTAMP(6) WITH TIME ZONE,
+    confirmed_at TIMESTAMP(6) WITH TIME ZONE,
+    confirmed_by BIGINT,
+    checked_in_at TIMESTAMP(6) WITH TIME ZONE,
+    checked_in_by BIGINT,
+    no_show_at TIMESTAMP(6) WITH TIME ZONE,
+    no_show_by BIGINT,
     request_key VARCHAR(64) NOT NULL,
     request_fingerprint CHAR(64) NOT NULL,
     active_slot_start_utc TIMESTAMP(6) WITH TIME ZONE GENERATED ALWAYS AS (
@@ -34,5 +40,8 @@ CREATE TABLE IF NOT EXISTS appointments (
     CONSTRAINT fk_appointments_created_by FOREIGN KEY (created_by) REFERENCES users (id),
     CONSTRAINT fk_appointments_cancelled_by FOREIGN KEY (cancelled_by) REFERENCES users (id),
     CONSTRAINT fk_appointments_rescheduled_by FOREIGN KEY (rescheduled_by) REFERENCES users (id),
-    CONSTRAINT fk_appointments_previous_schedule FOREIGN KEY (previous_schedule_id) REFERENCES doctor_schedules (id)
+    CONSTRAINT fk_appointments_previous_schedule FOREIGN KEY (previous_schedule_id) REFERENCES doctor_schedules (id),
+    CONSTRAINT fk_appointments_confirmed_by FOREIGN KEY (confirmed_by) REFERENCES users (id),
+    CONSTRAINT fk_appointments_checked_in_by FOREIGN KEY (checked_in_by) REFERENCES users (id),
+    CONSTRAINT fk_appointments_no_show_by FOREIGN KEY (no_show_by) REFERENCES users (id)
 );
