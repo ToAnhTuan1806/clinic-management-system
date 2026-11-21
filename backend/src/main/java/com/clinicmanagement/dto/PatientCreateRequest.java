@@ -19,7 +19,7 @@ public record PatientCreateRequest(
         Boolean isActive
 ) {
     public PatientCreateRequest {
-        patientCode = CatalogValues.code(patientCode);
+        patientCode = CatalogValues.optionalText(CatalogValues.code(patientCode));
         fullName = CatalogValues.trim(fullName);
         phone = CatalogValues.optionalText(phone);
         address = CatalogValues.optionalText(address);

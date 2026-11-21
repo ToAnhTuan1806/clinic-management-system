@@ -15,6 +15,8 @@ import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
@@ -188,6 +190,52 @@ abstract class PatientAndProfileHttpTestSupport extends TestSecurityProperties {
         assertThat(patientUser.getEmail()).isEqualTo(actors.get(Role.PATIENT).getEmail());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"id", "email", "role", "status", "password", "passwordHash", "userId"})
+    void profileRejectsEachReadOnlyFieldWithoutChangingAccount(String field) throws Exception {
+        User original = users.findById(actors.get(Role.PATIENT).getId()).orElseThrow();
+        problem(call("PATCH", "/api/v1/me/profile",
+                Map.of("fullName", "Rejected Update", field, "1"), Role.PATIENT), 400, "HTTP_400");
+        User unchanged = users.findById(original.getId()).orElseThrow();
+        assertThat(unchanged.getFullName()).isEqualTo(original.getFullName());
+        assertThat(unchanged.getEmail()).isEqualTo(original.getEmail());
+        assertThat(unchanged.getRole()).isEqualTo(original.getRole());
+        assertThat(unchanged.getStatus()).isEqualTo(original.getStatus());
+        assertThat(Objects.equals(unchanged.getPasswordHash(), original.getPasswordHash())).isTrue();
+    }
+
+    @Test
+    void linkedPatientAndAccountProfilesStayIndependentInBothDirections() throws Exception {
+        String id = createPatient("PT_NO_SYNC", "Administrative Name", null, null,
+                "0901111111", "Administrative Address", true, actors.get(Role.PATIENT).getId());
+        var accountUpdate = call("PATCH", "/api/v1/me/profile", Map.of("fullName", "Account Name",
+                "phone", "0902222222", "address", "Account Address"), Role.PATIENT);
+        assertThat(accountUpdate.statusCode()).isEqualTo(200);
+        JsonNode patient = body(call("GET", "/api/v1/patients/" + id, null, Role.PATIENT)).path("data");
+        assertThat(patient.path("fullName").asString()).isEqualTo("Administrative Name");
+        assertThat(patient.path("phone").asString()).isEqualTo("0901111111");
+        assertThat(patient.path("address").asString()).isEqualTo("Administrative Address");
+
+        assertThat(call("PATCH", "/api/v1/patients/" + id, Map.of("fullName", "Changed Patient",
+                "phone", "0903333333", "address", "Changed Address"), Role.RECEPTIONIST).statusCode()).isEqualTo(200);
+        JsonNode account = body(call("GET", "/api/v1/me/profile", null, Role.PATIENT)).path("data");
+        assertThat(account.path("fullName").asString()).isEqualTo("Account Name");
+        assertThat(account.path("phone").asString()).isEqualTo("0902222222");
+        assertThat(account.path("address").asString()).isEqualTo("Account Address");
+    }
+
+    @Test
+    void profileFormClearsOmittedContactsAndRequiresFullName() throws Exception {
+        assertThat(call("PATCH", "/api/v1/me/profile", Map.of("fullName", "Form Name",
+                "phone", "0902222222", "address", "Form Address"), Role.PATIENT).statusCode()).isEqualTo(200);
+        problem(call("PATCH", "/api/v1/me/profile", Map.of("phone", "0903333333"), Role.PATIENT),
+                400, "VALIDATION_FAILED");
+        var response = call("PATCH", "/api/v1/me/profile", Map.of("fullName", "Form Name"), Role.PATIENT);
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(body(response).path("data").path("phone").isNull()).isTrue();
+        assertThat(body(response).path("data").path("address").isNull()).isTrue();
+    }
+
     // ==========================================
     // PATIENTS: GET /api/v1/patients
     // ==========================================
@@ -311,6 +359,26 @@ abstract class PatientAndProfileHttpTestSupport extends TestSecurityProperties {
         assertThat(response.statusCode()).isEqualTo(201);
         JsonNode data = body(response).path("data");
         assertThat(data.path("patientCode").asString()).startsWith("PAT");
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"   "})
+    void createPatientAutoGeneratesPatientCodeForNullOrBlankInput(String code) throws Exception {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("fullName", "Generated Code Patient");
+        payload.put("patientCode", code);
+        var response = call("POST", "/api/v1/patients", payload, Role.ADMIN);
+        assertThat(response.statusCode()).isEqualTo(201);
+        assertThat(body(response).path("data").path("patientCode").asString()).matches("PAT[0-9]{6,}");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"INVALID CODE", "PAT/001", "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567"})
+    void createPatientStillRejectsMalformedNonblankCodes(String code) throws Exception {
+        problem(call("POST", "/api/v1/patients", Map.of("fullName", "Invalid Code Patient",
+                "patientCode", code), Role.ADMIN), 400, "VALIDATION_FAILED");
+        assertThat(patients.count()).isZero();
     }
 
     @Test
@@ -529,6 +597,29 @@ abstract class PatientAndProfileHttpTestSupport extends TestSecurityProperties {
     void deletePatientIsForbidden() throws Exception {
         String id = createPatient("PT_NO_DEL", "No Delete", "1990-01-01", "MALE", "0911111111", "Addr", true, null);
         problem(call("DELETE", "/api/v1/patients/" + id, null, Role.ADMIN), 403, "ACCESS_DENIED");
+    }
+
+    @Test
+    void deactivationAndRestorationPreservePatientIdentityAndLinkedAccount() throws Exception {
+        User linked = actors.get(Role.PATIENT);
+        String id = createPatient("PT_RESTORE", "Preserved Patient", "1990-01-01", "OTHER",
+                "0901111111", "Preserved Address", true, linked.getId());
+        for (boolean active : List.of(false, true)) {
+            var response = call("PATCH", "/api/v1/patients/" + id, Map.of("isActive", active), Role.RECEPTIONIST);
+            assertThat(response.statusCode()).isEqualTo(200);
+            JsonNode data = body(response).path("data");
+            assertThat(data.path("id").asString()).isEqualTo(id);
+            assertThat(data.path("userId").asString()).isEqualTo(linked.getId().toString());
+            assertThat(data.path("patientCode").asString()).isEqualTo("PT_RESTORE");
+            assertThat(data.path("fullName").asString()).isEqualTo("Preserved Patient");
+            assertThat(data.path("phone").asString()).isEqualTo("0901111111");
+            assertThat(data.path("address").asString()).isEqualTo("Preserved Address");
+            assertThat(data.path("dateOfBirth").asString()).isEqualTo("1990-01-01");
+            assertThat(data.path("isActive").asBoolean()).isEqualTo(active);
+            assertThat(call("GET", "/api/v1/me/patient-profile", null, Role.PATIENT).statusCode()).isEqualTo(200);
+            assertThat(users.findById(linked.getId()).orElseThrow().getStatus()).isEqualTo(UserStatus.ACTIVE);
+            assertThat(patients.count()).isEqualTo(1);
+        }
     }
 
     // ==========================================
