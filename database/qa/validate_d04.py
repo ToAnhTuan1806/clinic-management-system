@@ -1,12 +1,12 @@
-"""Run D04 validation from a clean source checkout: python database/qa/validate_d04.py.
+"""Run D04-V4 validation from a clean source checkout: python database/qa/validate_d04.py.
 
 Requirements: Python 3.10+, Java 21, Docker Linux Engine/Compose, cached mysql:8.4,
 and Gradle-wrapper dependency access (network or cache). Windows and POSIX supported.
 Validates:
-1. Migration V1 -> V2 -> V3 upgrade, idempotency, validate.
-2. Patient schema, foreign keys, unique keys, check constraints.
+1. Migration V1 -> V2 -> V3 -> V4 upgrade, idempotency, validate.
+2. User profile contact fields (phone, address), constraints, data preservation.
 3. Isolated MySQL 8.4 instance, zero leakage to shared databases.
-4. Security & Privacy QA: synthetic fixtures only, cross-user privacy test design.
+4. Security & Quality: synthetic fixtures only, zero real data or secrets.
 """
 import argparse
 import hashlib
@@ -28,6 +28,7 @@ ROOT = Path(__file__).resolve().parents[2]
 V1 = 'V1__create_users.sql'
 V2 = 'V2__create_specialties_and_doctors.sql'
 V3 = 'V3__create_patients_and_profile_fields.sql'
+V4 = 'V4__add_profile_contact_fields_to_users.sql'
 
 
 def hash_file(path):
@@ -61,7 +62,8 @@ def source_context(revision):
 def preserved_files():
     paths = ['.gitignore', 'database/README.md', 'docs/qa/TEST_PLAN.md',
              'backend/src/main/resources/db/migration/V1__create_users.sql',
-             'backend/src/main/resources/db/migration/V2__create_specialties_and_doctors.sql']
+             'backend/src/main/resources/db/migration/V2__create_specialties_and_doctors.sql',
+             'backend/src/main/resources/db/migration/V3__create_patients_and_profile_fields.sql']
     return {name: hash_file(ROOT / name) for name in paths if (ROOT / name).is_file()}
 
 
@@ -74,13 +76,13 @@ def main():
     context = source_context(args.source_revision)
     baseline = preserved_files()
     run_id = uuid.uuid4().hex[:10]
-    work = Path(tempfile.mkdtemp(prefix='clinic-d04-runtime-'))
+    work = Path(tempfile.mkdtemp(prefix='clinic-d04v4-runtime-'))
     migration_dir = ROOT / 'backend/src/main/resources/db/migration'
 
-    expected_migrations = [V1, V2, V3]
+    expected_migrations = [V1, V2, V3, V4]
     actual_migrations = sorted(p.name for p in migration_dir.glob('*.sql'))
     if actual_migrations != expected_migrations:
-        raise RuntimeError(f'Expected exactly V1, V2, and V3 migrations, got: {actual_migrations}')
+        raise RuntimeError(f'Expected exactly V1, V2, V3, and V4 migrations, got: {actual_migrations}')
 
     for tool in ('docker', 'java'):
         if not shutil.which(tool):
@@ -93,8 +95,8 @@ def main():
     config = {'cliPluginsExtraDirs': [str(plugins)]} if plugins.is_dir() else {}
     (config_dir / 'config.json').write_text(json.dumps(config), encoding='utf-8')
     d = [str(docker), '--config', str(config_dir)]
-    project = 'clinic-d04-db-' + run_id
-    schema = 'clinic_d02_be_it_d04_' + run_id
+    project = 'clinic-d04v4-db-' + run_id
+    schema = 'clinic_d02_be_it_d04v4_' + run_id
 
     with socket.socket() as sock:
         sock.bind(('127.0.0.1', 0))
@@ -120,77 +122,68 @@ def main():
     gradle = ['cmd', '/c', str(ROOT / 'backend/gradlew.bat')] if os.name == 'nt' else ['sh', str(ROOT / 'backend/gradlew')]
 
     evidence = {
-        'task': 'CL-D04-DB',
+        'task': 'CL-D04-DB-V4',
         'utc': datetime.now(timezone.utc).isoformat(),
         'source': context,
         'project': project,
         'v1_sha256': hash_file(migration_dir / V1),
         'v2_sha256': hash_file(migration_dir / V2),
         'v3_sha256': hash_file(migration_dir / V3),
+        'v4_sha256': hash_file(migration_dir / V4),
         'baseline_file_count': len(baseline),
         'scope': 'Only a new isolated MySQL 8.4 instance; shared Clinic, staff fixtures and SmartExpense untouched',
-        'schema_v3': {
-            'table': 'patients',
-            'pk': 'id BIGINT signed AUTO_INCREMENT',
-            'user_id': 'BIGINT NULL UNIQUE FK users(id) RESTRICT',
-            'patient_code': 'VARCHAR(32) ascii_bin UNIQUE NOT NULL uppercase',
-            'full_name': 'VARCHAR(120) utf8mb4 NOT NULL trimmed non-empty',
-            'date_of_birth': 'DATE NULL',
-            'sex': 'VARCHAR(16) utf8mb4_0900_bin NULL CHECK FEMALE/MALE/OTHER/UNKNOWN',
-            'phone': 'VARCHAR(24) NULL not unique',
-            'address': 'VARCHAR(255) utf8mb4 NULL',
-            'is_active': 'BOOLEAN NOT NULL DEFAULT 1 CHECK IN (0,1)',
-            'created_at': 'DATETIME(6) UTC NOT NULL',
-            'updated_at': 'DATETIME(6) UTC NOT NULL',
-            'indexes': ['PRIMARY (id)', 'uk_patients_user (user_id)', 'uk_patients_code (patient_code)',
-                        'ix_patients_active_name_id (is_active, full_name, id)', 'ix_patients_phone (phone)']
-        },
-        'profile_fields_proposal': {
-            'status': 'PROPOSED_FOR_BACKEND_ALIGNMENT',
-            'fr_alignment': 'FR-02 Personal Profile & FR-05 Patient Profile',
-            'gap_analysis': 'V1 users table lacks contact phone; patients table provides phone for patient profile',
-            'proposal': 'Add users.phone VARCHAR(24) NULL in forward migration after Backend finalizes FR-02 DTO contract',
+        'schema_v4': {
+            'target_table': 'users',
+            'added_columns': {
+                'phone': 'VARCHAR(24) NULL not unique',
+                'address': 'VARCHAR(255) NULL not unique'
+            },
+            'added_constraints': [
+                'chk_users_phone: phone IS NULL OR (CHAR_LENGTH(TRIM(phone)) > 0 AND CAST(phone AS BINARY) = CAST(TRIM(phone) AS BINARY))',
+                'chk_users_address: address IS NULL OR CHAR_LENGTH(address) <= 255'
+            ],
             'rules': [
-                'V1 users remains byte-for-byte unchanged',
-                'No auto-sync between users.phone and patients.phone (shared family phones vs personal account phone)',
-                'No user linking by phone or email'
+                'phone and address are nullable',
+                'phone is not unique (family members may share contact number)',
+                'address is not unique',
+                'phone must be trimmed non-empty if provided (no blank or untrimmed strings)',
+                'address max length is 255 chars with UTF-8 Unicode support',
+                'no dummy default values',
+                'no default account creation',
+                'V1/V2/V3 preserved byte-for-byte',
+                'patients table completely unchanged',
+                'no auto-sync between users.phone and patients.phone',
+                'no auto-sync between users.address and patients.address',
+                'no auto-link between user and patient'
             ]
         },
-        'security_and_privacy_qa': {
+        'data_preservation': {
+            'existing_users_preserved': True,
+            'existing_users_phone_null': True,
+            'existing_users_address_null': True
+        },
+        'backend_handoff': {
+            'migration_name': V4,
+            'schema': 'ALTER TABLE users ADD COLUMN phone VARCHAR(24) NULL, ADD COLUMN address VARCHAR(255) NULL, ADD CONSTRAINT chk_users_phone CHECK (...), ADD CONSTRAINT chk_users_address CHECK (...)',
+            'user_entity_mapping': {
+                'phone_field': '@Column(name = "phone", length = 24) private String phone;',
+                'address_field': '@Column(name = "address", length = 255) private String address;'
+            },
+            'nullable_and_validation_rules': {
+                'phone': 'Nullable, optional, max 24 chars, must be trimmed, non-blank when provided',
+                'address': 'Nullable, optional, max 255 chars, UTF-8 Unicode supported'
+            },
+            'files_to_commit': [
+                'backend/src/main/resources/db/migration/V4__add_profile_contact_fields_to_users.sql',
+                'database/qa/D04DatabaseValidation.java',
+                'database/qa/validate_d04.py',
+                'docs/qa/evidence/CL-D04-DB-V4.json'
+            ]
+        },
+        'security_and_quality': {
             'synthetic_data_only': True,
-            'real_patient_data_present': False,
-            'credentials_or_jwt_in_evidence': False,
-            'cross_user_isolation_test_design': [
-                'PRIVACY-01: Authenticated patient user cannot access patient profile belonging to another user',
-                'PRIVACY-02: Unlinked patients (user_id IS NULL) cannot be claimed or accessed without staff authorization',
-                'PRIVACY-03: Doctor can only access administrative details of patients assigned via appointments',
-                'PRIVACY-04: Receptionist can query administrative patient info but cannot access clinical notes/records',
-                'PRIVACY-05: Anonymous requests to patient endpoints must be rejected with 401 AUTHENTICATION_REQUIRED',
-                'PRIVACY-06: Cross-user IDOR access attempts must return 404 or 403 without data leakage'
-            ],
-            'api_privacy_test_status': 'DESIGNED_PENDING_BACKEND_D04_API',
-            'notice': 'API privacy tests are designed for execution by Backend once D04 endpoints are implemented'
-        },
-        'hibernate_mapping_handoff': {
-            'entity_name': 'Patient',
-            'table_name': 'patients',
-            'fields': {
-                'id': '@Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;',
-                'user': '@OneToOne(fetch = FetchType.LAZY) @JoinColumn(name = "user_id", unique = true) private User user;',
-                'patientCode': '@Column(name = "patient_code", nullable = false, length = 32, unique = true) private String patientCode;',
-                'fullName': '@Column(name = "full_name", nullable = false, length = 120) private String fullName;',
-                'dateOfBirth': '@Column(name = "date_of_birth") private LocalDate dateOfBirth;',
-                'sex': '@Column(name = "sex", length = 16) private String sex;',
-                'phone': '@Column(name = "phone", length = 24) private String phone;',
-                'address': '@Column(name = "address", length = 255) private String address;',
-                'active': '@Column(name = "is_active", nullable = false) private boolean active;',
-                'createdAt': '@JdbcTypeCode(SqlTypes.TIMESTAMP) @Column(name = "created_at", nullable = false, updatable = false) private Instant createdAt;',
-                'updatedAt': '@JdbcTypeCode(SqlTypes.TIMESTAMP) @Column(name = "updated_at", nullable = false) private Instant updatedAt;'
-            }
-        },
-        'be_d04_backend_integration': {
-            'status': 'PENDING_BACKEND_D04_IMPLEMENTATION',
-            'reason': 'Backend D04 Patient API and entity mapping are not yet implemented; DB migration V3 and handoff specifications are ready'
+            'real_personal_data_present': False,
+            'credentials_or_jwt_in_evidence': False
         }
     }
 
@@ -234,7 +227,7 @@ def main():
         run(d + c + ['config', '--quiet'], 'compose_config')
         started = True
 
-        print('Starting isolated D04 MySQL QA instance on port ' + str(port), flush=True)
+        print('Starting isolated D04-V4 MySQL QA instance on port ' + str(port), flush=True)
         run(d + c + ['up', '-d', '--pull', 'never', '--wait', '--wait-timeout', '180', 'mysql'], 'mysql_start')
         cid = run(d + c + ['ps', '-q', 'mysql'], 'mysql_identity')
 
@@ -249,14 +242,14 @@ def main():
         if result.returncode:
             raise RuntimeError('New QA schema provisioning failed')
 
-        print('Executing D04 SQL migration, constraints, indexes, rollbacks, and handoff validation', flush=True)
+        print('Executing D04-V4 SQL migration, constraints, indexes, rollbacks, and handoff validation', flush=True)
         output = run(['java', '--class-path', str(libs / '*'), str(ROOT / 'database/qa/D04DatabaseValidation.java'),
-                      str(migration_dir)], 'd04_sql')
+                      str(migration_dir)], 'd04v4_sql')
 
-        evidence['sql_checks'] = [line for line in output.splitlines() if line.startswith(('PASS ', 'V3_FLYWAY_CHECKSUM=', 'D04_SUMMARY'))]
-        if not any(line.startswith('D04_SUMMARY') for line in evidence['sql_checks']):
+        evidence['sql_checks'] = [line for line in output.splitlines() if line.startswith(('PASS ', 'V4_FLYWAY_CHECKSUM=', 'D04_V4_SUMMARY'))]
+        if not any(line.startswith('D04_V4_SUMMARY') for line in evidence['sql_checks']):
             raise RuntimeError('SQL validator did not complete')
-        summary_line = next(line for line in evidence['sql_checks'] if line.startswith('D04_SUMMARY'))
+        summary_line = next(line for line in evidence['sql_checks'] if line.startswith('D04_V4_SUMMARY'))
         print(summary_line, flush=True)
 
         print('Running backend unit and security tests', flush=True)
@@ -267,7 +260,7 @@ def main():
     except Exception as error:
         evidence['result'] = 'BLOCKED'
         evidence['blocker'] = str(error) if isinstance(error, RuntimeError) else type(error).__name__
-        raise RuntimeError('D04 validation incomplete; see diagnostic logs') from None
+        raise RuntimeError('D04-V4 validation incomplete; see diagnostic logs') from None
     finally:
         if started:
             stopped = subprocess.run(d + c + ['stop', 'mysql'], cwd=ROOT, env=env, capture_output=True, text=True)
@@ -276,19 +269,19 @@ def main():
             if stopped.returncode:
                 evidence.update(result='BLOCKED', blocker='Unable to stop the newly created QA container')
 
-        evidence['v1_and_v2_preserved'] = all(hash_file(ROOT / p) == before for p, before in baseline.items())
-        evidence['v3_unchanged_after_apply'] = hash_file(migration_dir / V3) == evidence['v3_sha256']
-        if not evidence['v1_and_v2_preserved'] or not evidence['v3_unchanged_after_apply']:
+        evidence['v1_v2_v3_preserved'] = all(hash_file(ROOT / p) == before for p, before in baseline.items())
+        evidence['v4_unchanged_after_apply'] = hash_file(migration_dir / V4) == evidence['v4_sha256']
+        if not evidence['v1_v2_v3_preserved'] or not evidence['v4_unchanged_after_apply']:
             evidence.update(result='BLOCKED', blocker='File preservation check failed')
 
-        path = ROOT / 'docs/qa/evidence/CL-D04-DB.json'
+        path = ROOT / 'docs/qa/evidence/CL-D04-DB-V4.json'
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(evidence, indent=2) + '\n', encoding='utf-8')
 
         if evidence.get('result') != 'PASS':
-            raise RuntimeError('D04 validation blocked; see sanitized evidence') from None
+            raise RuntimeError('D04-V4 validation blocked; see sanitized evidence') from None
 
-    print('D04 validation PASS; V1/V2 byte-for-byte unchanged, V3 applied & validated', flush=True)
+    print('D04-V4 validation PASS; V1/V2/V3 byte-for-byte unchanged, V4 applied & validated', flush=True)
 
 
 if __name__ == '__main__':
