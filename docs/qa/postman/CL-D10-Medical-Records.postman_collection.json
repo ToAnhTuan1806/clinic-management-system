@@ -1,0 +1,651 @@
+{
+  "info": {
+    "name": "CL-D10 FR-09 Medical Record QA",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Real D10 DTO. POST creates an empty draft with appointmentId only. PATCH supplies clinical fields and integer expectedVersion. Sequential run captures returned IDs in local variables and asserts versions 0, 1, 2. Inject synthetic QA tokens in memory; never export credentials. Run only against a new isolated loopback QA runtime. Database failure injection and concurrent requests are covered by the isolated API runner."
+  },
+  "variable": [
+    {
+      "key": "assignedDoctorToken",
+      "value": ""
+    },
+    {
+      "key": "otherDoctorToken",
+      "value": ""
+    },
+    {
+      "key": "ownerPatientToken",
+      "value": ""
+    },
+    {
+      "key": "otherPatientToken",
+      "value": ""
+    },
+    {
+      "key": "adminToken",
+      "value": ""
+    },
+    {
+      "key": "receptionistToken",
+      "value": ""
+    },
+    {
+      "key": "draftRecordId",
+      "value": ""
+    },
+    {
+      "key": "completedRecordId",
+      "value": ""
+    },
+    {
+      "key": "uncompletedRecordId",
+      "value": ""
+    },
+    {
+      "key": "checkedInAppointmentId",
+      "value": ""
+    },
+    {
+      "key": "pendingAppointmentId",
+      "value": ""
+    },
+    {
+      "key": "confirmedAppointmentId",
+      "value": ""
+    },
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8080"
+    },
+    {
+      "key": "enableD10",
+      "value": "false"
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "if (pm.variables.get('enableD10') !== 'true') pm.execution.skipRequest();",
+          "if (!/^http:\\/\\/(127\\.0\\.0\\.1|localhost):[0-9]+$/.test(pm.variables.get('baseUrl'))) pm.execution.skipRequest();"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "01 Anonymous read rejected",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json, application/problem+json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/medical-records/{{uncompletedRecordId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Expected HTTP 401', () => pm.response.to.have.status(401));",
+              "pm.test('No credentials or stack traces', () => pm.expect(pm.response.text()).not.to.match(/passwordHash|password_hash|stackTrace/i));",
+              "pm.test('No clinical content in error', () => pm.expect(pm.response.text()).not.to.match(/Synthetic symptoms D10|Synthetic diagnosis D10|Synthetic notes D10|Synthetic conclusion D10/));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 Create CHECKED_IN draft",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json, application/problem+json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{assignedDoctorToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/medical-records",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"appointmentId\": \"{{checkedInAppointmentId}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Expected HTTP 201', () => pm.response.to.have.status(201));",
+              "pm.test('No credentials or stack traces', () => pm.expect(pm.response.text()).not.to.match(/passwordHash|password_hash|stackTrace/i));",
+              "const d = pm.response.json().data;",
+              "pm.test('No-store response', () => pm.expect(pm.response.headers.get('Cache-Control')).to.include('no-store'));",
+              "pm.test('String IDs', () => pm.expect(d.id).to.be.a('string'));",
+              "pm.variables.set('draftRecordId', d.id);",
+              "pm.test('Draft started examination', () => { pm.expect(d.status).to.eql('IN_PROGRESS'); pm.expect(d.version).to.eql(0); pm.expect(d.symptoms).to.eql(null); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 Duplicate create rejected",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json, application/problem+json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{assignedDoctorToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/medical-records",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"appointmentId\": \"{{checkedInAppointmentId}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Expected HTTP 409', () => pm.response.to.have.status(409));",
+              "pm.test('No credentials or stack traces', () => pm.expect(pm.response.text()).not.to.match(/passwordHash|password_hash|stackTrace/i));",
+              "pm.test('No clinical content in error', () => pm.expect(pm.response.text()).not.to.match(/Synthetic symptoms D10|Synthetic diagnosis D10|Synthetic notes D10|Synthetic conclusion D10/));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 PENDING create rejected",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json, application/problem+json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{assignedDoctorToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/medical-records",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"appointmentId\": \"{{pendingAppointmentId}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Expected HTTP 409', () => pm.response.to.have.status(409));",
+              "pm.test('No credentials or stack traces', () => pm.expect(pm.response.text()).not.to.match(/passwordHash|password_hash|stackTrace/i));",
+              "pm.test('No clinical content in error', () => pm.expect(pm.response.text()).not.to.match(/Synthetic symptoms D10|Synthetic diagnosis D10|Synthetic notes D10|Synthetic conclusion D10/));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 CONFIRMED create rejected",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json, application/problem+json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{assignedDoctorToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/medical-records",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"appointmentId\": \"{{confirmedAppointmentId}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Expected HTTP 409', () => pm.response.to.have.status(409));",
+              "pm.test('No credentials or stack traces', () => pm.expect(pm.response.text()).not.to.match(/passwordHash|password_hash|stackTrace/i));",
+              "pm.test('No clinical content in error', () => pm.expect(pm.response.text()).not.to.match(/Synthetic symptoms D10|Synthetic diagnosis D10|Synthetic notes D10|Synthetic conclusion D10/));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 Patch draft clinical content",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json, application/problem+json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{assignedDoctorToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/medical-records/{{draftRecordId}}",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"expectedVersion\": 0,\n  \"symptoms\": \"Synthetic symptoms D10\",\n  \"diagnosis\": \"Synthetic diagnosis D10\",\n  \"notes\": \"Synthetic notes D10\",\n  \"conclusion\": \"Synthetic conclusion D10\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Expected HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('No credentials or stack traces', () => pm.expect(pm.response.text()).not.to.match(/passwordHash|password_hash|stackTrace/i));",
+              "const d = pm.response.json().data;",
+              "pm.test('No-store response', () => pm.expect(pm.response.headers.get('Cache-Control')).to.include('no-store'));",
+              "pm.test('String IDs', () => pm.expect(d.id).to.be.a('string'));",
+              "pm.test('All four fields persisted', () => { pm.expect(d.version).to.eql(1); ['symptoms','diagnosis','notes','conclusion'].forEach(k => pm.expect(d[k]).to.eql('Synthetic '+k+' D10')); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "07 Stale version rejected",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json, application/problem+json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{assignedDoctorToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/medical-records/{{draftRecordId}}",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"expectedVersion\": 0,\n  \"notes\": \"Rejected synthetic update\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Expected HTTP 409', () => pm.response.to.have.status(409));",
+              "pm.test('No credentials or stack traces', () => pm.expect(pm.response.text()).not.to.match(/passwordHash|password_hash|stackTrace/i));",
+              "pm.test('No clinical content in error', () => pm.expect(pm.response.text()).not.to.match(/Synthetic symptoms D10|Synthetic diagnosis D10|Synthetic notes D10|Synthetic conclusion D10/));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "08 Complete examination",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json, application/problem+json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{assignedDoctorToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/medical-records/{{draftRecordId}}/completion",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"expectedVersion\": 1\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Expected HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('No credentials or stack traces', () => pm.expect(pm.response.text()).not.to.match(/passwordHash|password_hash|stackTrace/i));",
+              "const d = pm.response.json().data;",
+              "pm.test('No-store response', () => pm.expect(pm.response.headers.get('Cache-Control')).to.include('no-store'));",
+              "pm.test('String IDs', () => pm.expect(d.id).to.be.a('string'));",
+              "pm.variables.set('completedRecordId',d.id);",
+              "pm.test('Completion metadata', () => { pm.expect(d.status).to.eql('COMPLETED'); pm.expect(d.version).to.eql(2); pm.expect(d.completedAt).to.be.a('string'); pm.expect(d.completedBy).to.be.a('string'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "09 Completed record immutable",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json, application/problem+json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{assignedDoctorToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/medical-records/{{draftRecordId}}",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"expectedVersion\": 2,\n  \"notes\": \"Rejected completed update\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Expected HTTP 409', () => pm.response.to.have.status(409));",
+              "pm.test('No credentials or stack traces', () => pm.expect(pm.response.text()).not.to.match(/passwordHash|password_hash|stackTrace/i));",
+              "pm.test('No clinical content in error', () => pm.expect(pm.response.text()).not.to.match(/Synthetic symptoms D10|Synthetic diagnosis D10|Synthetic notes D10|Synthetic conclusion D10/));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "10 Other doctor cannot read",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json, application/problem+json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{otherDoctorToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/medical-records/{{draftRecordId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Expected HTTP 404', () => pm.response.to.have.status(404));",
+              "pm.test('No credentials or stack traces', () => pm.expect(pm.response.text()).not.to.match(/passwordHash|password_hash|stackTrace/i));",
+              "pm.test('No clinical content in error', () => pm.expect(pm.response.text()).not.to.match(/Synthetic symptoms D10|Synthetic diagnosis D10|Synthetic notes D10|Synthetic conclusion D10/));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "11 Other patient cannot read",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json, application/problem+json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{otherPatientToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/medical-records/by-appointment/{{checkedInAppointmentId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Expected HTTP 404', () => pm.response.to.have.status(404));",
+              "pm.test('No credentials or stack traces', () => pm.expect(pm.response.text()).not.to.match(/passwordHash|password_hash|stackTrace/i));",
+              "pm.test('No clinical content in error', () => pm.expect(pm.response.text()).not.to.match(/Synthetic symptoms D10|Synthetic diagnosis D10|Synthetic notes D10|Synthetic conclusion D10/));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "12 Owner cannot read draft",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json, application/problem+json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{ownerPatientToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/medical-records/{{uncompletedRecordId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Expected HTTP 404', () => pm.response.to.have.status(404));",
+              "pm.test('No credentials or stack traces', () => pm.expect(pm.response.text()).not.to.match(/passwordHash|password_hash|stackTrace/i));",
+              "pm.test('No clinical content in error', () => pm.expect(pm.response.text()).not.to.match(/Synthetic symptoms D10|Synthetic diagnosis D10|Synthetic notes D10|Synthetic conclusion D10/));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "13 Owner reads completed by appointment",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json, application/problem+json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{ownerPatientToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/medical-records/by-appointment/{{checkedInAppointmentId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Expected HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('No credentials or stack traces', () => pm.expect(pm.response.text()).not.to.match(/passwordHash|password_hash|stackTrace/i));",
+              "const d = pm.response.json().data;",
+              "pm.test('No-store response', () => pm.expect(pm.response.headers.get('Cache-Control')).to.include('no-store'));",
+              "pm.test('String IDs', () => pm.expect(d.id).to.be.a('string'));",
+              "pm.test('Owner sees completed clinical data', () => { pm.expect(d.id).to.eql(pm.variables.get('draftRecordId')); pm.expect(d.status).to.eql('COMPLETED'); pm.expect(d.notes).to.eql('Synthetic notes D10'); pm.expect(d.version).to.eql(2); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "14 Admin reads metadata only",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json, application/problem+json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/medical-records/by-appointment/{{checkedInAppointmentId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Expected HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('No credentials or stack traces', () => pm.expect(pm.response.text()).not.to.match(/passwordHash|password_hash|stackTrace/i));",
+              "const d = pm.response.json().data;",
+              "pm.test('No-store response', () => pm.expect(pm.response.headers.get('Cache-Control')).to.include('no-store'));",
+              "pm.test('String IDs', () => pm.expect(d.id).to.be.a('string'));",
+              "pm.test('Clinical fields omitted from metadata', () => ['symptoms','diagnosis','notes','conclusion'].forEach(k => pm.expect(d).not.to.have.property(k)));",
+              "pm.test('No clinical marker leaked', () => pm.expect(pm.response.text()).not.to.include('Synthetic notes D10'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "15 Receptionist reads metadata only",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json, application/problem+json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{receptionistToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/medical-records/{{draftRecordId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Expected HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('No credentials or stack traces', () => pm.expect(pm.response.text()).not.to.match(/passwordHash|password_hash|stackTrace/i));",
+              "const d = pm.response.json().data;",
+              "pm.test('No-store response', () => pm.expect(pm.response.headers.get('Cache-Control')).to.include('no-store'));",
+              "pm.test('String IDs', () => pm.expect(d.id).to.be.a('string'));",
+              "pm.test('Clinical fields omitted from metadata', () => ['symptoms','diagnosis','notes','conclusion'].forEach(k => pm.expect(d).not.to.have.property(k)));",
+              "pm.test('No clinical marker leaked', () => pm.expect(pm.response.text()).not.to.include('Synthetic notes D10'));"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
