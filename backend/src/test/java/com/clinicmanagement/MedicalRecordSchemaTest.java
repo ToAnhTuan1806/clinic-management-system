@@ -85,7 +85,7 @@ class MedicalRecordSchemaTest {
         String url = System.getenv("D10_FRESH_URL");
         MySqlTestDatabase.requireIsolatedUrl(url);
         var f = Flyway.configure().dataSource(url, System.getenv("DB_USERNAME"), System.getenv("DB_PASSWORD"))
-                .locations("classpath:db/migration").cleanDisabled(true).baselineOnMigrate(false).load();
+                .locations("classpath:db/migration").target("9").cleanDisabled(true).baselineOnMigrate(false).load();
         assertThat(f.migrate().migrationsExecuted).isEqualTo(9);
         assertThat(f.validateWithResult().validationSuccessful).isTrue();
         assertThat(f.migrate().migrationsExecuted).isZero();
