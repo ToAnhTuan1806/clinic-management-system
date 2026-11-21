@@ -5,6 +5,7 @@ import {
   Layers2,
   Settings2,
   Stethoscope,
+  UserRound,
   UsersRound,
 } from 'lucide-react'
 import type { Role } from '@/auth/types'
@@ -60,6 +61,14 @@ export const navigation = [
     title: 'Hồ sơ bệnh án',
     icon: ClipboardList,
     description: 'Không gian dành cho hồ sơ khám và lịch sử điều trị.',
+  },
+  {
+    path: '/profile',
+    roles: everyone,
+    label: 'Hồ sơ cá nhân',
+    title: 'Hồ sơ cá nhân',
+    icon: UserRound,
+    description: 'Quản lý thông tin tài khoản và hồ sơ liên kết.',
   },
   {
     path: '/settings',
