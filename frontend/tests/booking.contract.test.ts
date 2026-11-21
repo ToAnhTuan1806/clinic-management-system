@@ -6,7 +6,11 @@ import {
   bookingErrorMessage,
   bookingMessage,
   canChangeOrCancelAppointment,
+  canCheckInAppointment,
+  canConfirmAppointment,
+  canMarkNoShowAppointment,
   generateRequestKey,
+  validateActionDraft,
   validateBookingDraft,
   validateCancelDraft,
   validateChangeSlotDraft,
@@ -793,6 +797,299 @@ describe('Patient Appointment Booking Contract & Domain Unit Tests (Sprint 2 - D
         name: 'BookingError',
         code: 'INVALID_STATE_TRANSITION',
         status: 409,
+      })
+    })
+  })
+
+  describe('Receptionist Desk Actions & Validation (Sprint 2 - D09)', () => {
+    describe('validateActionDraft', () => {
+      it('accepts valid AppointmentActionDraft', () => {
+        const errors = validateActionDraft({
+          appointmentId: '123',
+          expectedVersion: 0,
+        })
+        expect(Object.keys(errors)).toHaveLength(0)
+      })
+
+      it('rejects missing or non-numeric appointmentId', () => {
+        expect(
+          validateActionDraft({ appointmentId: '', expectedVersion: 0 })
+            .appointmentId,
+        ).toBe('Mã cuộc hẹn không hợp lệ.')
+        expect(
+          validateActionDraft({ appointmentId: 'abc', expectedVersion: 0 })
+            .appointmentId,
+        ).toBe('Mã cuộc hẹn không hợp lệ.')
+      })
+
+      it('rejects negative or missing expectedVersion', () => {
+        expect(
+          validateActionDraft({ appointmentId: '10', expectedVersion: -1 })
+            .expectedVersion,
+        ).toBe('Phiên bản dữ liệu (version) không hợp lệ.')
+        expect(
+          validateActionDraft({ appointmentId: '10' }).expectedVersion,
+        ).toBe('Phiên bản dữ liệu (version) không hợp lệ.')
+      })
+    })
+
+    describe('Receptionist Permission Helpers', () => {
+      const baseApp: Appointment = {
+        id: '50',
+        appointmentCode: 'APT_20291125_050',
+        patientId: '10',
+        doctorId: '1',
+        doctorName: 'BS. Tuấn',
+        scheduleId: '1',
+        startAt: '2029-11-25T01:00:00.000Z',
+        endAt: '2029-11-25T01:30:00.000Z',
+        status: 'PENDING',
+        version: 0,
+        createdAt: '2029-11-20T00:00:00.000Z',
+        updatedAt: '2029-11-20T00:00:00.000Z',
+      }
+
+      it('canConfirmAppointment allows RECEPTIONIST for PENDING appointments', () => {
+        expect(canConfirmAppointment(baseApp, 'RECEPTIONIST').allowed).toBe(
+          true,
+        )
+        expect(canConfirmAppointment(baseApp, 'PATIENT').allowed).toBe(false)
+        expect(
+          canConfirmAppointment(
+            { ...baseApp, status: 'CONFIRMED' },
+            'RECEPTIONIST',
+          ).allowed,
+        ).toBe(false)
+      })
+
+      it('canCheckInAppointment allows RECEPTIONIST for CONFIRMED appointments', () => {
+        const confirmedApp: Appointment = { ...baseApp, status: 'CONFIRMED' }
+        expect(
+          canCheckInAppointment(confirmedApp, 'RECEPTIONIST').allowed,
+        ).toBe(true)
+        expect(canCheckInAppointment(baseApp, 'RECEPTIONIST').allowed).toBe(
+          false,
+        )
+        expect(canCheckInAppointment(confirmedApp, 'PATIENT').allowed).toBe(
+          false,
+        )
+      })
+
+      it('canMarkNoShowAppointment allows RECEPTIONIST for past appointments', () => {
+        const pastApp: Appointment = {
+          ...baseApp,
+          status: 'CONFIRMED',
+          startAt: new Date(Date.now() - 3600000).toISOString(),
+          endAt: new Date(Date.now() - 1800000).toISOString(),
+        }
+        expect(canMarkNoShowAppointment(pastApp, 'RECEPTIONIST').allowed).toBe(
+          true,
+        )
+        expect(canMarkNoShowAppointment(pastApp, 'PATIENT').allowed).toBe(false)
+
+        const futureApp: Appointment = {
+          ...baseApp,
+          status: 'CONFIRMED',
+          startAt: new Date(Date.now() + 3600000).toISOString(),
+          endAt: new Date(Date.now() + 5400000).toISOString(),
+        }
+        expect(
+          canMarkNoShowAppointment(futureApp, 'RECEPTIONIST').allowed,
+        ).toBe(false)
+      })
+    })
+
+    describe('API Contract calls for D09 endpoints', () => {
+      it('confirmAppointment sends POST /api/v1/appointments/{id}/confirmation with { expectedVersion }', async () => {
+        let capturedUrl = ''
+        let capturedPayload: unknown = null
+
+        const fakeClient = {
+          post: async (url: string, payload: unknown) => {
+            capturedUrl = url
+            capturedPayload = payload
+            return {
+              data: {
+                data: {
+                  id: '10',
+                  appointmentCode: 'APT_CONFIRM_001',
+                  patientId: '1',
+                  doctorId: '2',
+                  scheduleId: '3',
+                  startAt: '2029-12-01T08:00:00Z',
+                  endAt: '2029-12-01T08:30:00Z',
+                  status: 'CONFIRMED',
+                  version: 1,
+                  confirmedAt: '2029-11-21T10:00:00Z',
+                  confirmedBy: 'receptionist_1',
+                  createdAt: '2029-11-20T00:00:00Z',
+                  updatedAt: '2029-11-21T10:00:00Z',
+                },
+              },
+            }
+          },
+        } as unknown as AxiosInstance
+
+        const api = createBookingApi(fakeClient)
+        const result = await api.confirmAppointment({
+          appointmentId: '10',
+          expectedVersion: 0,
+        })
+
+        expect(capturedUrl).toBe('/api/v1/appointments/10/confirmation')
+        expect(capturedPayload).toEqual({ expectedVersion: 0 })
+        expect(result.status).toBe('CONFIRMED')
+        expect(result.version).toBe(1)
+        expect(result.confirmedAt).toBe('2029-11-21T10:00:00Z')
+        expect(result.confirmedBy).toBe('receptionist_1')
+      })
+
+      it('checkInAppointment sends POST /api/v1/appointments/{id}/check-in with { expectedVersion }', async () => {
+        let capturedUrl = ''
+        let capturedPayload: unknown = null
+
+        const fakeClient = {
+          post: async (url: string, payload: unknown) => {
+            capturedUrl = url
+            capturedPayload = payload
+            return {
+              data: {
+                data: {
+                  id: '10',
+                  appointmentCode: 'APT_CHECKIN_001',
+                  patientId: '1',
+                  doctorId: '2',
+                  scheduleId: '3',
+                  startAt: '2029-12-01T08:00:00Z',
+                  endAt: '2029-12-01T08:30:00Z',
+                  status: 'CHECKED_IN',
+                  version: 2,
+                  checkedInAt: '2029-11-21T10:15:00Z',
+                  checkedInBy: 'receptionist_1',
+                  createdAt: '2029-11-20T00:00:00Z',
+                  updatedAt: '2029-11-21T10:15:00Z',
+                },
+              },
+            }
+          },
+        } as unknown as AxiosInstance
+
+        const api = createBookingApi(fakeClient)
+        const result = await api.checkInAppointment({
+          appointmentId: '10',
+          expectedVersion: 1,
+        })
+
+        expect(capturedUrl).toBe('/api/v1/appointments/10/check-in')
+        expect(capturedPayload).toEqual({ expectedVersion: 1 })
+        expect(result.status).toBe('CHECKED_IN')
+        expect(result.version).toBe(2)
+        expect(result.checkedInAt).toBe('2029-11-21T10:15:00Z')
+        expect(result.checkedInBy).toBe('receptionist_1')
+      })
+
+      it('markNoShow sends POST /api/v1/appointments/{id}/no-show with { expectedVersion }', async () => {
+        let capturedUrl = ''
+        let capturedPayload: unknown = null
+
+        const fakeClient = {
+          post: async (url: string, payload: unknown) => {
+            capturedUrl = url
+            capturedPayload = payload
+            return {
+              data: {
+                data: {
+                  id: '10',
+                  appointmentCode: 'APT_NOSHOW_001',
+                  patientId: '1',
+                  doctorId: '2',
+                  scheduleId: '3',
+                  startAt: '2029-12-01T08:00:00Z',
+                  endAt: '2029-12-01T08:30:00Z',
+                  status: 'NO_SHOW',
+                  version: 2,
+                  noShowAt: '2029-11-21T11:00:00Z',
+                  noShowBy: 'receptionist_1',
+                  createdAt: '2029-11-20T00:00:00Z',
+                  updatedAt: '2029-11-21T11:00:00Z',
+                },
+              },
+            }
+          },
+        } as unknown as AxiosInstance
+
+        const api = createBookingApi(fakeClient)
+        const result = await api.markNoShow({
+          appointmentId: '10',
+          expectedVersion: 1,
+        })
+
+        expect(capturedUrl).toBe('/api/v1/appointments/10/no-show')
+        expect(capturedPayload).toEqual({ expectedVersion: 1 })
+        expect(result.status).toBe('NO_SHOW')
+        expect(result.version).toBe(2)
+        expect(result.noShowAt).toBe('2029-11-21T11:00:00Z')
+        expect(result.noShowBy).toBe('receptionist_1')
+      })
+
+      it('maps 409 VERSION_CONFLICT on D09 action to BookingError', async () => {
+        const fakeClient = {
+          post: async () => {
+            const err = new Error('Version conflict') as unknown as {
+              response: { status: number; data: unknown }
+            }
+            err.response = {
+              status: 409,
+              data: {
+                code: 'VERSION_CONFLICT',
+                detail: 'Dữ liệu đã được cập nhật bởi một phiên khác.',
+              },
+            }
+            throw err
+          },
+        } as unknown as AxiosInstance
+
+        const api = createBookingApi(fakeClient)
+        await expect(
+          api.markNoShow({
+            appointmentId: '10',
+            expectedVersion: 0,
+          }),
+        ).rejects.toMatchObject({
+          name: 'BookingError',
+          code: 'VERSION_CONFLICT',
+          status: 409,
+        })
+      })
+
+      it('maps 409 INVALID_STATE_TRANSITION on D09 action to BookingError', async () => {
+        const fakeClient = {
+          post: async () => {
+            const err = new Error('Invalid state') as unknown as {
+              response: { status: number; data: unknown }
+            }
+            err.response = {
+              status: 409,
+              data: {
+                code: 'INVALID_STATE_TRANSITION',
+                detail: 'Không thể chuyển đổi trạng thái.',
+              },
+            }
+            throw err
+          },
+        } as unknown as AxiosInstance
+
+        const api = createBookingApi(fakeClient)
+        await expect(
+          api.checkInAppointment({
+            appointmentId: '10',
+            expectedVersion: 0,
+          }),
+        ).rejects.toMatchObject({
+          name: 'BookingError',
+          code: 'INVALID_STATE_TRANSITION',
+          status: 409,
+        })
       })
     })
   })

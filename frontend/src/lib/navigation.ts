@@ -6,6 +6,7 @@ import {
   Layers2,
   Settings2,
   Stethoscope,
+  UserCheck,
   UserRound,
   UsersRound,
 } from 'lucide-react'
@@ -62,6 +63,15 @@ export const navigation = [
     title: 'Quản lý lịch hẹn',
     icon: CalendarDays,
     description: 'Theo dõi lịch khám và điều phối các cuộc hẹn.',
+  },
+  {
+    path: '/reception/appointments',
+    roles: ['RECEPTIONIST'] as readonly Role[],
+    label: 'Tiếp đón',
+    title: 'Bàn tiếp đón & Điều phối lịch khám',
+    icon: UserCheck,
+    description:
+      'Quản lý lịch hẹn hôm nay, tiếp đón, xác nhận và xử lý vắng mặt.',
   },
   {
     path: '/medical-records',

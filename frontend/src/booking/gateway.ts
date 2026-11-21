@@ -15,6 +15,9 @@ export const pendingBookingGateway: BookingGateway = {
   listAppointments: unavailable,
   changeSlot: unavailable,
   cancelAppointment: unavailable,
+  confirmAppointment: unavailable,
+  checkInAppointment: unavailable,
+  markNoShow: unavailable,
 }
 
 export const isBookingMock =

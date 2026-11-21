@@ -263,6 +263,9 @@ describe('MOCK — FE routing policy and D02 validation', () => {
     expect(canAccessPath('DOCTOR', '/patients')).toBe(false)
     expect(canAccessPath('RECEPTIONIST', '/medical-records')).toBe(false)
     expect(canAccessPath('ADMIN', '/patients')).toBe(true)
+    expect(canAccessPath('RECEPTIONIST', '/reception/appointments')).toBe(true)
+    expect(canAccessPath('PATIENT', '/reception/appointments')).toBe(false)
+    expect(canAccessPath('DOCTOR', '/reception/appointments')).toBe(false)
     expect(canAccessPath('PATIENT', '//other.clinic.test')).toBe(false)
   })
   it('validates client fields against the D02 limits', () => {

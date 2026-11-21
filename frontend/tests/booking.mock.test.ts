@@ -468,4 +468,347 @@ describe('Patient Appointment Booking Mock Gateway Tests (Sprint 2 - D07)', () =
       })
     })
   })
+
+  describe('RECEPTIONIST Desk Operations (Sprint 2 - D09)', () => {
+    describe('confirmAppointment', () => {
+      it('allows RECEPTIONIST to confirm a PENDING appointment', async () => {
+        login('RECEPTIONIST', '200', 'Lễ Tân Hoa')
+        const gateway = createBookingMock()
+
+        // App 101 is initialized as PENDING for today
+        const confirmed = await gateway.confirmAppointment({
+          appointmentId: '101',
+          expectedVersion: 0,
+        })
+
+        expect(confirmed.status).toBe('CONFIRMED')
+        expect(confirmed.confirmedAt).toBeDefined()
+        expect(confirmed.confirmedBy).toBe('200')
+        expect(confirmed.version).toBe(1)
+      })
+
+      it('rejects confirmation by PATIENT with 403 FORBIDDEN', async () => {
+        login('PATIENT', '10', 'Bệnh Nhân')
+        const gateway = createBookingMock()
+
+        await expect(
+          gateway.confirmAppointment({
+            appointmentId: '101',
+            expectedVersion: 0,
+          }),
+        ).rejects.toMatchObject({
+          name: 'BookingError',
+          code: 'FORBIDDEN',
+          status: 403,
+        })
+      })
+
+      it('rejects confirmation with stale expectedVersion (409 VERSION_CONFLICT)', async () => {
+        login('RECEPTIONIST', '200', 'Lễ Tân')
+        const gateway = createBookingMock()
+
+        await expect(
+          gateway.confirmAppointment({
+            appointmentId: '101',
+            expectedVersion: 99,
+          }),
+        ).rejects.toMatchObject({
+          name: 'BookingError',
+          code: 'VERSION_CONFLICT',
+          status: 409,
+        })
+      })
+
+      it('rejects confirming appointment that is already CONFIRMED (409 INVALID_STATE_TRANSITION)', async () => {
+        login('RECEPTIONIST', '200', 'Lễ Tân')
+        const gateway = createBookingMock()
+
+        // App 102 is initialized as CONFIRMED
+        await expect(
+          gateway.confirmAppointment({
+            appointmentId: '102',
+            expectedVersion: 0,
+          }),
+        ).rejects.toMatchObject({
+          name: 'BookingError',
+          code: 'INVALID_STATE_TRANSITION',
+          status: 409,
+        })
+      })
+    })
+
+    describe('checkInAppointment', () => {
+      it('allows RECEPTIONIST to check-in a CONFIRMED appointment', async () => {
+        login('RECEPTIONIST', '200', 'Lễ Tân')
+        const gateway = createBookingMock()
+
+        const checkedIn = await gateway.checkInAppointment({
+          appointmentId: '102',
+          expectedVersion: 0,
+        })
+
+        expect(checkedIn.status).toBe('CHECKED_IN')
+        expect(checkedIn.checkedInAt).toBeDefined()
+        expect(checkedIn.checkedInBy).toBe('200')
+        expect(checkedIn.version).toBe(1)
+      })
+
+      it('supports idempotent check-in: returns current record if already CHECKED_IN', async () => {
+        login('RECEPTIONIST', '200', 'Lễ Tân')
+        const gateway = createBookingMock()
+
+        // App 104 is initialized as CHECKED_IN
+        const idempotentRes = await gateway.checkInAppointment({
+          appointmentId: '104',
+          expectedVersion: 0,
+        })
+
+        expect(idempotentRes.status).toBe('CHECKED_IN')
+      })
+
+      it('rejects check-in for PENDING appointment (409 INVALID_STATE_TRANSITION)', async () => {
+        login('RECEPTIONIST', '200', 'Lễ Tân')
+        const gateway = createBookingMock()
+
+        await expect(
+          gateway.checkInAppointment({
+            appointmentId: '101', // PENDING
+            expectedVersion: 0,
+          }),
+        ).rejects.toMatchObject({
+          name: 'BookingError',
+          code: 'INVALID_STATE_TRANSITION',
+          status: 409,
+        })
+      })
+
+      it('rejects check-in by PATIENT role with 403 FORBIDDEN', async () => {
+        login('PATIENT', '10', 'Bệnh Nhân')
+        const gateway = createBookingMock()
+
+        await expect(
+          gateway.checkInAppointment({
+            appointmentId: '102',
+            expectedVersion: 0,
+          }),
+        ).rejects.toMatchObject({
+          name: 'BookingError',
+          code: 'FORBIDDEN',
+          status: 403,
+        })
+      })
+
+      it('rejects check-in with stale expectedVersion (409 VERSION_CONFLICT)', async () => {
+        login('RECEPTIONIST', '200', 'Lễ Tân')
+        const gateway = createBookingMock()
+
+        await expect(
+          gateway.checkInAppointment({
+            appointmentId: '102',
+            expectedVersion: 50,
+          }),
+        ).rejects.toMatchObject({
+          name: 'BookingError',
+          code: 'VERSION_CONFLICT',
+          status: 409,
+        })
+      })
+    })
+
+    describe('markNoShow', () => {
+      it('allows RECEPTIONIST to mark an appointment as NO_SHOW (status NO_SHOW, records noShowAt and noShowBy, increments version once)', async () => {
+        login('RECEPTIONIST', '200', 'Lễ Tân')
+        const gateway = createBookingMock()
+
+        const res = await gateway.markNoShow({
+          appointmentId: '103',
+          expectedVersion: 0,
+        })
+
+        expect(res.status).toBe('NO_SHOW')
+        expect(res.noShowAt).toBeDefined()
+        expect(res.noShowBy).toBe('200')
+        expect(res.version).toBe(1)
+      })
+
+      it('does NOT release the slot when marked as NO_SHOW (active slot remains occupied, rejects rebooking with 409 SLOT_UNAVAILABLE)', async () => {
+        login('PATIENT', '10', 'Bệnh Nhân A')
+        const gateway = createBookingMock()
+
+        // 1. Patient books an appointment
+        const app = await gateway.bookAppointment(validDraft)
+
+        // 2. Receptionist confirms then marks NO_SHOW
+        login('RECEPTIONIST', '200', 'Lễ Tân')
+        await gateway.confirmAppointment({
+          appointmentId: app.id,
+          expectedVersion: 0,
+        })
+        await gateway.markNoShow({
+          appointmentId: app.id,
+          expectedVersion: 1,
+        })
+
+        // 3. Another attempt to book the same slot must fail with 409 SLOT_UNAVAILABLE
+        login('PATIENT', '11', 'Bệnh Nhân B')
+        await expect(
+          gateway.bookAppointment({
+            ...validDraft,
+            requestKey: 'req_try_occupy_noshow_slot',
+          }),
+        ).rejects.toMatchObject({
+          name: 'BookingError',
+          code: 'SLOT_UNAVAILABLE',
+          status: 409,
+        })
+      })
+
+      it('releases the active slot when CANCELLED (rebooking slot succeeds)', async () => {
+        login('PATIENT', '10', 'Bệnh Nhân A')
+        const gateway = createBookingMock()
+
+        // 1. Patient books appointment on futureSlot2
+        const app = await gateway.bookAppointment({
+          ...validDraft,
+          slot: futureSlot2,
+          requestKey: 'req_slot2_test',
+        })
+
+        // 2. Patient cancels the appointment
+        await gateway.cancelAppointment({
+          appointmentId: app.id,
+          reason: 'Bận việc gia đình',
+          expectedVersion: 0,
+        })
+
+        // 3. Rebooking the cancelled slot now succeeds
+        login('PATIENT', '12', 'Bệnh Nhân C')
+        const rebooked = await gateway.bookAppointment({
+          ...validDraft,
+          slot: futureSlot2,
+          requestKey: 'req_slot2_rebooked',
+        })
+
+        expect(rebooked.status).toBe('PENDING')
+        expect(rebooked.startAt).toBe(futureSlot2.startsAt)
+      })
+
+      it('rejects check-in on an appointment with status NO_SHOW (409 INVALID_STATE_TRANSITION)', async () => {
+        login('RECEPTIONIST', '200', 'Lễ Tân')
+        const gateway = createBookingMock()
+
+        // Mark 103 as NO_SHOW
+        const noShowApp = await gateway.markNoShow({
+          appointmentId: '103',
+          expectedVersion: 0,
+        })
+        expect(noShowApp.status).toBe('NO_SHOW')
+
+        // Cannot check-in a NO_SHOW appointment
+        await expect(
+          gateway.checkInAppointment({
+            appointmentId: '103',
+            expectedVersion: 1,
+          }),
+        ).rejects.toMatchObject({
+          name: 'BookingError',
+          code: 'INVALID_STATE_TRANSITION',
+          status: 409,
+        })
+      })
+
+      it('rejects marking NO_SHOW on an appointment that is already CHECKED_IN (409 INVALID_STATE_TRANSITION)', async () => {
+        login('RECEPTIONIST', '200', 'Lễ Tân')
+        const gateway = createBookingMock()
+
+        // App 104 is initialized as CHECKED_IN with version = 1
+        await expect(
+          gateway.markNoShow({
+            appointmentId: '104',
+            expectedVersion: 1,
+          }),
+        ).rejects.toMatchObject({
+          name: 'BookingError',
+          code: 'INVALID_STATE_TRANSITION',
+          status: 409,
+        })
+      })
+
+      it('rejects markNoShow by PATIENT with 403 FORBIDDEN', async () => {
+        login('PATIENT', '10', 'Bệnh Nhân')
+        const gateway = createBookingMock()
+
+        await expect(
+          gateway.markNoShow({
+            appointmentId: '103',
+            expectedVersion: 0,
+          }),
+        ).rejects.toMatchObject({
+          name: 'BookingError',
+          code: 'FORBIDDEN',
+          status: 403,
+        })
+      })
+
+      it('rejects markNoShow with stale expectedVersion (409 VERSION_CONFLICT)', async () => {
+        login('RECEPTIONIST', '200', 'Lễ Tân')
+        const gateway = createBookingMock()
+
+        await expect(
+          gateway.markNoShow({
+            appointmentId: '103',
+            expectedVersion: 99,
+          }),
+        ).rejects.toMatchObject({
+          name: 'BookingError',
+          code: 'VERSION_CONFLICT',
+          status: 409,
+        })
+      })
+
+      it('does not modify metadata when markNoShow fails due to version conflict or forbidden', async () => {
+        login('RECEPTIONIST', '200', 'Lễ Tân')
+        const gateway = createBookingMock()
+
+        const before = await gateway.getAppointment('103')
+
+        // 1. Failure on version conflict
+        await expect(
+          gateway.markNoShow({
+            appointmentId: '103',
+            expectedVersion: 999,
+          }),
+        ).rejects.toMatchObject({
+          code: 'VERSION_CONFLICT',
+          status: 409,
+        })
+
+        const afterConflict = await gateway.getAppointment('103')
+        expect(afterConflict.status).toBe(before.status)
+        expect(afterConflict.version).toBe(before.version)
+        expect(afterConflict.noShowAt).toBe(before.noShowAt)
+        expect(afterConflict.noShowBy).toBe(before.noShowBy)
+
+        // 2. Failure on forbidden role
+        login('PATIENT', '10', 'Bệnh Nhân')
+        await expect(
+          gateway.markNoShow({
+            appointmentId: '103',
+            expectedVersion: 0,
+          }),
+        ).rejects.toMatchObject({
+          code: 'FORBIDDEN',
+          status: 403,
+        })
+
+        // Switch back to RECEPTIONIST to inspect appointment
+        login('RECEPTIONIST', '200', 'Lễ Tân')
+        const afterForbidden = await gateway.getAppointment('103')
+        expect(afterForbidden.status).toBe(before.status)
+        expect(afterForbidden.version).toBe(before.version)
+        expect(afterForbidden.noShowAt).toBe(before.noShowAt)
+        expect(afterForbidden.noShowBy).toBe(before.noShowBy)
+      })
+    })
+  })
 })

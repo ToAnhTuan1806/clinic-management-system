@@ -37,6 +37,15 @@ export interface Appointment {
   cancelledAt?: string | null // ISO-8601 UTC timestamp
   cancelledBy?: string | null // User ID who cancelled
   rescheduledAt?: string | null // ISO-8601 UTC timestamp
+  rescheduledBy?: string | null // User ID who rescheduled
+  previousScheduleId?: string | null
+  previousStartAt?: string | null
+  confirmedAt?: string | null // D09 ISO-8601 UTC timestamp
+  confirmedBy?: string | null // D09 User ID who confirmed
+  checkedInAt?: string | null // D09 ISO-8601 UTC timestamp
+  checkedInBy?: string | null // D09 User ID who checked-in
+  noShowAt?: string | null // D09 ISO-8601 UTC timestamp
+  noShowBy?: string | null // D09 User ID who marked no-show
   roomLabel?: string | null
   version?: number // Optimistic locking version
   createdAt?: string
@@ -64,6 +73,11 @@ export interface CancelAppointmentDraft {
   appointmentId: string
   reason?: string // Cancellation reason (max 255 chars)
   cancellationReason?: string // Alias for schema V7
+  expectedVersion: number
+}
+
+export interface AppointmentActionDraft {
+  appointmentId: string
   expectedVersion: number
 }
 
@@ -98,6 +112,18 @@ export interface BookingGateway {
   changeSlot(draft: ChangeSlotDraft, signal?: AbortSignal): Promise<Appointment>
   cancelAppointment(
     draft: CancelAppointmentDraft,
+    signal?: AbortSignal,
+  ): Promise<Appointment>
+  confirmAppointment(
+    draft: AppointmentActionDraft,
+    signal?: AbortSignal,
+  ): Promise<Appointment>
+  checkInAppointment(
+    draft: AppointmentActionDraft,
+    signal?: AbortSignal,
+  ): Promise<Appointment>
+  markNoShow(
+    draft: AppointmentActionDraft,
     signal?: AbortSignal,
   ): Promise<Appointment>
 }
@@ -334,4 +360,117 @@ export function canChangeOrCancelAppointment(
   }
 
   return { canChange: true, canCancel: true }
+}
+
+/**
+ * Validates an AppointmentActionDraft before submission (D09: Confirm, Check-in, No-show).
+ */
+export function validateActionDraft(
+  draft: Partial<AppointmentActionDraft>,
+): Record<string, string> {
+  const errors: Record<string, string> = {}
+
+  if (!draft.appointmentId || !validId(draft.appointmentId)) {
+    errors.appointmentId = 'Mã cuộc hẹn không hợp lệ.'
+  }
+
+  if (draft.expectedVersion === undefined || draft.expectedVersion < 0) {
+    errors.expectedVersion = 'Phiên bản dữ liệu (version) không hợp lệ.'
+  }
+
+  return errors
+}
+
+/**
+ * Checks if receptionist can confirm the given appointment.
+ */
+export function canConfirmAppointment(
+  appointment: Appointment,
+  role: string,
+): { allowed: boolean; reason?: string } {
+  if (role !== 'RECEPTIONIST') {
+    return {
+      allowed: false,
+      reason: 'Chỉ nhân viên lễ tân mới có quyền xác nhận cuộc hẹn.',
+    }
+  }
+
+  if (appointment.status !== 'PENDING') {
+    return {
+      allowed: false,
+      reason: `Chỉ có thể xác nhận cuộc hẹn ở trạng thái Chờ xác nhận (PENDING). Hiện tại: ${appointmentStatusLabels[appointment.status] || appointment.status}.`,
+    }
+  }
+
+  return { allowed: true }
+}
+
+/**
+ * Checks if receptionist can check-in the given appointment.
+ */
+export function canCheckInAppointment(
+  appointment: Appointment,
+  role: string,
+): { allowed: boolean; reason?: string } {
+  if (role !== 'RECEPTIONIST') {
+    return {
+      allowed: false,
+      reason:
+        'Chỉ nhân viên lễ tân mới có quyền tiếp đón (check-in) bệnh nhân.',
+    }
+  }
+
+  if (appointment.status === 'CHECKED_IN') {
+    return {
+      allowed: false,
+      reason: 'Bệnh nhân đã được tiếp đón (đã check-in).',
+    }
+  }
+
+  if (appointment.status !== 'CONFIRMED') {
+    if (appointment.status === 'PENDING') {
+      return {
+        allowed: false,
+        reason: 'Lịch hẹn cần được xác nhận trước khi làm thủ tục check-in.',
+      }
+    }
+    return {
+      allowed: false,
+      reason: `Không thể check-in cuộc hẹn đang ở trạng thái ${appointmentStatusLabels[appointment.status] || appointment.status}.`,
+    }
+  }
+
+  return { allowed: true }
+}
+
+/**
+ * Checks if receptionist can mark the appointment as no-show.
+ */
+export function canMarkNoShowAppointment(
+  appointment: Appointment,
+  role: string,
+): { allowed: boolean; reason?: string } {
+  if (role !== 'RECEPTIONIST') {
+    return {
+      allowed: false,
+      reason: 'Chỉ nhân viên lễ tân mới có quyền đánh dấu vắng mặt.',
+    }
+  }
+
+  if (appointment.status !== 'CONFIRMED' && appointment.status !== 'PENDING') {
+    return {
+      allowed: false,
+      reason: `Không thể đánh dấu vắng mặt cho cuộc hẹn đang ở trạng thái ${appointmentStatusLabels[appointment.status] || appointment.status}.`,
+    }
+  }
+
+  const endMs = new Date(appointment.endAt).getTime()
+  if (endMs > Date.now()) {
+    return {
+      allowed: false,
+      reason: 'Chỉ có thể đánh dấu vắng mặt sau khi khung giờ khám kết thúc.',
+    }
+  }
+
+  return { allowed: true }
 }

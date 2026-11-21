@@ -2,10 +2,12 @@ import type { AxiosError, AxiosInstance } from 'axios'
 import { validId } from '@/schedule/model'
 import {
   BookingError,
+  validateActionDraft,
   validateBookingDraft,
   validateCancelDraft,
   validateChangeSlotDraft,
   type Appointment,
+  type AppointmentActionDraft,
   type AppointmentPage,
   type AppointmentQuery,
   type AppointmentStatus,
@@ -149,6 +151,62 @@ export function decodeAppointment(value: unknown): Appointment {
         ? row.rescheduledAt
         : typeof row.rescheduled_at === 'string'
           ? row.rescheduled_at
+          : undefined,
+    rescheduledBy:
+      typeof row.rescheduledBy === 'string' ||
+      typeof row.rescheduledBy === 'number'
+        ? String(row.rescheduledBy)
+        : typeof row.rescheduled_by === 'string' ||
+            typeof row.rescheduled_by === 'number'
+          ? String(row.rescheduled_by)
+          : undefined,
+    previousScheduleId: nullable(
+      row.previousScheduleId ?? row.previous_schedule_id,
+    ),
+    previousStartAt:
+      typeof row.previousStartAt === 'string'
+        ? row.previousStartAt
+        : typeof row.previous_start_at === 'string'
+          ? row.previous_start_at
+          : undefined,
+    confirmedAt:
+      typeof row.confirmedAt === 'string'
+        ? row.confirmedAt
+        : typeof row.confirmed_at === 'string'
+          ? row.confirmed_at
+          : undefined,
+    confirmedBy:
+      typeof row.confirmedBy === 'string' || typeof row.confirmedBy === 'number'
+        ? String(row.confirmedBy)
+        : typeof row.confirmed_by === 'string' ||
+            typeof row.confirmed_by === 'number'
+          ? String(row.confirmed_by)
+          : undefined,
+    checkedInAt:
+      typeof row.checkedInAt === 'string'
+        ? row.checkedInAt
+        : typeof row.checked_in_at === 'string'
+          ? row.checked_in_at
+          : undefined,
+    checkedInBy:
+      typeof row.checkedInBy === 'string' || typeof row.checkedInBy === 'number'
+        ? String(row.checkedInBy)
+        : typeof row.checked_in_by === 'string' ||
+            typeof row.checked_in_by === 'number'
+          ? String(row.checked_in_by)
+          : undefined,
+    noShowAt:
+      typeof row.noShowAt === 'string'
+        ? row.noShowAt
+        : typeof row.no_show_at === 'string'
+          ? row.no_show_at
+          : undefined,
+    noShowBy:
+      typeof row.noShowBy === 'string' || typeof row.noShowBy === 'number'
+        ? String(row.noShowBy)
+        : typeof row.no_show_by === 'string' ||
+            typeof row.no_show_by === 'number'
+          ? String(row.no_show_by)
           : undefined,
     roomLabel: nullable(row.roomLabel ?? row.room_label),
     version:
@@ -461,6 +519,87 @@ export function createBookingApi(client: AxiosInstance): BookingGateway {
         }
         const res = await client.post(
           `/api/v1/appointments/${draft.appointmentId}/cancellation`,
+          payload,
+          { signal },
+        )
+        return decodeAppointment(data(res.data))
+      } catch (err) {
+        handleBookingError(err)
+      }
+    },
+
+    async confirmAppointment(
+      draft: AppointmentActionDraft,
+      signal?: AbortSignal,
+    ): Promise<Appointment> {
+      const fieldErrors = validateActionDraft(draft)
+      if (Object.keys(fieldErrors).length > 0) {
+        throw new BookingError(
+          'VALIDATION_FAILED',
+          400,
+          'Dữ liệu xác nhận lịch không hợp lệ.',
+          fieldErrors,
+        )
+      }
+
+      try {
+        const payload = { expectedVersion: draft.expectedVersion }
+        const res = await client.post(
+          `/api/v1/appointments/${draft.appointmentId}/confirmation`,
+          payload,
+          { signal },
+        )
+        return decodeAppointment(data(res.data))
+      } catch (err) {
+        handleBookingError(err)
+      }
+    },
+
+    async checkInAppointment(
+      draft: AppointmentActionDraft,
+      signal?: AbortSignal,
+    ): Promise<Appointment> {
+      const fieldErrors = validateActionDraft(draft)
+      if (Object.keys(fieldErrors).length > 0) {
+        throw new BookingError(
+          'VALIDATION_FAILED',
+          400,
+          'Dữ liệu tiếp đón không hợp lệ.',
+          fieldErrors,
+        )
+      }
+
+      try {
+        const payload = { expectedVersion: draft.expectedVersion }
+        const res = await client.post(
+          `/api/v1/appointments/${draft.appointmentId}/check-in`,
+          payload,
+          { signal },
+        )
+        return decodeAppointment(data(res.data))
+      } catch (err) {
+        handleBookingError(err)
+      }
+    },
+
+    async markNoShow(
+      draft: AppointmentActionDraft,
+      signal?: AbortSignal,
+    ): Promise<Appointment> {
+      const fieldErrors = validateActionDraft(draft)
+      if (Object.keys(fieldErrors).length > 0) {
+        throw new BookingError(
+          'VALIDATION_FAILED',
+          400,
+          'Dữ liệu vắng mặt không hợp lệ.',
+          fieldErrors,
+        )
+      }
+
+      try {
+        const payload = { expectedVersion: draft.expectedVersion }
+        const res = await client.post(
+          `/api/v1/appointments/${draft.appointmentId}/no-show`,
           payload,
           { signal },
         )
