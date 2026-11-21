@@ -2,12 +2,14 @@ package com.clinicmanagement.repository;
 
 import com.clinicmanagement.entity.Appointment;
 import com.clinicmanagement.entity.AppointmentStatus;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -16,6 +18,10 @@ import java.util.List;
 import java.util.Optional;
 
 public interface AppointmentRepository extends JpaRepository<Appointment, Long>, JpaSpecificationExecutor<Appointment> {
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select a from Appointment a where a.id = :id")
+    Optional<Appointment> findLockedForExamination(@Param("id") Long id);
 
     @EntityGraph(attributePaths = {"patient", "doctor", "doctor.user", "doctor.specialty", "schedule", "createdBy", "cancelledBy", "rescheduledBy", "previousSchedule", "confirmedBy", "checkedInBy", "noShowBy"})
     Optional<Appointment> findById(Long id);

@@ -74,6 +74,7 @@ abstract class AppointmentHttpTestSupport extends TestSecurityProperties {
                 MySqlTestDatabase.requireIsolatedUrl(connection.getMetaData().getURL());
             }
         }
+        jdbc.execute("DELETE FROM medical_records");
         jdbc.execute("DELETE FROM appointments");
         jdbc.execute("DELETE FROM doctor_schedules");
         patients.deleteAll();
@@ -115,6 +116,189 @@ abstract class AppointmentHttpTestSupport extends TestSecurityProperties {
     void noCredentialOutput(CapturedOutput output) {
         for (String secret : secrets) {
             assertThat(output.getAll().contains(secret)).as("credential must not be logged").isFalse();
+        }
+    }
+
+    private static final String RECORDS = "/api/v1/medical-records";
+
+    @Test
+    void d10MedicalRecordLifecycleAndVisibility(CapturedOutput output) throws Exception {
+        var appointment = d10Appointment(AppointmentStatus.CHECKED_IN);
+        String doctor = token(Role.DOCTOR);
+        String patient = token(Role.PATIENT);
+        String otherDoctor = tokenForUser(secondDoctor.getUser());
+        String otherPatient = tokenForUser(secondPatient.getUser());
+        String createBody = d10CreateBody(appointment);
+        String lookup = RECORDS + "/by-appointment/" + appointment.getId();
+        assertThat(send("GET", lookup, null, null).statusCode()).isEqualTo(401);
+        assertThat(send("GET", lookup, null, doctor).statusCode()).isEqualTo(404);
+        assertThat(send("GET", RECORDS + "/by-appointment/0", null, doctor).statusCode()).isEqualTo(400);
+        assertThat(send("POST", RECORDS, mapper.writeValueAsString(Map.of(
+                "appointmentId", appointment.getId().toString(), "symptoms", "Synthetic")), doctor)
+                .statusCode()).isEqualTo(400);
+        assertThat(send("POST", RECORDS, createBody, null).statusCode()).isEqualTo(401);
+        assertThat(send("POST", RECORDS, createBody, patient).statusCode()).isEqualTo(403);
+        assertThat(send("POST", RECORDS, createBody, otherDoctor).statusCode()).isEqualTo(404);
+        var created = send("POST", RECORDS, createBody, doctor);
+        assertThat(created.statusCode()).isEqualTo(201);
+        var draft = mapper.readTree(created.body()).path("data");
+        assertThat(draft.path("id").isString()).isTrue();
+        assertThat(draft.path("appointmentId").asText()).isEqualTo(appointment.getId().toString());
+        assertThat(draft.path("status").asText()).isEqualTo("IN_PROGRESS");
+        assertThat(draft.path("version").asLong()).isZero();
+        assertThat(draft.path("createdAt").asText()).endsWith("Z");
+        String path = RECORDS + "/" + draft.path("id").asText();
+        assertThat(created.headers().firstValue("Location")).contains(path);
+        var reloaded = send("GET", lookup, null, doctor);
+        assertThat(reloaded.statusCode()).isEqualTo(200);
+        assertThat(reloaded.headers().firstValue("Cache-Control")).contains("no-store");
+        assertThat(mapper.readTree(reloaded.body()).path("data")).isEqualTo(draft);
+        assertThat(send("GET", lookup, null, patient).statusCode()).isEqualTo(404);
+        assertThat(send("GET", lookup, null, otherDoctor).statusCode()).isEqualTo(404);
+        assertThat(send("GET", path, null, patient).statusCode()).isEqualTo(404);
+        assertThat(send("GET", path, null, otherDoctor).statusCode()).isEqualTo(404);
+        assertThat(send("PATCH", path, "{\"expectedVersion\":0,\"notes\":\"test\"}", otherDoctor)
+                .statusCode()).isEqualTo(404);
+        assertThat(send("POST", path + "/completion", "{\"expectedVersion\":0}", doctor).statusCode()).isEqualTo(400);
+        assertThat(appointments.findById(appointment.getId()).orElseThrow().getStatus())
+                .isEqualTo(AppointmentStatus.IN_PROGRESS);
+
+        String marker = "synthetic-clinical-" + UUID.randomUUID();
+        String content = mapper.writeValueAsString(Map.of("expectedVersion", 0, "symptoms", marker,
+                "diagnosis", "Synthetic diagnosis", "notes", "Draft note", "conclusion", "Synthetic conclusion"));
+        var patched = send("PATCH", path, content, doctor);
+        assertThat(patched.statusCode()).isEqualTo(200);
+        assertThat(mapper.readTree(patched.body()).path("data").path("version").asLong()).isEqualTo(1);
+        for (var role : List.of(Role.ADMIN, Role.RECEPTIONIST)) {
+            var response = send("GET", path, null, token(role));
+            assertThat(response.statusCode()).isEqualTo(200);
+            var metadata = mapper.readTree(response.body()).path("data");
+            for (String field : List.of("symptoms", "diagnosis", "notes", "conclusion")) {
+                assertThat(metadata.has(field)).isFalse();
+            }
+            assertThat(response.body().contains(marker)).isFalse();
+            var lookupResponse = send("GET", lookup, null, token(role));
+            assertThat(lookupResponse.statusCode()).isEqualTo(200);
+            assertThat(mapper.readTree(lookupResponse.body()).path("data")).isEqualTo(metadata);
+            assertThat(send("POST", path + "/completion", "{\"expectedVersion\":1}", token(role))
+                    .statusCode()).isEqualTo(403);
+        }
+        var invalid = send("PATCH", path, mapper.writeValueAsString(Map.of(
+                "expectedVersion", 1, "symptoms", marker.repeat(500))), doctor);
+        assertThat(invalid.statusCode()).isEqualTo(400);
+        assertThat(invalid.body().contains(marker)).isFalse();
+        var cleared = send("PATCH", path,
+                "{\"expectedVersion\":1,\"symptoms\":null,\"notes\":\"   \"}", doctor);
+        assertThat(cleared.statusCode()).isEqualTo(200);
+        assertThat(mapper.readTree(cleared.body()).path("data").path("notes").isNull()).isTrue();
+        assertThat(send("PATCH", path, content, doctor).statusCode()).isEqualTo(409);
+        var completed = send("POST", path + "/completion", "{\"expectedVersion\":2}", doctor);
+        assertThat(completed.statusCode()).isEqualTo(200);
+        var finalRecord = mapper.readTree(completed.body()).path("data");
+        assertThat(finalRecord.path("status").asText()).isEqualTo("COMPLETED");
+        assertThat(finalRecord.path("version").asLong()).isEqualTo(3);
+        assertThat(finalRecord.path("completedBy").asText()).isEqualTo(actors.get(Role.DOCTOR).getId().toString());
+        assertThat(finalRecord.path("completedAt").asText()).endsWith("Z");
+        var own = send("GET", path, null, patient);
+        assertThat(own.statusCode()).isEqualTo(200);
+        assertThat(mapper.readTree(own.body()).path("data").path("symptoms").asText().equals(marker)).isTrue();
+        assertThat(mapper.readTree(send("GET", lookup, null, patient).body()).path("data")).isEqualTo(finalRecord);
+        assertThat(send("GET", lookup, null, otherPatient).statusCode()).isEqualTo(404);
+        assertThat(send("GET", path, null, otherPatient).statusCode()).isEqualTo(404);
+        assertThat(send("PATCH", path, "{\"expectedVersion\":3,\"notes\":\"test\"}", doctor)
+                .statusCode()).isEqualTo(409);
+        assertThat(output.getAll().contains(marker)).isFalse();
+    }
+
+    @Test
+    void d10CreateRequiresCheckInAndConcurrentCreatesProduceOneDraft() throws Exception {
+        String doctor = token(Role.DOCTOR);
+        var confirmed = d10Appointment(AppointmentStatus.CONFIRMED);
+        assertThat(send("POST", RECORDS, d10CreateBody(confirmed), doctor).statusCode()).isEqualTo(409);
+        jdbc.update("UPDATE appointments SET status = 'CHECKED_IN' WHERE id = ?", confirmed.getId());
+        assertThat(d10Race("POST", RECORDS, d10CreateBody(confirmed), doctor)).containsExactlyInAnyOrder(201, 409);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM medical_records", Long.class)).isEqualTo(1L);
+    }
+
+    @Test
+    void d10ConcurrentCompletionRecordsOneTransition() throws Exception {
+        var appointment = d10Appointment(AppointmentStatus.CHECKED_IN);
+        String doctor = token(Role.DOCTOR);
+        String path = d10PreparedRecord(appointment, doctor);
+        assertThat(send("PATCH", path, "{\"expectedVersion\":1.5,\"notes\":\"Draft\"}", doctor).statusCode())
+                .isEqualTo(400);
+        assertThat(send("POST", path + "/completion", "{\"expectedVersion\":\"1\"}", doctor).statusCode())
+                .isEqualTo(400);
+        assertThat(d10Race("PATCH", path, "{\"expectedVersion\":1,\"notes\":\"Draft\"}", doctor))
+                .containsExactlyInAnyOrder(200, 409);
+        assertThat(d10Race("POST", path + "/completion", "{\"expectedVersion\":2}", doctor))
+                .containsExactlyInAnyOrder(200, 409);
+        var finalRecord = mapper.readTree(send("GET", path, null, doctor).body()).path("data");
+        assertThat(finalRecord.path("version").asLong()).isEqualTo(3);
+        assertThat(finalRecord.path("status").asText()).isEqualTo("COMPLETED");
+    }
+
+    @Test
+    void d10DatabaseWriteFailuresRollbackBothLifecycleTransitions() throws Exception {
+        var appointment = d10Appointment(AppointmentStatus.CHECKED_IN);
+        String doctor = token(Role.DOCTOR);
+        jdbc.execute("ALTER TABLE medical_records ADD CONSTRAINT d10_test_reject CHECK (version < 0)");
+        try {
+            assertThat(send("POST", RECORDS, d10CreateBody(appointment), doctor).statusCode()).isEqualTo(409);
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM medical_records", Long.class)).isZero();
+            assertThat(appointments.findById(appointment.getId()).orElseThrow().getStatus())
+                    .isEqualTo(AppointmentStatus.CHECKED_IN);
+        } finally {
+            jdbc.execute("ALTER TABLE medical_records DROP CONSTRAINT d10_test_reject");
+        }
+        String path = d10PreparedRecord(appointment, doctor);
+        jdbc.execute("ALTER TABLE medical_records ADD CONSTRAINT d10_test_reject CHECK (completed_at IS NULL)");
+        try {
+            assertThat(send("POST", path + "/completion", "{\"expectedVersion\":1}", doctor)
+                    .statusCode()).isEqualTo(409);
+            var draft = mapper.readTree(send("GET", path, null, doctor).body()).path("data");
+            assertThat(draft.path("status").asText()).isEqualTo("IN_PROGRESS");
+            assertThat(draft.path("version").asLong()).isEqualTo(1);
+            assertThat(draft.path("completedAt").isNull()).isTrue();
+            assertThat(draft.path("completedBy").isNull()).isTrue();
+        } finally {
+            jdbc.execute("ALTER TABLE medical_records DROP CONSTRAINT d10_test_reject");
+        }
+    }
+
+    private Appointment d10Appointment(AppointmentStatus status) {
+        Instant start = mainSchedule.getStartAt();
+        return appointments.saveAndFlush(new Appointment("D10-TEST", mainPatient, mainDoctor, mainSchedule,
+                actors.get(Role.RECEPTIONIST), UUID.randomUUID().toString(), "a".repeat(64),
+                start, start.plusSeconds(1800), status, null));
+    }
+
+    private String d10CreateBody(Appointment appointment) {
+        return "{\"appointmentId\":\"" + appointment.getId() + "\"}";
+    }
+
+    private String d10PreparedRecord(Appointment appointment, String doctor) throws Exception {
+        var created = send("POST", RECORDS, d10CreateBody(appointment), doctor);
+        assertThat(created.statusCode()).isEqualTo(201);
+        String path = created.headers().firstValue("Location").orElseThrow();
+        assertThat(send("PATCH", path, """
+                {"expectedVersion":0,"symptoms":"Synthetic symptoms","diagnosis":"Synthetic diagnosis",
+                 "conclusion":"Synthetic conclusion"}
+                """, doctor).statusCode()).isEqualTo(200);
+        return path;
+    }
+
+    private List<Integer> d10Race(String method, String path, String body, String doctor) throws Exception {
+        var start = new CountDownLatch(1);
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            Callable<Integer> request = () -> {
+                start.await();
+                return send(method, path, body, doctor).statusCode();
+            };
+            var first = pool.submit(request);
+            var second = pool.submit(request);
+            start.countDown();
+            return List.of(first.get(20, TimeUnit.SECONDS), second.get(20, TimeUnit.SECONDS));
         }
     }
 
