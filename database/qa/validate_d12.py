@@ -32,27 +32,29 @@ def junit(task):
     return {'pass': total - failed - skipped, 'fail': failed, 'skipped': skipped}
 
 
-def main():
+def main(d13=False):
     branch = subprocess.check_output(['git', 'branch', '--show-current'], cwd=ROOT, text=True).strip()
     if branch != 'feature/quynh':
         raise RuntimeError('Expected feature/quynh; no branch changes allowed')
 
     hashes = migration_hashes()
-    expected_versions = [f'V{i}' for i in range(1, 12)]
+    expected_versions = [f'V{i}' for i in range(1, 13 if d13 else 12)]
     actual_versions = [p.split('__', 1)[0] for p in hashes]
     if actual_versions != expected_versions:
         raise RuntimeError(f'Expected migrations V1–V11, got: {actual_versions}')
 
     baseline = {n: hashlib.sha256(subprocess.check_output(
         ['git', 'show', 'HEAD:backend/src/main/resources/db/migration/' + n], cwd=ROOT)).hexdigest()
-        for n in hashes}
+        for n in hashes if not (d13 and n.startswith('V12__'))}
     if any(hashes[n] != h for n, h in baseline.items()):
         raise RuntimeError('A migration V1–V11 differs from HEAD')
 
     suffix = uuid.uuid4().hex[:12]
-    name = 'clinic-d12-qa-' + suffix
+    name = ('clinic-d13-qa-' if d13 else 'clinic-d12-qa-') + suffix
     schema_keys = ('regression', 'd10_fresh', 'd10_upgrade', 'd11_fresh', 'd11_upgrade', 'd11_api_upgrade', 'fresh', 'upgrade')
-    schemas = {key: f'clinic_d02_be_it_d12_{key}_{suffix}' for key in schema_keys}
+    if d13:
+        schema_keys += ('d13_fresh', 'd13_upgrade', 'dashboard')
+    schemas = {key: f'clinic_d02_be_it_d{13 if d13 else 12}_{key}_{suffix}' for key in schema_keys}
 
     with socket.socket() as listener:
         listener.bind(('127.0.0.1', 0))
@@ -61,7 +63,7 @@ def main():
         raise RuntimeError('Refusing shared ports')
 
     env = {k: v for k, v in os.environ.items()
-           if not k.startswith(('DB_', 'D10_', 'D11_', 'D12_', 'SPRING_', 'JWT_', 'MYSQL_', 'COMPOSE_', 'CLINIC_', 'CORS_'))}
+           if not k.startswith(('DB_', 'D10_', 'D11_', 'D12_', 'D13_', 'SPRING_', 'JWT_', 'MYSQL_', 'COMPOSE_', 'CLINIC_', 'CORS_'))}
     env.update(
         MYSQL_ROOT_PASSWORD=secrets.token_urlsafe(32),
         MYSQL_PASSWORD=secrets.token_urlsafe(32),
@@ -79,6 +81,10 @@ def main():
     env['D12_FRESH_URL'] = f'jdbc:mysql://127.0.0.1:{port}/{schemas["fresh"]}?connectionTimeZone=UTC'
     env['D12_UPGRADE_URL'] = f'jdbc:mysql://127.0.0.1:{port}/{schemas["upgrade"]}?connectionTimeZone=UTC'
 
+    if d13:
+        for variable, key in [('D13_FRESH_URL','d13_fresh'),('D13_UPGRADE_URL','d13_upgrade'),('D13_DASHBOARD_URL','dashboard')]:
+            env[variable] = f'jdbc:mysql://127.0.0.1:{port}/{schemas[key]}?connectionTimeZone=UTC'
+
     gradle = ['cmd', '/c', str(BACKEND / 'gradlew.bat')] if os.name == 'nt' else ['sh', str(BACKEND / 'gradlew')]
     started = False
 
@@ -95,7 +101,7 @@ def main():
             raise RuntimeError('Backend default test failed')
 
         print('2. Launching isolated MySQL 8.4 container', flush=True)
-        res_docker = run(['docker', 'run', '-d', '--pull=never', '--name', name, '--label', 'clinic.qa.task=CL-D12-DB',
+        res_docker = run(['docker', 'run', '-d', '--pull=never', '--name', name, '--label', f'clinic.qa.task=CL-D{13 if d13 else 12}-DB',
                           '-p', f'127.0.0.1:{port}:3306', '-v', name + '-data:/var/lib/mysql',
                           '-e', 'MYSQL_ROOT_PASSWORD', '-e', 'MYSQL_PASSWORD', '-e', 'MYSQL_USER',
                           '-e', f"MYSQL_DATABASE={schemas['regression']}", 'mysql:8.4', '--default-time-zone=+00:00'])
@@ -137,6 +143,14 @@ def main():
         else:
             raise RuntimeError('Missing PrescriptionSchemaTest JUnit report')
 
+        if d13:
+            report = BACKEND / 'build/test-results/mysqlTest/TEST-com.clinicmanagement.NotificationSchemaTest.xml'
+            output = ET.parse(report).getroot().findtext('system-out', '')
+            v12_checksums = dict(re.findall(r'D13_(FRESH|UPGRADE)_FLYWAY_CHECKSUM=(-?\d+)', output))
+            if set(v12_checksums) != {'FRESH','UPGRADE'} or len(set(v12_checksums.values())) != 1:
+                raise RuntimeError('V12 fresh/upgrade checksum mismatch')
+            print(f'V12 Flyway checksums: {v12_checksums}', flush=True)
+
         # These tests launch the actual Spring Boot server on a random loopback port,
         # send java.net.http requests, use MySQL V11 and keep ddl-auto=validate.
         api_report = BACKEND / 'build/test-results/mysqlTest/TEST-com.clinicmanagement.MySqlPrescriptionIntegrationTest.xml'
@@ -154,11 +168,15 @@ def main():
             return result.stdout.strip()
 
         def snapshot():
-            return {key: sql(f'USE {schemas[key]}; SELECT * FROM prescriptions ORDER BY id; '
+            snapshots = {key: sql(f'USE {schemas[key]}; SELECT * FROM prescriptions ORDER BY id; '
                              'SELECT * FROM prescription_items ORDER BY id; '
                              'SELECT * FROM medical_records ORDER BY id; '
                              'SELECT * FROM flyway_schema_history ORDER BY installed_rank;')
                     for key in ('fresh', 'upgrade')}
+            if d13:
+                for key in ('d13_fresh','d13_upgrade','dashboard'):
+                    snapshots[key] = sql(f'USE {schemas[key]}; SELECT * FROM notifications ORDER BY id; SELECT * FROM appointments ORDER BY id; SELECT * FROM medical_records ORDER BY id; SELECT * FROM prescriptions ORDER BY id; SELECT * FROM prescription_items ORDER BY id; SELECT * FROM flyway_schema_history ORDER BY installed_rank;')
+            return snapshots
 
         if int(sql(f'SELECT COUNT(*) FROM {schemas["fresh"]}.prescription_items;')) == 0:
             raise RuntimeError('Persistence check requires nonempty prescription items')
@@ -185,6 +203,12 @@ def main():
 
         print('5. D12 FR-11 real HTTP QA01–QA15 covered by prescription and existing regression tests: PASS', flush=True)
 
+        if d13:
+            for key in ('d13_fresh','d13_upgrade'):
+                if sql(f"SELECT checksum FROM {schemas[key]}.flyway_schema_history WHERE version='12';") != v12_checksums['FRESH']:
+                    raise RuntimeError('V12 checksum changed after restart')
+            print('D13 schema/dashboard SQL and restart persistence: PASS; D13 API: PENDING Backend (not executed)', flush=True)
+
         print('ALL D12 DATABASE QA CHECKS PASSED SUCCESSFULLY.', flush=True)
     finally:
         if started:
@@ -196,4 +220,7 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--d13', action='store_true', help='Also validate V12 notifications and Dashboard SQL on extra isolated schemas')
+    main(parser.parse_args().d13)
