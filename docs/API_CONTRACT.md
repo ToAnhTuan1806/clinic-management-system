@@ -1234,6 +1234,75 @@ Khi chưa có đơn thuốc nào được lưu, `GET` trả `id: null`, `items: 
 }
 ```
 
+### 3.11 Dashboard và thông báo trong ứng dụng — IMPLEMENTED D13, MySQL V12 VERIFIED
+
+#### Dashboard
+
+`GET /api/v1/dashboard/summary?from=2026-11-22&to=2026-11-22`
+
+- ADMIN và RECEPTIONIST nhận số liệu toàn phòng khám. DOCTOR chỉ nhận appointment
+  có doctor.user.id trùng principal. PATIENT nhận 403. Tham số doctorId do client
+  gửi không thay đổi phạm vi của DOCTOR.
+- from/to là ngày ISO tại Asia/Ho_Chi_Minh, mỗi tham số bỏ qua mặc định ngày hiện tại
+  tại Việt Nam. from <= to, khoảng gồm hai đầu tối đa 366 ngày. Để biểu diễn được
+  toàn bộ khoảng UTC trong MySQL DATETIME, hỗ trợ ngày từ 1000-01-02 đến 9999-12-31.
+  Ngày hoặc khoảng sai trả 400.
+- Backend chuyển sang [đầu ngày from UTC, đầu ngày sau to UTC), lọc theo startAt.
+  appointmentsByStatus gồm đầy đủ bảy trạng thái, kể cả CANCELLED/NO_SHOW, tổng bằng
+  totalAppointments. checkedInCount đếm checkedInAt khác null trong tập đã lọc,
+  completedCount đếm status COMPLETED, uniquePatients dùng COUNT(DISTINCT patient_id).
+  Hai truy vấn aggregate trong cùng transaction REPEATABLE_READ, không load entities
+  để đếm và không JOIN bảng notifications.
+- Response không có thông tin định danh bệnh nhân hoặc nội dung lâm sàng.
+
+```json
+{"data":{"from":"2026-11-22","to":"2026-11-22","timezone":"Asia/Ho_Chi_Minh","totalAppointments":0,"appointmentsByStatus":{"PENDING":0,"CONFIRMED":0,"CHECKED_IN":0,"IN_PROGRESS":0,"COMPLETED":0,"CANCELLED":0,"NO_SHOW":0},"checkedInCount":0,"completedCount":0,"uniquePatients":0}}
+```
+
+#### Notifications
+
+`GET /api/v1/notifications?page=0&size=20` cho cả bốn role có JWT hợp lệ.
+Chỉ trả người nhận hiện tại, page >= 0, size 1–100, sắp createdAt DESC rồi id DESC.
+unreadCount là tổng chưa đọc của chính người dùng, không phụ thuộc trang hiện tại.
+Trang vượt dữ liệu trả items rỗng, giữ totalElements/totalPages/unreadCount.
+
+```json
+{"data":{"items":[{"id":"1","appointmentId":"100","appointmentCode":"APP123456","eventType":"APPOINTMENT_CREATED","title":"Appointment booked","body":"Appointment booked: APP123456","createdAt":"2026-11-22T02:00:00Z","readAt":null}],"page":0,"size":20,"totalElements":1,"totalPages":1,"unreadCount":1}}
+```
+
+`PATCH /api/v1/notifications/{id}/read` không yêu cầu request body hoặc recipientUserId.
+Trả 200 với data là notification DTO ở trên và readAt UTC. Lần đầu ghi readAt,
+các lần sau giữ nguyên giá trị. Khóa row theo id và recipient bảo đảm hai request
+đồng thời cùng nhận kết quả đã đọc. ID người khác hoặc không tồn tại trả 404.
+
+#### Mutation và migration
+
+- Booking sinh APPOINTMENT_CREATED, đổi lịch sinh APPOINTMENT_RESCHEDULED, hủy lịch sinh
+  APPOINTMENT_CANCELLED, xác nhận sinh APPOINTMENT_CONFIRMED. Không sinh event từ check-in/no-show.
+- Người nhận là user PATIENT liên kết và user DOCTOR được phân công, status ACTIVE,
+  role đúng. Khi chuyển bác sĩ, publisher xét cả bác sĩ cũ và mới rồi dedupe theo user ID.
+  Luồng reschedule D08 hiện vẫn chỉ cho đổi slot cùng bác sĩ. Không phát hàng loạt cho staff.
+- Chỉ dùng template title/body cố định với appointmentCode. Không chép reason, tên bệnh nhân,
+  triệu chứng, chẩn đoán hoặc thuốc vào thông báo.
+- Sau saveAndFlush appointment, event key là
+  `appointment:{id}:version:{postChangeVersion}:event:{eventType}`.
+  UNIQUE(recipient_user_id,event_key) bảo vệ DB. Notification dùng transaction MANDATORY
+  chung mutation. Lỗi ghi notification trả 409 NOTIFICATION_CONFLICT và rollback toàn bộ.
+  Booking replay không phát event, kể cả appointment đã có version mới.
+- Reschedule PENDING tới đúng schedule/start/end hiện tại trả resource hiện có, giữ
+  version và không phát event. Xác nhận/hủy sai trạng thái hoặc version vẫn bị từ chối
+  theo D08/D09. Không backfill thông báo lịch sử.
+- Mapping đối chiếu file V12 của QA gồm notifications với recipient_user_id, appointment_id,
+  event_type VARCHAR(32), event_key VARCHAR(128), title VARCHAR(160), body VARCHAR(500) nullable,
+  created_at DATETIME(6), read_at DATETIME(6) nullable, hai FK RESTRICT và unique recipient/event.
+  V12 nguyên bản của QA đã có trong workspace và được kiểm thử trên MySQL 8.4.11 cô lập.
+  Fresh V1–V12, upgrade V11→V12, Flyway validate, migration lặp no-op và Hibernate
+  ddl-auto=validate đều đạt. Bộ MySQL integration: 234 PASS, 0 FAIL, 0 SKIPPED.
+
+Mọi response thành công dùng data wrapper, ID string, timestamp UTC và Cache-Control no-store.
+401 cho thiếu/sai JWT, 403 cho sai quyền Dashboard, 404 cho notification ngoài owner,
+400 cho ngày/pagination/ID sai. Lỗi tiếp tục dùng Problem Details.
+
 ## 4. Error response
 
 Dùng Problem Details theo [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457.html),
@@ -1357,9 +1426,9 @@ Các dòng có nhiều method mô tả các API riêng cùng trạng thái tri�
 | FR-10 | GET | `/patients/{id}/medical-history` | PATIENT self đã công bố / DOCTOR assigned; ADMIN/RECEPTIONIST metadata | **IMPLEMENTED D11** |
 | FR-11 | GET | `/medical-records/{id}/prescription` | DOCTOR assigned / PATIENT self bản hoàn tất và công bố | **IMPLEMENTED D12** |
 | FR-11 | PUT | `/medical-records/{id}/prescription` | DOCTOR assigned, thay toàn bộ đơn nháp mô phỏng, expectedVersion | **IMPLEMENTED D12** |
-| FR-12 | GET | `/dashboard/summary` | ADMIN/RECEPTIONIST theo phạm vi; DOCTOR self | PROPOSED |
-| FR-13 | GET | `/notifications` | Đã xác thực, chỉ người nhận | PROPOSED |
-| FR-13 | PATCH | `/notifications/{id}/read` | Người nhận | PROPOSED |
+| FR-12 | GET | `/dashboard/summary` | ADMIN/RECEPTIONIST toàn phòng khám; DOCTOR self; PATIENT 403 | IMPLEMENTED D13 H2/MySQL V12 |
+| FR-13 | GET | `/notifications` | Đã xác thực, chỉ người nhận | IMPLEMENTED D13 H2/MySQL V12 |
+| FR-13 | PATCH | `/notifications/{id}/read` | Người nhận | IMPLEMENTED D13 H2/MySQL V12 |
 | FR-14 | GET | `/reports/visits` | ADMIN; RECEPTIONIST tiếp nhận; DOCTOR self nếu policy cho phép | PROPOSED |
 | FR-14 | GET | `/audit-logs` | ADMIN | PROPOSED |
 

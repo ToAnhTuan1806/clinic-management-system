@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.clinicmanagement.dto.*;
 import com.clinicmanagement.entity.*;
 import com.clinicmanagement.repository.*;
+import com.clinicmanagement.service.AppointmentService;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -53,6 +54,8 @@ abstract class AppointmentHttpTestSupport extends TestSecurityProperties {
     private DataSource dataSource;
     @Autowired
     private JdbcTemplate jdbc;
+    @Autowired
+    private NotificationRepository notificationRepository;
 
     private final Map<Role, User> actors = new EnumMap<>(Role.class);
     private final Map<Role, String> tokens = new EnumMap<>(Role.class);
@@ -74,6 +77,7 @@ abstract class AppointmentHttpTestSupport extends TestSecurityProperties {
                 MySqlTestDatabase.requireIsolatedUrl(connection.getMetaData().getURL());
             }
         }
+        jdbc.execute("DELETE FROM notifications");
         jdbc.execute("DELETE FROM prescription_items");
         jdbc.execute("DELETE FROM prescriptions");
         jdbc.execute("DELETE FROM medical_records");
@@ -661,6 +665,246 @@ abstract class AppointmentHttpTestSupport extends TestSecurityProperties {
             var second = pool.submit(request);
             start.countDown();
             return List.of(first.get(20, TimeUnit.SECONDS), second.get(20, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    void d13DashboardPermissionsEmptyDatesAndDefaultVietnamDay() throws Exception {
+        String path = "/api/v1/dashboard/summary";
+        assertThat(send("GET", path, null, null).statusCode()).isEqualTo(401);
+        assertThat(send("GET", path, null, token(Role.PATIENT)).statusCode()).isEqualTo(403);
+        for (Role role : List.of(Role.ADMIN, Role.RECEPTIONIST, Role.DOCTOR)) {
+            var response = send("GET", path, null, token(role));
+            assertThat(response.statusCode()).isEqualTo(200);
+            assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
+            var data = mapper.readTree(response.body()).path("data");
+            assertThat(data.path("totalAppointments").asLong()).isZero();
+            assertThat(data.path("uniquePatients").asLong()).isZero();
+            assertThat(data.path("checkedInCount").asLong()).isZero();
+            assertThat(data.path("completedCount").asLong()).isZero();
+            assertThat(data.path("from").asText()).isEqualTo(LocalDate.now(AppointmentService.ZONE_VN).toString());
+            assertThat(data.path("timezone").asText()).isEqualTo("Asia/Ho_Chi_Minh");
+            assertThat(data.path("appointmentsByStatus").size()).isEqualTo(AppointmentStatus.values().length);
+        }
+        for (String query : List.of("?from=invalid", "?from=2026-02-30", "?from=2026-11-23&to=2026-11-22",
+                "?from=2024-01-01&to=2025-01-01", "?from=0001-01-01&to=0001-01-02",
+                "?from=1000-01-01&to=1000-01-01")) {
+            assertThat(send("GET", path + query, null, token(Role.ADMIN)).statusCode()).isEqualTo(400);
+        }
+        assertThat(send("GET", path + "?from=2024-01-01&to=2024-12-31", null, token(Role.ADMIN)).statusCode())
+                .isEqualTo(200);
+        assertThat(send("GET", path + "?from=9999-12-31&to=9999-12-31", null, token(Role.ADMIN)).statusCode())
+                .isEqualTo(200);
+    }
+
+    @Test
+    void d13DashboardUsesVietnamBoundariesStatusTotalsDistinctPatientsAndDoctorScope() throws Exception {
+        Instant start = Instant.parse("2026-01-01T17:00:00Z");
+        var secondSchedule = schedules.saveAndFlush(new DoctorSchedule(secondDoctor, LocalDate.of(2026, 1, 2),
+                start, start.plusSeconds(8 * 3600), 30, ScheduleStatus.ACTIVE));
+        int index = 0;
+        for (AppointmentStatus status : AppointmentStatus.values()) {
+            Doctor owner = status == AppointmentStatus.COMPLETED ? secondDoctor : mainDoctor;
+            Patient patient = index % 2 == 0 ? mainPatient : secondPatient;
+            var appointment = d13SeedAppointment(owner, owner == mainDoctor ? mainSchedule : secondSchedule,
+                    patient, start.plusSeconds(index++ * 1800L), status);
+            if (status == AppointmentStatus.CHECKED_IN || status == AppointmentStatus.COMPLETED
+                    || status == AppointmentStatus.CANCELLED) {
+                jdbc.update("UPDATE appointments SET checked_in_at=? WHERE id=?",
+                        java.sql.Timestamp.from(Instant.now()), appointment.getId());
+            }
+            // Multiple notification rows must not multiply aggregate appointment counts.
+            for (User recipient : List.of(actors.get(Role.PATIENT), owner.getUser())) {
+                notificationRepository.saveAndFlush(new Notification(recipient, appointment,
+                        NotificationType.APPOINTMENT_CREATED, "seed:" + appointment.getId(), Instant.now()));
+            }
+        }
+        d13SeedAppointment(mainDoctor, mainSchedule, mainPatient, start.minusSeconds(1), AppointmentStatus.PENDING);
+        d13SeedAppointment(mainDoctor, mainSchedule, mainPatient, start.plusSeconds(86400), AppointmentStatus.PENDING);
+        String path = "/api/v1/dashboard/summary?from=2026-01-02&to=2026-01-02";
+        for (Role role : List.of(Role.ADMIN, Role.RECEPTIONIST)) {
+            var data = mapper.readTree(send("GET", path, null, token(role)).body()).path("data");
+            assertThat(data.path("totalAppointments").asLong()).isEqualTo(7);
+            assertThat(data.path("uniquePatients").asLong()).isEqualTo(2);
+            assertThat(data.path("checkedInCount").asLong()).isEqualTo(3);
+            assertThat(data.path("completedCount").asLong()).isEqualTo(1);
+            long sum = 0;
+            for (var status : AppointmentStatus.values()) {
+                long count = data.path("appointmentsByStatus").path(status.name()).asLong();
+                assertThat(count).isEqualTo(1);
+                sum += count;
+            }
+            assertThat(sum).isEqualTo(data.path("totalAppointments").asLong());
+            assertThat(data.has("patientId")).isFalse();
+            assertThat(data.has("diagnosis")).isFalse();
+        }
+        var own = mapper.readTree(send("GET", path + "&doctorId=" + secondDoctor.getId(), null, token(Role.DOCTOR)).body()).path("data");
+        assertThat(own.path("totalAppointments").asLong()).isEqualTo(6);
+        assertThat(own.path("completedCount").asLong()).isZero();
+        assertThat(mapper.readTree(send("GET", path, null, tokenForUser(secondDoctor.getUser())).body())
+                .path("data").path("totalAppointments").asLong()).isEqualTo(1);
+    }
+
+    @Test
+    void d13NotificationEventsPaginationOwnershipReadAndRetry() throws Exception {
+        String reason = "synthetic-private-reason-" + UUID.randomUUID();
+        secrets.add(reason);
+        String request = d13Booking("d13-events", reason);
+        String patientToken = token(Role.PATIENT);
+        var created = send("POST", "/api/v1/appointments", request, patientToken);
+        assertThat(created.statusCode()).isEqualTo(201);
+        String id = mapper.readTree(created.body()).path("data").path("id").asText();
+        assertThat(send("POST", "/api/v1/appointments", request, patientToken).statusCode()).isEqualTo(200);
+        assertThat(notificationRepository.count()).isEqualTo(2);
+        assertThat(send("GET", "/api/v1/notifications", null, null).statusCode()).isEqualTo(401);
+        for (String query : List.of("?page=-1", "?size=0", "?size=101")) {
+            assertThat(send("GET", "/api/v1/notifications" + query, null, patientToken).statusCode()).isEqualTo(400);
+        }
+        var patientList = d13Notifications(patientToken, "");
+        var doctorList = d13Notifications(token(Role.DOCTOR), "");
+        assertThat(patientList.path("unreadCount").asLong()).isEqualTo(1);
+        assertThat(patientList.path("totalElements").asLong()).isEqualTo(1);
+        String notificationId = patientList.path("items").get(0).path("id").asText();
+        assertThat(patientList.path("items").get(0).has("recipientUserId")).isFalse();
+        assertThat(patientList.path("items").get(0).path("eventType").asText()).isEqualTo("APPOINTMENT_CREATED");
+        assertThat(patientList.toString().contains(reason)).isFalse();
+        String readPath = "/api/v1/notifications/" + notificationId + "/read";
+        assertThat(send("PATCH", readPath, null, null).statusCode()).isEqualTo(401);
+        assertThat(send("PATCH", readPath, null, token(Role.DOCTOR)).statusCode()).isEqualTo(404);
+        assertThat(send("PATCH", "/api/v1/notifications/0/read", null, patientToken).statusCode()).isEqualTo(400);
+        assertThat(d10Race("PATCH", readPath, null, patientToken)).containsExactly(200, 200);
+        var read = send("PATCH", readPath, null, patientToken);
+        assertThat(read.statusCode()).isEqualTo(200);
+        var readAt = mapper.readTree(read.body()).path("data").path("readAt").asText();
+        assertThat(readAt).endsWith("Z");
+        assertThat(mapper.readTree(send("PATCH", readPath, null, patientToken).body())
+                .path("data").path("readAt").asText()).isEqualTo(readAt);
+        assertThat(d13Notifications(patientToken, "?recipientUserId=" + actors.get(Role.DOCTOR).getId())
+                .path("unreadCount").asLong()).isZero();
+        for (Role role : List.of(Role.ADMIN, Role.RECEPTIONIST)) {
+            assertThat(d13Notifications(token(role), "").path("totalElements").asLong()).isZero();
+        }
+        assertThat(d13Notifications(tokenForUser(secondPatient.getUser()), "").path("totalElements").asLong()).isZero();
+        assertThat(doctorList.path("unreadCount").asLong()).isEqualTo(1);
+
+        assertThat(send("POST", "/api/v1/appointments/" + id + "/confirmation",
+                "{\"expectedVersion\":0}", token(Role.RECEPTIONIST)).statusCode()).isEqualTo(200);
+        String reschedule = mapper.writeValueAsString(Map.of("expectedVersion", 1,
+                "scheduleId", mainSchedule.getId().toString(), "startAt", mainSchedule.getStartAt().plusSeconds(3600).toString()));
+        assertThat(send("PATCH", "/api/v1/appointments/" + id + "/slot", reschedule, patientToken).statusCode()).isEqualTo(200);
+        String noop = mapper.writeValueAsString(Map.of("expectedVersion", 2,
+                "scheduleId", mainSchedule.getId().toString(), "startAt", mainSchedule.getStartAt().plusSeconds(3600).toString()));
+        assertThat(send("PATCH", "/api/v1/appointments/" + id + "/slot", noop, patientToken).statusCode()).isEqualTo(200);
+        assertThat(notificationRepository.count()).isEqualTo(6);
+        assertThat(send("POST", "/api/v1/appointments/" + id + "/cancellation",
+                "{\"expectedVersion\":2,\"reason\":\"Synthetic cancellation\"}", patientToken).statusCode()).isEqualTo(200);
+        assertThat(notificationRepository.count()).isEqualTo(8);
+        assertThat(send("POST", "/api/v1/appointments", request, patientToken).statusCode()).isEqualTo(200);
+        assertThat(notificationRepository.count()).isEqualTo(8);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM notifications WHERE event_key LIKE '%:version:0:event:APPOINTMENT_CREATED'",
+                Long.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT COUNT(DISTINCT event_key) FROM notifications", Long.class)).isEqualTo(4);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM notifications WHERE event_key LIKE '%:version:3:event:APPOINTMENT_CANCELLED'",
+                Long.class)).isEqualTo(2);
+        var page0 = d13Notifications(patientToken, "?size=2&page=0");
+        var page1 = d13Notifications(patientToken, "?size=2&page=1");
+        assertThat(page0.path("totalElements").asLong()).isEqualTo(4);
+        assertThat(page0.path("unreadCount").asLong()).isEqualTo(3);
+        assertThat(page0.path("items").get(0).path("eventType").asText()).isEqualTo("APPOINTMENT_CANCELLED");
+        assertThat(page1.path("items").get(1).path("id").asText()).isEqualTo(notificationId);
+        assertThat(d13Notifications(patientToken, "?size=2&page=2").path("items").isEmpty()).isTrue();
+    }
+
+    @Test
+    void d13ConcurrentBookingAndConfirmationDoNotDuplicateNotifications() throws Exception {
+        String request = d13Booking("d13-race", "Synthetic booking");
+        assertThat(d10Race("POST", "/api/v1/appointments", request, token(Role.PATIENT)))
+                .containsExactlyInAnyOrder(201, 200);
+        assertThat(notificationRepository.count()).isEqualTo(2);
+        Long id = jdbc.queryForObject("SELECT id FROM appointments", Long.class);
+        assertThat(d10Race("POST", "/api/v1/appointments/" + id + "/confirmation",
+                "{\"expectedVersion\":0}", token(Role.RECEPTIONIST))).containsExactlyInAnyOrder(200, 409);
+        assertThat(notificationRepository.count()).isEqualTo(4);
+    }
+
+    @Test
+    void d13NotificationWriteFailuresRollbackEveryAppointmentMutation() throws Exception {
+        String body = d13Booking("d13-rollback", "Synthetic booking");
+        String patient = token(Role.PATIENT);
+        String receptionist = token(Role.RECEPTIONIST);
+        d13RejectNotification(NotificationType.APPOINTMENT_CREATED,
+                () -> send("POST", "/api/v1/appointments", body, patient));
+        assertThat(appointments.count()).isZero();
+        assertThat(notificationRepository.count()).isZero();
+        var created = send("POST", "/api/v1/appointments", body, patient);
+        assertThat(created.statusCode()).isEqualTo(201);
+        Long id = mapper.readTree(created.body()).path("data").path("id").asLong();
+        String confirmationPath = "/api/v1/appointments/" + id + "/confirmation";
+        d13RejectNotification(NotificationType.APPOINTMENT_CONFIRMED,
+                () -> send("POST", confirmationPath, "{\"expectedVersion\":0}", receptionist));
+        assertThat(appointments.findById(id).orElseThrow().getStatus()).isEqualTo(AppointmentStatus.PENDING);
+        assertThat(appointments.findById(id).orElseThrow().getVersion()).isZero();
+        assertThat(notificationRepository.count()).isEqualTo(2);
+        assertThat(send("POST", confirmationPath, "{\"expectedVersion\":0}", receptionist).statusCode()).isEqualTo(200);
+        String move = mapper.writeValueAsString(Map.of("expectedVersion", 1,
+                "scheduleId", mainSchedule.getId().toString(), "startAt", mainSchedule.getStartAt().plusSeconds(3600).toString()));
+        Instant previous = appointments.findById(id).orElseThrow().getStartAt();
+        d13RejectNotification(NotificationType.APPOINTMENT_RESCHEDULED,
+                () -> send("PATCH", "/api/v1/appointments/" + id + "/slot", move, patient));
+        assertThat(appointments.findById(id).orElseThrow().getStartAt()).isEqualTo(previous);
+        assertThat(appointments.findById(id).orElseThrow().getStatus()).isEqualTo(AppointmentStatus.CONFIRMED);
+        assertThat(notificationRepository.count()).isEqualTo(4);
+        d13RejectNotification(NotificationType.APPOINTMENT_CANCELLED,
+                () -> send("POST", "/api/v1/appointments/" + id + "/cancellation", "{\"expectedVersion\":1,\"reason\":\"Synthetic cancellation\"}", patient));
+        assertThat(appointments.findById(id).orElseThrow().getStatus()).isEqualTo(AppointmentStatus.CONFIRMED);
+        assertThat(appointments.findById(id).orElseThrow().getCancelledAt()).isNull();
+        assertThat(appointments.findById(id).orElseThrow().getVersion()).isEqualTo(1);
+        assertThat(notificationRepository.count()).isEqualTo(4);
+    }
+
+    @Test
+    void d13NotificationsSkipDisabledAndUnlinkedPatientAccounts() throws Exception {
+        jdbc.update("UPDATE users SET status='DISABLED' WHERE id=?", actors.get(Role.PATIENT).getId());
+        String body = mapper.writeValueAsString(Map.of("scheduleId", mainSchedule.getId().toString(),
+                "patientId", mainPatient.getId().toString(), "requestKey", "d13-disabled",
+                "startAt", mainSchedule.getStartAt().toString()));
+        assertThat(send("POST", "/api/v1/appointments", body, token(Role.RECEPTIONIST)).statusCode()).isEqualTo(201);
+        assertThat(notificationRepository.count()).isEqualTo(1);
+        jdbc.update("UPDATE patients SET user_id=NULL WHERE id=?", mainPatient.getId());
+        String walkin = mapper.writeValueAsString(Map.of("scheduleId", mainSchedule.getId().toString(),
+                "patientId", mainPatient.getId().toString(), "requestKey", "d13-walkin",
+                "startAt", mainSchedule.getStartAt().plusSeconds(1800).toString()));
+        assertThat(send("POST", "/api/v1/appointments", walkin, token(Role.RECEPTIONIST)).statusCode()).isEqualTo(201);
+        assertThat(notificationRepository.count()).isEqualTo(2);
+    }
+
+    private String d13Booking(String key, String reason) {
+        return mapper.writeValueAsString(Map.of("scheduleId", mainSchedule.getId().toString(),
+                "startAt", mainSchedule.getStartAt().plusSeconds(1800).toString(), "requestKey", key, "reason", reason));
+    }
+
+    private JsonNode d13Notifications(String bearer, String query) throws Exception {
+        var response = send("GET", "/api/v1/notifications" + query, null, bearer);
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
+        return mapper.readTree(response.body()).path("data");
+    }
+
+    private Appointment d13SeedAppointment(Doctor doctor, DoctorSchedule schedule, Patient patient,
+                                           Instant start, AppointmentStatus status) {
+        return appointments.saveAndFlush(new Appointment("D13" + UUID.randomUUID().toString().replace("-", "").substring(0, 20).toUpperCase(),
+                patient, doctor, schedule, actors.get(Role.RECEPTIONIST), UUID.randomUUID().toString(),
+                "a".repeat(64), start, start.plusSeconds(1800), status, null));
+    }
+
+    private void d13RejectNotification(NotificationType type, Callable<HttpResponse<String>> mutation) throws Exception {
+        jdbc.execute("ALTER TABLE notifications ADD CONSTRAINT d13_test_failure CHECK (event_type <> '" + type.name() + "')");
+        try {
+            var response = mutation.call();
+            assertThat(response.statusCode()).isEqualTo(409);
+            assertThat(mapper.readTree(response.body()).path("code").asText()).isEqualTo("NOTIFICATION_CONFLICT");
+        } finally {
+            jdbc.execute("ALTER TABLE notifications DROP CONSTRAINT d13_test_failure");
         }
     }
 

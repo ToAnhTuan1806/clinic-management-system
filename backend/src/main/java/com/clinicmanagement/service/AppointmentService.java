@@ -16,6 +16,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
@@ -37,6 +38,7 @@ public class AppointmentService {
     private final DoctorRepository doctorRepository;
     private final PatientRepository patientRepository;
     private final UserRepository userRepository;
+    private final NotificationService notifications;
     @PersistenceContext
     private final EntityManager entityManager;
     private final SecureRandom random = new SecureRandom();
@@ -46,16 +48,18 @@ public class AppointmentService {
                               DoctorRepository doctorRepository,
                               PatientRepository patientRepository,
                               UserRepository userRepository,
-                              EntityManager entityManager) {
+                              EntityManager entityManager, NotificationService notifications) {
         this.appointmentRepository = appointmentRepository;
         this.scheduleRepository = scheduleRepository;
         this.doctorRepository = doctorRepository;
         this.patientRepository = patientRepository;
         this.userRepository = userRepository;
         this.entityManager = entityManager;
+        this.notifications = notifications;
     }
 
-    @Transactional
+    // The idempotency re-check after the doctor lock must see the preceding booking's commit.
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     @PreAuthorize("hasAnyRole('RECEPTIONIST', 'PATIENT')")
     public AppointmentBookingResult bookAppointment(AuthenticatedUser actor, AppointmentBookRequest request) {
         if (request == null) {
@@ -194,6 +198,7 @@ public class AppointmentService {
 
         try {
             Appointment saved = appointmentRepository.saveAndFlush(appointment);
+            notifications.appointmentChanged(saved, NotificationType.APPOINTMENT_CREATED, null);
             return new AppointmentBookingResult(AppointmentResponse.from(saved), false);
         } catch (DataIntegrityViolationException ex) {
             String msg = ex.getMessage() != null ? ex.getMessage() : "";
@@ -394,10 +399,17 @@ public class AppointmentService {
         User actorUser = userRepository.findById(actor.id())
                 .orElseThrow(() -> new ManagementException(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", "User not found."));
 
+        if (freshAppointment.getStatus() == AppointmentStatus.PENDING
+                && freshAppointment.getSchedule().getId().equals(freshSchedule.getId())
+                && freshAppointment.getStartAt().equals(startAt) && freshAppointment.getEndAt().equals(calculatedEndAt)) {
+            return AppointmentResponse.from(freshAppointment);
+        }
+        User previousDoctor = freshAppointment.getDoctor().getUser();
         freshAppointment.reschedule(actorUser, freshSchedule, startAt, calculatedEndAt);
 
         try {
             Appointment saved = appointmentRepository.saveAndFlush(freshAppointment);
+            notifications.appointmentChanged(saved, NotificationType.APPOINTMENT_RESCHEDULED, previousDoctor);
             return AppointmentResponse.from(saved);
         } catch (org.springframework.orm.ObjectOptimisticLockingFailureException | jakarta.persistence.OptimisticLockException ex) {
             throw new ManagementException(HttpStatus.CONFLICT, "VERSION_CONFLICT", "Appointment has been modified by another concurrent transaction.");
@@ -493,6 +505,7 @@ public class AppointmentService {
         freshAppointment.cancel(actorUser, reason);
         try {
             Appointment saved = appointmentRepository.saveAndFlush(freshAppointment);
+            notifications.appointmentChanged(saved, NotificationType.APPOINTMENT_CANCELLED, null);
             return AppointmentResponse.from(saved);
         } catch (org.springframework.orm.ObjectOptimisticLockingFailureException | jakarta.persistence.OptimisticLockException ex) {
             throw new ManagementException(HttpStatus.CONFLICT, "VERSION_CONFLICT", "Appointment has been modified by another concurrent transaction.");
@@ -538,6 +551,7 @@ public class AppointmentService {
 
         try {
             Appointment saved = appointmentRepository.saveAndFlush(fresh);
+            notifications.appointmentChanged(saved, NotificationType.APPOINTMENT_CONFIRMED, null);
             return AppointmentResponse.from(saved);
         } catch (org.springframework.orm.ObjectOptimisticLockingFailureException | jakarta.persistence.OptimisticLockException ex) {
             throw new ManagementException(HttpStatus.CONFLICT, "VERSION_CONFLICT", "Appointment has been modified by another concurrent transaction.");

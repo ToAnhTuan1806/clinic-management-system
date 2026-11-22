@@ -68,7 +68,7 @@ class MySqlPrescriptionIntegrationTest extends TestSecurityProperties {
     @AfterEach
     void clean() {
         MySqlTestDatabase.requireIsolatedUrl(System.getenv("DB_URL"));
-        for (String table : List.of("prescription_items", "prescriptions", "medical_records",
+        for (String table : List.of("notifications", "prescription_items", "prescriptions", "medical_records",
                 "appointments", "doctor_schedules", "patients", "doctors", "specialties", "users")) {
             jdbc.update("DELETE FROM " + table);
         }
@@ -77,7 +77,8 @@ class MySqlPrescriptionIntegrationTest extends TestSecurityProperties {
     @Test
     void emptyGetUsesRealV11AndNoStore() throws Exception {
         assertThat(jdbc.queryForObject("SELECT VERSION()", String.class)).startsWith("8.4.11");
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM flyway_schema_history WHERE success=1 AND CAST(version AS UNSIGNED) BETWEEN 1 AND 11", Integer.class)).isEqualTo(11);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM flyway_schema_history WHERE success=1 AND CAST(version AS UNSIGNED) BETWEEN 1 AND 11",
+                Integer.class)).isEqualTo(11);
         var empty = data(send("GET", "/prescription", doctor, null, 200));
         assertThat(empty.path("id").isNull()).isTrue();
         assertThat(empty.path("recordVersion").asLong()).isEqualTo(3);

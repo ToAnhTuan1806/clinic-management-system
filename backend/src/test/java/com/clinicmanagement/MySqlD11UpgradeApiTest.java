@@ -43,7 +43,7 @@ class MySqlD11UpgradeApiTest extends TestSecurityProperties {
         String url = System.getenv("D11_API_UPGRADE_URL");
         MySqlTestDatabase.requireIsolatedUrl(url);
         registry.add("spring.datasource.url", () -> url);
-        registry.add("spring.flyway.target", () -> "11");
+        registry.add("spring.flyway.target", () -> "12");
     }
 
     @TestConfiguration(proxyBeanMethods = false)
@@ -66,10 +66,11 @@ class MySqlD11UpgradeApiTest extends TestSecurityProperties {
                 assertThat(v10.info().applied()).hasSize(10);
                 var db = new JdbcTemplate(v10.getConfiguration().getDataSource());
                 var recordsAfterV10 = db.queryForList("SELECT * FROM medical_records ORDER BY id");
-                assertThat(migration.migrate().migrationsExecuted).isOne();
+                assertThat(migration.migrate().migrationsExecuted).isEqualTo(2);
                 assertThat(db.queryForList("SELECT * FROM medical_records ORDER BY id")).isEqualTo(recordsAfterV10);
                 assertThat(db.queryForObject("SELECT COUNT(*) FROM prescriptions", Long.class)).isZero();
                 assertThat(db.queryForObject("SELECT COUNT(*) FROM prescription_items", Long.class)).isZero();
+                assertThat(db.queryForObject("SELECT COUNT(*) FROM notifications", Long.class)).isZero();
             };
         }
     }
@@ -77,7 +78,7 @@ class MySqlD11UpgradeApiTest extends TestSecurityProperties {
     @Test
     void backfilledD10RecordsAreVisibleButNewCompletionsNeedRelease() throws Exception {
         assertThat(flyway.validateWithResult().validationSuccessful).isTrue();
-        assertThat(flyway.info().applied()).hasSize(11);
+        assertThat(flyway.info().applied()).hasSize(12);
         String patient = token(3L);
         String doctor = token(2L);
         String otherDoctor = token(1L);
