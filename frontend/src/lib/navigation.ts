@@ -82,6 +82,14 @@ export const navigation = [
     description: 'Hàng đợi và hồ sơ khám của bác sĩ.',
   },
   {
+    path: '/medical-history',
+    roles: ['DOCTOR', 'PATIENT'] as readonly Role[],
+    label: 'Lịch sử khám',
+    title: 'Lịch sử khám',
+    icon: ClipboardList,
+    description: 'Lịch sử khám và trạng thái công bố hồ sơ.',
+  },
+  {
     path: '/profile',
     roles: everyone,
     label: 'Hồ sơ cá nhân',
