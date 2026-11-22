@@ -16,6 +16,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
@@ -57,7 +58,8 @@ public class AppointmentService {
         this.notifications = notifications;
     }
 
-    @Transactional
+    // The idempotency re-check after the doctor lock must see the preceding booking's commit.
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     @PreAuthorize("hasAnyRole('RECEPTIONIST', 'PATIENT')")
     public AppointmentBookingResult bookAppointment(AuthenticatedUser actor, AppointmentBookRequest request) {
         if (request == null) {

@@ -1234,7 +1234,7 @@ Khi chưa có đơn thuốc nào được lưu, `GET` trả `id: null`, `items: 
 }
 ```
 
-### 3.11 Dashboard và thông báo trong ứng dụng — IMPLEMENTED D13, MySQL V12 PENDING
+### 3.11 Dashboard và thông báo trong ứng dụng — IMPLEMENTED D13, MySQL V12 VERIFIED
 
 #### Dashboard
 
@@ -1295,7 +1295,9 @@ các lần sau giữ nguyên giá trị. Khóa row theo id và recipient bảo �
 - Mapping đối chiếu file V12 của QA gồm notifications với recipient_user_id, appointment_id,
   event_type VARCHAR(32), event_key VARCHAR(128), title VARCHAR(160), body VARCHAR(500) nullable,
   created_at DATETIME(6), read_at DATETIME(6) nullable, hai FK RESTRICT và unique recipient/event.
-  V12 hiện chưa đồng bộ vào BE. MySQL V12 PENDING, fixture H2 không thay thế nghiệm thu migration thật.
+  V12 nguyên bản của QA đã có trong workspace và được kiểm thử trên MySQL 8.4.11 cô lập.
+  Fresh V1–V12, upgrade V11→V12, Flyway validate, migration lặp no-op và Hibernate
+  ddl-auto=validate đều đạt. Bộ MySQL integration: 234 PASS, 0 FAIL, 0 SKIPPED.
 
 Mọi response thành công dùng data wrapper, ID string, timestamp UTC và Cache-Control no-store.
 401 cho thiếu/sai JWT, 403 cho sai quyền Dashboard, 404 cho notification ngoài owner,
@@ -1424,9 +1426,9 @@ Các dòng có nhiều method mô tả các API riêng cùng trạng thái tri�
 | FR-10 | GET | `/patients/{id}/medical-history` | PATIENT self đã công bố / DOCTOR assigned; ADMIN/RECEPTIONIST metadata | **IMPLEMENTED D11** |
 | FR-11 | GET | `/medical-records/{id}/prescription` | DOCTOR assigned / PATIENT self bản hoàn tất và công bố | **IMPLEMENTED D12** |
 | FR-11 | PUT | `/medical-records/{id}/prescription` | DOCTOR assigned, thay toàn bộ đơn nháp mô phỏng, expectedVersion | **IMPLEMENTED D12** |
-| FR-12 | GET | `/dashboard/summary` | ADMIN/RECEPTIONIST toàn phòng khám; DOCTOR self; PATIENT 403 | IMPLEMENTED D13 H2, MySQL V12 PENDING |
-| FR-13 | GET | `/notifications` | Đã xác thực, chỉ người nhận | IMPLEMENTED D13 H2, MySQL V12 PENDING |
-| FR-13 | PATCH | `/notifications/{id}/read` | Người nhận | IMPLEMENTED D13 H2, MySQL V12 PENDING |
+| FR-12 | GET | `/dashboard/summary` | ADMIN/RECEPTIONIST toàn phòng khám; DOCTOR self; PATIENT 403 | IMPLEMENTED D13 H2/MySQL V12 |
+| FR-13 | GET | `/notifications` | Đã xác thực, chỉ người nhận | IMPLEMENTED D13 H2/MySQL V12 |
+| FR-13 | PATCH | `/notifications/{id}/read` | Người nhận | IMPLEMENTED D13 H2/MySQL V12 |
 | FR-14 | GET | `/reports/visits` | ADMIN; RECEPTIONIST tiếp nhận; DOCTOR self nếu policy cho phép | PROPOSED |
 | FR-14 | GET | `/audit-logs` | ADMIN | PROPOSED |
 
