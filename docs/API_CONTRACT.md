@@ -1126,6 +1126,114 @@ Lịch sử cần lọc quyền tại truy vấn trước count/phân trang, s�
 timestamp UTC, response data wrapper và Cache-Control no-store. PATIENT chỉ thấy
 bản thân và các hồ sơ đã công bố. ADMIN/RECEPTIONIST không nhận nội dung lâm sàng.
 
+### 3.10 Quản lý Đơn thuốc Mô phỏng (CL-D12-BE) — IMPLEMENTED D12
+
+Triển khai API quản lý đơn thuốc mô phỏng (FR-11) liên kết 1-1 với hồ sơ khám (MedicalRecord D10–D11). Phục vụ kê đơn mô phỏng trong quá trình khám chữa bệnh tại phòng khám.
+
+> [!NOTE]
+> Nghiêm cấm quản lý kho dược, xuất nhập tồn, bán lẻ thuốc, liên thông đơn thuốc điện tử quốc gia hoặc gợi ý AI tự động kê đơn. Dữ liệu mang tính chất mô phỏng nghiệp vụ (`simulation: true`).
+
+| Endpoint D12 | Method | Quyền truy cập | Mục đích | Trạng thái |
+| --- | --- | --- | --- | --- |
+| `/api/v1/medical-records/{id}/prescription` | `GET` | DOCTOR assigned / PATIENT self đã công bố | Đọc thông tin đơn thuốc mô phỏng | **IMPLEMENTED D12** |
+| `/api/v1/medical-records/{id}/prescription` | `PUT` | DOCTOR assigned | Tạo mới / Cập nhật toàn bộ đơn thuốc mô phỏng | **IMPLEMENTED D12** |
+
+#### Quy tắc nghiệp vụ và ràng buộc:
+- **Phân quyền & Kiểm soát truy cập (RBAC & Ownership):**
+  - `DOCTOR (assigned)`: Được phép `GET` và `PUT` khi ca khám đang diễn ra (`IN_PROGRESS`). Khi ca khám đang diễn ra, cờ `editable: true`. Khi hồ sơ đã hoàn tất (`COMPLETED`), `editable: false` và không được phép `PUT` nữa (trả 409 `INVALID_STATE_TRANSITION`).
+  - `PATIENT (self)`: Chỉ được phép `GET` khi hồ sơ khám đồng thời đạt hai điều kiện: `COMPLETED` và đã được công bố (`releasedAt != null`). Nếu hồ sơ chưa hoàn tất hoặc chưa công bố, trả 404 `NOT_FOUND` (ngăn rò rỉ thông tin trước khi bác sĩ phát hành). Bệnh nhân luôn nhận `editable: false`.
+  - `ADMIN` & `RECEPTIONIST`: Bị từ chối truy cập (403 `ACCESS_DENIED`).
+  - Bác sĩ khác hoặc bệnh nhân khác: Trả 404 `NOT_FOUND` (ngăn rò rỉ ID và sự tồn tại của hồ sơ).
+- **Concurrency & Khóa bi quan/lạc quan (Optimistic Locking):**
+  - Request `PUT` bắt buộc mang `expectedVersion` tương ứng với version hiện tại của `MedicalRecord`. Nếu version không khớp, trả 409 `VERSION_CONFLICT`.
+  - Khi lưu đơn thuốc thành công, version của `MedicalRecord` được tự động tăng lên 1 (touch entity version).
+  - Hai request `PUT` đồng thời mang cùng `expectedVersion` thì chỉ 1 request thành công (200), request còn lại bị xung đột phiên bản (409).
+  - Request `PUT` đồng thời với `POST /completion` thì chỉ 1 thao tác thành công (200), thao tác còn lại trả 409.
+- **Ràng buộc dữ liệu (Validation):**
+  - `expectedVersion`: Bắt buộc, số nguyên không âm (`min = 0`).
+  - `items`: Danh sách từ 0 đến tối đa 50 thuốc. Cho phép gửi danh sách rỗng `[]` để xóa toàn bộ thuốc trong đơn.
+  - Mỗi item trong danh sách:
+    - `medicationName`: Bắt buộc, chuỗi không trống, độ dài 1–200 ký tự (tự động cắt khoảng trắng thừa).
+    - `quantity`: Bắt buộc, số nguyên từ 1 đến 10,000.
+    - `dosage`: Bắt buộc, chuỗi không trống, độ dài 1–100 ký tự.
+    - `frequency`: Bắt buộc, chuỗi không trống, độ dài 1–100 ký tự.
+    - `durationDays`: Bắt buộc, số nguyên từ 1 đến 365 ngày.
+    - `instructions`: Tùy chọn, tối đa 1,000 ký tự (chuỗi rỗng được chuẩn hóa thành `null`).
+  - Vi phạm bất kỳ điều kiện nào ở trên trả 400 `VALIDATION_FAILED` theo chuẩn Problem Details.
+- **Header & Cache:** Cả hai endpoint đều trả header `Cache-Control: no-store`.
+
+#### Ví dụ Request PUT `/api/v1/medical-records/{id}/prescription`:
+```json
+{
+  "expectedVersion": 1,
+  "items": [
+    {
+      "medicationName": "Paracetamol 500mg",
+      "quantity": 10,
+      "dosage": "500mg",
+      "frequency": "2 lần/ngày",
+      "durationDays": 5,
+      "instructions": "Uống sau khi ăn"
+    },
+    {
+      "medicationName": "Vitamin C 100mg",
+      "quantity": 20,
+      "dosage": "100mg",
+      "frequency": "1 lần/ngày",
+      "durationDays": 10,
+      "instructions": null
+    }
+  ]
+}
+```
+
+#### Ví dụ Response (200 OK):
+```json
+{
+  "data": {
+    "id": "1",
+    "medicalRecordId": "10",
+    "recordVersion": 2,
+    "editable": true,
+    "simulation": true,
+    "items": [
+      {
+        "id": "1",
+        "medicationName": "Paracetamol 500mg",
+        "quantity": 10,
+        "dosage": "500mg",
+        "frequency": "2 lần/ngày",
+        "durationDays": 5,
+        "instructions": "Uống sau khi ăn"
+      },
+      {
+        "id": "2",
+        "medicationName": "Vitamin C 100mg",
+        "quantity": 20,
+        "dosage": "100mg",
+        "frequency": "1 lần/ngày",
+        "durationDays": 10,
+        "instructions": null
+      }
+    ]
+  }
+}
+```
+
+Khi chưa có đơn thuốc nào được lưu, `GET` trả `id: null`, `items: []`, `editable: true` (hoặc `false` nếu đã hoàn tất), `simulation: true`:
+```json
+{
+  "data": {
+    "id": null,
+    "medicalRecordId": "10",
+    "recordVersion": 1,
+    "editable": true,
+    "simulation": true,
+    "items": []
+  }
+}
+```
+
 ## 4. Error response
 
 Dùng Problem Details theo [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457.html),
@@ -1247,8 +1355,8 @@ Các dòng có nhiều method mô tả các API riêng cùng trạng thái tri�
 | FR-09 | POST | `/medical-records/{id}/completion` | DOCTOR assigned | **IMPLEMENTED D10** |
 | FR-09 | POST | `/medical-records/{id}/release` | DOCTOR assigned, bản hoàn tất, expectedVersion | **IMPLEMENTED D11** |
 | FR-10 | GET | `/patients/{id}/medical-history` | PATIENT self đã công bố / DOCTOR assigned; ADMIN/RECEPTIONIST metadata | **IMPLEMENTED D11** |
-| FR-11 | GET | `/medical-records/{id}/prescription` | DOCTOR assigned / PATIENT self bản hoàn tất | PROPOSED |
-| FR-11 | PUT | `/medical-records/{id}/prescription` | DOCTOR assigned, thay toàn bộ đơn nháp mô phỏng | PROPOSED |
+| FR-11 | GET | `/medical-records/{id}/prescription` | DOCTOR assigned / PATIENT self bản hoàn tất và công bố | **IMPLEMENTED D12** |
+| FR-11 | PUT | `/medical-records/{id}/prescription` | DOCTOR assigned, thay toàn bộ đơn nháp mô phỏng, expectedVersion | **IMPLEMENTED D12** |
 | FR-12 | GET | `/dashboard/summary` | ADMIN/RECEPTIONIST theo phạm vi; DOCTOR self | PROPOSED |
 | FR-13 | GET | `/notifications` | Đã xác thực, chỉ người nhận | PROPOSED |
 | FR-13 | PATCH | `/notifications/{id}/read` | Người nhận | PROPOSED |
