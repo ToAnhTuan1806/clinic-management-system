@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/sheet'
 import { navigation } from '@/lib/navigation'
 import { isAuthMock } from '@/auth/config'
+import { NotificationCenter } from '@/components/layout/notification-center'
 
 export function Header() {
   const { user } = useAuth()
@@ -74,10 +75,10 @@ export function Header() {
             (pathname === '/forbidden' ? 'Không đủ quyền' : 'Không tìm thấy')}
         </span>
       </div>
-      <div className="ml-auto flex shrink-0 items-center gap-3 sm:gap-5">
+      <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-5">
         <Badge
           variant="outline"
-          className="border-primary/20 bg-primary/5 px-2.5 py-1 text-primary"
+          className="hidden border-primary/20 bg-primary/5 px-2.5 py-1 text-primary sm:inline-flex"
         >
           {isAuthMock ? 'API MOCK' : 'DEMO'}
         </Badge>
@@ -85,6 +86,7 @@ export function Header() {
           className="hidden h-6 w-px bg-border sm:block"
           aria-hidden="true"
         />
+        <NotificationCenter />
         <ThemeToggle />
         <Button
           asChild
