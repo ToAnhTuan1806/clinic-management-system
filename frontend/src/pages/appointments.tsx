@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router'
+import { Link, useLocation } from 'react-router'
 import {
   AlertCircle,
   Ban,
@@ -44,9 +44,104 @@ import {
   fromUtcIsoToVnParts,
   getVnTodayString,
   type ScheduleSlot,
+  validId,
 } from '@/schedule/model'
 
 export default function Appointments() {
+  const { version } = useAuth()
+  const { search } = useLocation()
+  return (
+    <AppointmentsWorkspace
+      key={version}
+      relatedId={new URLSearchParams(search).get('appointmentId')}
+    />
+  )
+}
+
+function RelatedAppointment({ id }: { id: string }) {
+  const [revision, setRevision] = useState(0)
+  const key = id + ':' + revision
+  const [resource, setResource] = useState<{
+    key: string
+    data?: Appointment
+    error?: string
+  } | null>(null)
+  useEffect(() => {
+    if (!validId(id)) return
+    const controller = new AbortController()
+    void bookingGateway
+      .getAppointment(id, controller.signal)
+      .then((data) => {
+        if (!controller.signal.aborted) setResource({ key, data })
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted)
+          setResource({ key, error: bookingMessage(error) })
+      })
+    return () => controller.abort()
+  }, [id, key])
+  const current = resource?.key === key ? resource : null
+  const error = !validId(id)
+    ? 'Liên kết lịch hẹn không hợp lệ.'
+    : current?.error
+  return (
+    <Card
+      role="region"
+      aria-labelledby="related-appointment-title"
+      className="p-5"
+    >
+      <h2 id="related-appointment-title" className="font-semibold">
+        Lịch hẹn liên quan
+      </h2>
+      {error ? (
+        <Alert variant="destructive">
+          <AlertDescription>
+            {error}
+            <Button
+              className="ml-2"
+              variant="outline"
+              onClick={() => setRevision((v) => v + 1)}
+            >
+              Thử lại lịch liên quan
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : !current?.data ? (
+        <p role="status" className="text-sm text-muted-foreground">
+          Đang tải lịch hẹn liên quan…
+        </p>
+      ) : (
+        <dl className="grid min-w-0 gap-3 text-sm sm:grid-cols-2">
+          <div>
+            <dt className="text-muted-foreground">Mã lịch</dt>
+            <dd className="break-words font-medium">
+              {current.data.appointmentCode}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Trạng thái</dt>
+            <dd>{appointmentStatusLabels[current.data.status]}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Ngày khám</dt>
+            <dd>
+              {formatVnDateFull(current.data.startAt)} ·{' '}
+              {formatVnTimeRange(current.data.startAt, current.data.endAt)}
+            </dd>
+          </div>
+          {current.data.doctorName && (
+            <div>
+              <dt className="text-muted-foreground">Bác sĩ</dt>
+              <dd className="break-words">{current.data.doctorName}</dd>
+            </div>
+          )}
+        </dl>
+      )}
+    </Card>
+  )
+}
+
+function AppointmentsWorkspace({ relatedId }: { relatedId: string | null }) {
   const { user } = useAuth()
   const role = user?.role || 'PATIENT'
   const isPatient = role === 'PATIENT'
@@ -384,6 +479,7 @@ export default function Appointments() {
       </div>
 
       {/* Global Feedback Banner */}
+      {relatedId && <RelatedAppointment key={relatedId} id={relatedId} />}
       {feedback && (
         <Alert
           className={
