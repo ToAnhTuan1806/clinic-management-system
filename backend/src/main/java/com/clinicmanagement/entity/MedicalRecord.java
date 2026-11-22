@@ -74,7 +74,7 @@ public class MedicalRecord {
         completedBy = actor;
     }
 
-    private void touch(Instant now) {
+    public void touch(Instant now) {
         Instant timestamp = now.truncatedTo(ChronoUnit.MICROS);
         updatedAt = timestamp.isAfter(updatedAt) ? timestamp : updatedAt.plus(1, ChronoUnit.MICROS);
     }

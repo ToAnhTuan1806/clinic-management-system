@@ -74,6 +74,8 @@ abstract class AppointmentHttpTestSupport extends TestSecurityProperties {
                 MySqlTestDatabase.requireIsolatedUrl(connection.getMetaData().getURL());
             }
         }
+        jdbc.execute("DELETE FROM prescription_items");
+        jdbc.execute("DELETE FROM prescriptions");
         jdbc.execute("DELETE FROM medical_records");
         jdbc.execute("DELETE FROM appointments");
         jdbc.execute("DELETE FROM doctor_schedules");
@@ -355,6 +357,282 @@ abstract class AppointmentHttpTestSupport extends TestSecurityProperties {
         Long appointmentId = jdbc.queryForObject("SELECT appointment_id FROM medical_records WHERE id=?", Long.class, legacy);
         assertThat(send("GET", RECORDS + "/by-appointment/" + appointmentId, null, token(Role.PATIENT))
                 .statusCode()).isEqualTo(404);
+    }
+
+    @Test
+    void d12PrescriptionLifecycleRbacAndValidation() throws Exception {
+        var appointment = d10Appointment(AppointmentStatus.CHECKED_IN);
+        String doctor = token(Role.DOCTOR);
+        String patient = token(Role.PATIENT);
+        String otherDoctor = tokenForUser(secondDoctor.getUser());
+        String otherPatient = tokenForUser(secondPatient.getUser());
+        String recordPath = d10PreparedRecord(appointment, doctor);
+        String prescriptionPath = recordPath + "/prescription";
+
+        // Unauthenticated
+        assertThat(send("GET", prescriptionPath, null, null).statusCode()).isEqualTo(401);
+        assertThat(send("PUT", prescriptionPath, "{}", null).statusCode()).isEqualTo(401);
+
+        // Disallowed roles: ADMIN, RECEPTIONIST
+        for (Role role : List.of(Role.ADMIN, Role.RECEPTIONIST)) {
+            assertThat(send("GET", prescriptionPath, null, token(role)).statusCode()).isEqualTo(403);
+            assertThat(send("PUT", prescriptionPath, "{}", token(role)).statusCode()).isEqualTo(403);
+        }
+
+        // PATIENT cannot PUT
+        assertThat(send("PUT", prescriptionPath, "{}", patient).statusCode()).isEqualTo(403);
+
+        // Other doctor cannot view or edit (privacy/leak prevention -> 404)
+        assertThat(send("GET", prescriptionPath, null, otherDoctor).statusCode()).isEqualTo(404);
+        assertThat(send("PUT", prescriptionPath, "{\"expectedVersion\":1,\"items\":[]}", otherDoctor).statusCode()).isEqualTo(404);
+
+        // Patient cannot view while record is IN_PROGRESS (not completed/released)
+        assertThat(send("GET", prescriptionPath, null, patient).statusCode()).isEqualTo(404);
+
+        // Assigned doctor GET before prescription exists -> empty simulation response
+        var initialGet = send("GET", prescriptionPath, null, doctor);
+        assertThat(initialGet.statusCode()).isEqualTo(200);
+        assertThat(initialGet.headers().firstValue("Cache-Control")).contains("no-store");
+        var initialData = mapper.readTree(initialGet.body()).path("data");
+        assertThat(initialData.path("id").isNull()).isTrue();
+        assertThat(initialData.path("medicalRecordId").asText()).isEqualTo(recordPath.substring(recordPath.lastIndexOf('/') + 1));
+        assertThat(initialData.path("recordVersion").asLong()).isEqualTo(1L);
+        assertThat(initialData.path("editable").asBoolean()).isTrue();
+        assertThat(initialData.path("simulation").asBoolean()).isTrue();
+        assertThat(initialData.path("items").isEmpty()).isTrue();
+
+        // Validation failures on PUT
+        assertThat(send("PUT", prescriptionPath, "{\"items\":[]}", doctor).statusCode()).isEqualTo(400); // missing expectedVersion
+        assertThat(send("PUT", prescriptionPath, "{\"expectedVersion\":-1,\"items\":[]}", doctor).statusCode()).isEqualTo(400); // negative expectedVersion
+        assertThat(send("PUT", prescriptionPath, "{\"expectedVersion\":1}", doctor).statusCode()).isEqualTo(400); // missing items
+        assertThat(send("PUT", prescriptionPath, """
+                {"expectedVersion":1,"items":[{"medicationName":" ","quantity":10,"dosage":"1 pill","frequency":"Daily","durationDays":5}]}
+                """, doctor).statusCode()).isEqualTo(400); // blank medicationName
+        assertThat(send("PUT", prescriptionPath, """
+                {"expectedVersion":1,"items":[{"medicationName":"%s","quantity":10,"dosage":"1 pill","frequency":"Daily","durationDays":5}]}
+                """.formatted("M".repeat(201)), doctor).statusCode()).isEqualTo(400); // medicationName > 200
+        assertThat(send("PUT", prescriptionPath, """
+                {"expectedVersion":1,"items":[{"medicationName":"Med","quantity":0,"dosage":"1 pill","frequency":"Daily","durationDays":5}]}
+                """, doctor).statusCode()).isEqualTo(400); // quantity <= 0
+        assertThat(send("PUT", prescriptionPath, """
+                {"expectedVersion":1,"items":[{"medicationName":"Med","quantity":10001,"dosage":"1 pill","frequency":"Daily","durationDays":5}]}
+                """, doctor).statusCode()).isEqualTo(400); // quantity > 10000
+        assertThat(send("PUT", prescriptionPath, """
+                {"expectedVersion":1,"items":[{"medicationName":"Med","quantity":1,"dosage":" ","frequency":"Daily","durationDays":5}]}
+                """, doctor).statusCode()).isEqualTo(400); // dosage blank
+        assertThat(send("PUT", prescriptionPath, """
+                {"expectedVersion":1,"items":[{"medicationName":"Med","quantity":1,"dosage":"%s","frequency":"Daily","durationDays":5}]}
+                """.formatted("D".repeat(101)), doctor).statusCode()).isEqualTo(400); // dosage > 100
+        assertThat(send("PUT", prescriptionPath, """
+                {"expectedVersion":1,"items":[{"medicationName":"Med","quantity":1,"dosage":"10mg","frequency":" ","durationDays":5}]}
+                """, doctor).statusCode()).isEqualTo(400); // frequency blank
+        assertThat(send("PUT", prescriptionPath, """
+                {"expectedVersion":1,"items":[{"medicationName":"Med","quantity":1,"dosage":"10mg","frequency":"%s","durationDays":5}]}
+                """.formatted("F".repeat(101)), doctor).statusCode()).isEqualTo(400); // frequency > 100
+        assertThat(send("PUT", prescriptionPath, """
+                {"expectedVersion":1,"items":[{"medicationName":"Med","quantity":1,"dosage":"10mg","frequency":"Daily","durationDays":0}]}
+                """, doctor).statusCode()).isEqualTo(400); // durationDays <= 0
+        assertThat(send("PUT", prescriptionPath, """
+                {"expectedVersion":1,"items":[{"medicationName":"Med","quantity":1,"dosage":"10mg","frequency":"Daily","durationDays":366}]}
+                """, doctor).statusCode()).isEqualTo(400); // durationDays > 365
+        assertThat(send("PUT", prescriptionPath, """
+                {"expectedVersion":1,"items":[{"medicationName":"Med","quantity":1,"dosage":"10mg","frequency":"Daily","durationDays":1,"instructions":"%s"}]}
+                """.formatted("I".repeat(1001)), doctor).statusCode()).isEqualTo(400); // instructions > 1000
+
+        // Items list > 50
+        List<Map<String, Object>> manyItems = new ArrayList<>();
+        for (int i = 0; i < 51; i++) {
+            manyItems.add(Map.of("medicationName", "Med " + i, "quantity", 1, "dosage", "1 tab", "frequency", "Daily", "durationDays", 1));
+        }
+        assertThat(send("PUT", prescriptionPath, mapper.writeValueAsString(Map.of("expectedVersion", 1, "items", manyItems)), doctor).statusCode()).isEqualTo(400);
+
+        // Version conflict on PUT
+        assertThat(send("PUT", prescriptionPath, "{\"expectedVersion\":0,\"items\":[]}", doctor).statusCode()).isEqualTo(409);
+        assertThat(send("PUT", prescriptionPath, "{\"expectedVersion\":99,\"items\":[]}", doctor).statusCode()).isEqualTo(409);
+
+        // Valid PUT with 2 items (testing trimming, sorting, simulation flag)
+        String putBody = """
+                {
+                  "expectedVersion": 1,
+                  "items": [
+                    {
+                      "medicationName": "  Simulated Paracetamol 500mg  ",
+                      "quantity": 10,
+                      "dosage": "  500mg  ",
+                      "frequency": "  2 times/day  ",
+                      "durationDays": 5,
+                      "instructions": "  Take after meals  "
+                    },
+                    {
+                      "medicationName": "Simulated Vitamin C",
+                      "quantity": 20,
+                      "dosage": "100mg",
+                      "frequency": "Once daily",
+                      "durationDays": 10,
+                      "instructions": null
+                    }
+                  ]
+                }
+                """;
+        var putRes = send("PUT", prescriptionPath, putBody, doctor);
+        assertThat(putRes.statusCode()).isEqualTo(200);
+        assertThat(putRes.headers().firstValue("Cache-Control")).contains("no-store");
+        var putData = mapper.readTree(putRes.body()).path("data");
+        assertThat(putData.path("id").isNull()).isFalse();
+        assertThat(putData.path("recordVersion").asLong()).isEqualTo(2L);
+        assertThat(putData.path("editable").asBoolean()).isTrue();
+        assertThat(putData.path("simulation").asBoolean()).isTrue();
+        assertThat(putData.path("items").size()).isEqualTo(2);
+
+        var item0 = putData.path("items").get(0);
+        assertThat(item0.path("medicationName").asText()).isEqualTo("Simulated Paracetamol 500mg");
+        assertThat(item0.path("dosage").asText()).isEqualTo("500mg");
+        assertThat(item0.path("frequency").asText()).isEqualTo("2 times/day");
+        assertThat(item0.path("durationDays").asInt()).isEqualTo(5);
+        assertThat(item0.path("instructions").asText()).isEqualTo("Take after meals");
+
+        var item1 = putData.path("items").get(1);
+        assertThat(item1.path("medicationName").asText()).isEqualTo("Simulated Vitamin C");
+        assertThat(item1.path("dosage").asText()).isEqualTo("100mg");
+        assertThat(item1.path("frequency").asText()).isEqualTo("Once daily");
+        assertThat(item1.path("durationDays").asInt()).isEqualTo(10);
+        assertThat(item1.path("instructions").isNull()).isTrue();
+
+        // Doctor GET after PUT
+        var docGet = send("GET", prescriptionPath, null, doctor);
+        assertThat(docGet.statusCode()).isEqualTo(200);
+        var docData = mapper.readTree(docGet.body()).path("data");
+        assertThat(docData.path("recordVersion").asLong()).isEqualTo(2L);
+        assertThat(docData.path("editable").asBoolean()).isTrue();
+        assertThat(docData.path("items").size()).isEqualTo(2);
+
+        // Replace with empty items list
+        var clearRes = send("PUT", prescriptionPath, "{\"expectedVersion\":2,\"items\":[]}", doctor);
+        assertThat(clearRes.statusCode()).isEqualTo(200);
+        var clearData = mapper.readTree(clearRes.body()).path("data");
+        assertThat(clearData.path("recordVersion").asLong()).isEqualTo(3L);
+        assertThat(clearData.path("items").isEmpty()).isTrue();
+
+        // Repopulate prescription
+        String repopulateBody = """
+                {
+                  "expectedVersion": 3,
+                  "items": [
+                    {
+                      "medicationName": "Final Medication",
+                      "quantity": 1,
+                      "dosage": "1 pill",
+                      "frequency": "Daily",
+                      "durationDays": 7,
+                      "instructions": "Before sleep"
+                    }
+                  ]
+                }
+                """;
+        assertThat(send("PUT", prescriptionPath, repopulateBody, doctor).statusCode()).isEqualTo(200);
+
+        // Patient still cannot view before completion
+        assertThat(send("GET", prescriptionPath, null, patient).statusCode()).isEqualTo(404);
+
+        // Doctor completes record (expectedVersion 4 -> becomes 5)
+        assertThat(send("POST", recordPath + "/completion", "{\"expectedVersion\":4}", doctor).statusCode()).isEqualTo(200);
+
+        // Doctor can no longer PUT after completion (INVALID_STATE_TRANSITION -> 409)
+        assertThat(send("PUT", prescriptionPath, "{\"expectedVersion\":5,\"items\":[]}", doctor).statusCode()).isEqualTo(409);
+
+        // Doctor GET shows editable = false
+        var completedDocGet = send("GET", prescriptionPath, null, doctor);
+        assertThat(completedDocGet.statusCode()).isEqualTo(200);
+        var completedDocData = mapper.readTree(completedDocGet.body()).path("data");
+        assertThat(completedDocData.path("recordVersion").asLong()).isEqualTo(5L);
+        assertThat(completedDocData.path("editable").asBoolean()).isFalse();
+
+        // Patient cannot view before release even when completed
+        assertThat(send("GET", prescriptionPath, null, patient).statusCode()).isEqualTo(404);
+
+        // Doctor releases record (expectedVersion 5 -> becomes 6)
+        assertThat(send("POST", recordPath + "/release", "{\"expectedVersion\":5}", doctor).statusCode()).isEqualTo(200);
+
+        // Patient GET after release succeeds
+        var patientGet = send("GET", prescriptionPath, null, patient);
+        assertThat(patientGet.statusCode()).isEqualTo(200);
+        assertThat(patientGet.headers().firstValue("Cache-Control")).contains("no-store");
+        var patientData = mapper.readTree(patientGet.body()).path("data");
+        assertThat(patientData.path("recordVersion").asLong()).isEqualTo(6L);
+        assertThat(patientData.path("editable").asBoolean()).isFalse();
+        assertThat(patientData.path("simulation").asBoolean()).isTrue();
+        assertThat(patientData.path("items").size()).isEqualTo(1);
+        assertThat(patientData.path("items").get(0).path("medicationName").asText()).isEqualTo("Final Medication");
+
+        // Other patient receives 404
+        assertThat(send("GET", prescriptionPath, null, otherPatient).statusCode()).isEqualTo(404);
+    }
+
+    @Test
+    void d12ConcurrentPutRaceAndCompletionRace() throws Exception {
+        var appointment = d10Appointment(AppointmentStatus.CHECKED_IN);
+        String doctor = token(Role.DOCTOR);
+        String recordPath = d10PreparedRecord(appointment, doctor);
+        String prescriptionPath = recordPath + "/prescription";
+
+        // Concurrent PUTs with same expectedVersion: 1
+        String putBody1 = """
+                {"expectedVersion":1,"items":[{"medicationName":"Drug 1","quantity":1,"dosage":"1","frequency":"1","durationDays":1}]}
+                """;
+        String putBody2 = """
+                {"expectedVersion":1,"items":[{"medicationName":"Drug 2","quantity":2,"dosage":"2","frequency":"2","durationDays":2}]}
+                """;
+        assertThat(d12RaceTwoRequests(
+                () -> send("PUT", prescriptionPath, putBody1, doctor).statusCode(),
+                () -> send("PUT", prescriptionPath, putBody2, doctor).statusCode()
+        )).containsExactlyInAnyOrder(200, 409);
+
+        // Now record version is 2. Concurrent PUT vs Completion race with expectedVersion: 2
+        String putBody3 = """
+                {"expectedVersion":2,"items":[{"medicationName":"Drug 3","quantity":3,"dosage":"3","frequency":"3","durationDays":3}]}
+                """;
+        assertThat(d12RaceTwoRequests(
+                () -> send("PUT", prescriptionPath, putBody3, doctor).statusCode(),
+                () -> send("POST", recordPath + "/completion", "{\"expectedVersion\":2}", doctor).statusCode()
+        )).containsExactlyInAnyOrder(200, 409);
+    }
+
+    @Test
+    void d12DatabaseWriteFailuresRollbackPrescriptionTransaction() throws Exception {
+        var appointment = d10Appointment(AppointmentStatus.CHECKED_IN);
+        String doctor = token(Role.DOCTOR);
+        String recordPath = d10PreparedRecord(appointment, doctor);
+        String prescriptionPath = recordPath + "/prescription";
+
+        jdbc.execute("ALTER TABLE prescription_items ADD CONSTRAINT d12_test_reject CHECK (sort_order < 0)");
+        try {
+            String putBody = """
+                    {"expectedVersion":1,"items":[{"medicationName":"Fail Drug","quantity":1,"dosage":"1","frequency":"1","durationDays":1}]}
+                    """;
+            assertThat(send("PUT", prescriptionPath, putBody, doctor).statusCode()).isEqualTo(409);
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM prescription_items", Long.class)).isZero();
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM prescriptions", Long.class)).isZero();
+            Long recordId = Long.valueOf(recordPath.substring(recordPath.lastIndexOf('/') + 1));
+            assertThat(jdbc.queryForObject("SELECT version FROM medical_records WHERE id=?", Long.class, recordId)).isEqualTo(1L);
+        } finally {
+            jdbc.execute("ALTER TABLE prescription_items DROP CONSTRAINT d12_test_reject");
+        }
+    }
+
+    private List<Integer> d12RaceTwoRequests(Callable<Integer> req1, Callable<Integer> req2) throws Exception {
+        var start = new CountDownLatch(1);
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            var first = pool.submit(() -> {
+                start.await();
+                return req1.call();
+            });
+            var second = pool.submit(() -> {
+                start.await();
+                return req2.call();
+            });
+            start.countDown();
+            return List.of(first.get(20, TimeUnit.SECONDS), second.get(20, TimeUnit.SECONDS));
+        }
     }
 
     private String d10CreateBody(Appointment appointment) {

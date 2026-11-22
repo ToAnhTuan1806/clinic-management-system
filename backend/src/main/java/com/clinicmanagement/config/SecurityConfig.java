@@ -92,6 +92,10 @@ public class SecurityConfig {
                             .hasAnyRole("RECEPTIONIST", "PATIENT")
                         .requestMatchers(HttpMethod.GET, "/api/v1/appointments", "/api/v1/appointments/*")
                             .hasAnyRole("ADMIN", "RECEPTIONIST", "DOCTOR", "PATIENT")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/medical-records/*/prescription")
+                            .hasAnyRole("DOCTOR", "PATIENT")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/medical-records/*/prescription")
+                            .hasRole("DOCTOR")
                         .requestMatchers(HttpMethod.POST, "/api/v1/medical-records",
                                 "/api/v1/medical-records/*/completion").hasRole("DOCTOR")
                         .requestMatchers(HttpMethod.PATCH, "/api/v1/medical-records/*").hasRole("DOCTOR")
@@ -128,7 +132,7 @@ public class SecurityConfig {
     private CorsFilter corsFilter(String origins, ObjectMapper mapper) {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(CorsOrigins.parse(origins));
-        configuration.setAllowedMethods(List.of("GET", "POST", "PATCH", "OPTIONS"));
+        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("Authorization", "Content-Type"));
         configuration.setExposedHeaders(List.of("Location"));
         configuration.setAllowCredentials(false);

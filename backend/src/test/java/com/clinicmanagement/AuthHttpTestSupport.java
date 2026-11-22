@@ -94,6 +94,8 @@ abstract class AuthHttpTestSupport extends TestSecurityProperties {
                 MySqlTestDatabase.requireIsolatedUrl(connection.getMetaData().getURL());
             }
         }
+        jdbc.execute("DELETE FROM prescription_items");
+        jdbc.execute("DELETE FROM prescriptions");
         jdbc.execute("DELETE FROM medical_records");
         jdbc.execute("DELETE FROM appointments");
         jdbc.execute("DELETE FROM doctor_schedules");
@@ -301,7 +303,7 @@ abstract class AuthHttpTestSupport extends TestSecurityProperties {
             assertThrows(AccessDeniedException.class, roleProbe::adminOnly);
         }
         assertProblem(request("GET", "/api/v1/users", null, token), 403, "ACCESS_DENIED");
-        assertProblem(request("PUT", "/api/v1/medical-records/1/prescription", Map.of(), token), 403, "ACCESS_DENIED");
+        assertProblem(request("GET", "/api/v1/dashboard/summary", null, token), 403, "ACCESS_DENIED");
     }
 
     @Test
