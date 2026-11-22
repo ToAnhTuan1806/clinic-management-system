@@ -43,6 +43,7 @@ class MySqlD11UpgradeApiTest extends TestSecurityProperties {
         String url = System.getenv("D11_API_UPGRADE_URL");
         MySqlTestDatabase.requireIsolatedUrl(url);
         registry.add("spring.datasource.url", () -> url);
+        registry.add("spring.flyway.target", () -> "10");
     }
 
     @TestConfiguration(proxyBeanMethods = false)
