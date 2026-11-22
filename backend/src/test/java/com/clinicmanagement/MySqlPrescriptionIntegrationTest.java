@@ -6,26 +6,34 @@ import com.clinicmanagement.repository.UserRepository;
 import com.clinicmanagement.service.JwtTokenService;
 import java.net.URI;
 import java.net.http.*;
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.*;
+import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.security.oauth2.jwt.*;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 @Tag("mysql")
 @ActiveProfiles("mysql-integration")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@ExtendWith(OutputCaptureExtension.class)
 class MySqlPrescriptionIntegrationTest extends TestSecurityProperties {
     @LocalServerPort private int port;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private ObjectMapper mapper;
     @Autowired private UserRepository users;
     @Autowired private JwtTokenService tokens;
+    @Autowired private JwtEncoder encoder;
     private String doctor;
     private String otherDoctor;
     private String patient;
@@ -60,7 +68,6 @@ class MySqlPrescriptionIntegrationTest extends TestSecurityProperties {
     @AfterEach
     void clean() {
         MySqlTestDatabase.requireIsolatedUrl(System.getenv("DB_URL"));
-        jdbc.execute("DROP TRIGGER IF EXISTS d12_reject_item");
         for (String table : List.of("prescription_items", "prescriptions", "medical_records",
                 "appointments", "doctor_schedules", "patients", "doctors", "specialties", "users")) {
             jdbc.update("DELETE FROM " + table);
@@ -101,6 +108,11 @@ class MySqlPrescriptionIntegrationTest extends TestSecurityProperties {
         }
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM prescriptions", Integer.class)).isOne();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM prescription_items", Integer.class)).isZero();
+        var before = data(send("GET", "/prescription", doctor, null, 200));
+        var stale = send("PUT", "/prescription", doctor,
+                mapper.writeValueAsString(Map.of("expectedVersion", 3, "items", List.of(item("Stale")))), 409);
+        assertThat(parse(stale).path("code").asText()).isEqualTo("VERSION_CONFLICT");
+        assertThat(data(send("GET", "/prescription", doctor, null, 200))).isEqualTo(before);
     }
 
     @Test
@@ -179,8 +191,48 @@ class MySqlPrescriptionIntegrationTest extends TestSecurityProperties {
         send("GET", "/prescription", null, null, 401);
         send("PUT", "/prescription", null, body, 401);
         send("GET", "/prescription", "invalid-jwt", null, 401);
+        send("PUT", "/prescription", "invalid-jwt", body, 401);
         request("GET", 999999, "/prescription", doctor, null, 404);
         assertUnchangedEmpty();
+    }
+
+    @Test
+    void expiredJwtCannotReadOrWritePrescription() throws Exception {
+        Instant issued = Instant.now().minusSeconds(3600);
+        var claims = JwtClaimsSet.builder().issuer("clinic-management").subject("1")
+                .issuedAt(issued).expiresAt(issued.plusSeconds(1800)).build();
+        String expired = encoder.encode(JwtEncoderParameters.from(
+                JwsHeader.with(MacAlgorithm.HS256).type("JWT").build(), claims)).getTokenValue();
+        send("GET", "/prescription", expired, null, 401);
+        send("PUT", "/prescription", expired, "{\"expectedVersion\":3,\"items\":[]}", 401);
+        assertUnchangedEmpty();
+    }
+
+    @Test
+    void unicodeIdsAndClinicalLogRedactionUseRealHttp(CapturedOutput output) throws Exception {
+        String marker = "Thuốc mô phỏng 🧪 " + UUID.randomUUID();
+        var first = new HashMap<String, Object>(item(marker));
+        first.put("dosage", "Liều mô phỏng");
+        first.put("frequency", "Lịch mô phỏng");
+        first.put("instructions", "Hướng dẫn giả lập 🧪");
+        var saved = put(3, List.of(first, item("Dòng giả lập thứ hai")), 200);
+        assertThat(saved.path("id").isString()).isTrue();
+        assertThat(saved.path("medicalRecordId").isString()).isTrue();
+        assertThat(saved.path("simulation").asBoolean()).isTrue();
+        for (var entry : saved.path("items")) assertThat(entry.path("id").isString()).isTrue();
+        assertThat(saved.path("items").get(0).path("medicationName").asText()).isEqualTo(marker);
+        assertThat(saved.path("items").get(0).path("instructions").asText()).isEqualTo(first.get("instructions"));
+        assertThat(data(send("GET", "/prescription", doctor, null, 200))).isEqualTo(saved);
+        assertThat(jdbc.queryForObject("SELECT medication_name FROM prescription_items WHERE sort_order=0", String.class)).isEqualTo(marker);
+        for (String denied : List.of(otherDoctor, patient, otherPatient, admin, receptionist)) {
+            int status = denied.equals(admin) || denied.equals(receptionist) ? 403 : 404;
+            assertThat(send("GET", "/prescription", denied, null, status).body()).doesNotContain(marker);
+        }
+        var stale = send("PUT", "/prescription", doctor,
+                mapper.writeValueAsString(Map.of("expectedVersion", 3, "items", List.of(first))), 409);
+        assertThat(stale.body()).doesNotContain(marker);
+        assertThat(output.getAll()).doesNotContain(marker, "Hướng dẫn giả lập 🧪",
+                doctor, otherDoctor, patient, otherPatient, admin, receptionist);
     }
 
     @Test
@@ -234,17 +286,18 @@ class MySqlPrescriptionIntegrationTest extends TestSecurityProperties {
         var records = jdbc.queryForList("SELECT * FROM medical_records WHERE id=4");
         var prescriptions = jdbc.queryForList("SELECT * FROM prescriptions");
         var items = jdbc.queryForList("SELECT * FROM prescription_items ORDER BY id");
-        jdbc.execute("""
-                CREATE TRIGGER d12_reject_item BEFORE INSERT ON prescription_items FOR EACH ROW
-                SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Synthetic D12 rollback'
-                """);
-        String body = mapper.writeValueAsString(Map.of("expectedVersion", 4, "items", List.of(item("Rejected"))));
-        var failed = send("PUT", "/prescription", doctor, body, -1);
-        assertThat(failed.statusCode()).isIn(409, 500);
-        assertThat(jdbc.queryForList("SELECT * FROM medical_records WHERE id=4")).isEqualTo(records);
-        assertThat(jdbc.queryForList("SELECT * FROM prescriptions")).isEqualTo(prescriptions);
-        assertThat(jdbc.queryForList("SELECT * FROM prescription_items ORDER BY id")).isEqualTo(items);
-        jdbc.execute("DROP TRIGGER d12_reject_item");
+        // Scoped integrity fault: no SUPER privilege or binary-log trust changes required.
+        jdbc.execute("ALTER TABLE prescription_items ADD CONSTRAINT d12_reject_item CHECK (medication_name <> 'Rejected')");
+        try {
+            String body = mapper.writeValueAsString(Map.of("expectedVersion", 4, "items", List.of(item("Rejected"))));
+            var failed = send("PUT", "/prescription", doctor, body, 409);
+            assertThat(parse(failed).path("code").asText()).isEqualTo("PRESCRIPTION_CONFLICT");
+            assertThat(jdbc.queryForList("SELECT * FROM medical_records WHERE id=4")).isEqualTo(records);
+            assertThat(jdbc.queryForList("SELECT * FROM prescriptions")).isEqualTo(prescriptions);
+            assertThat(jdbc.queryForList("SELECT * FROM prescription_items ORDER BY id")).isEqualTo(items);
+        } finally {
+            jdbc.execute("ALTER TABLE prescription_items DROP CHECK d12_reject_item");
+        }
         assertThat(put(4, List.of(item("Recovered")), 200).path("recordVersion").asLong()).isEqualTo(5);
     }
 

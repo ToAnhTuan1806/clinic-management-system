@@ -45,9 +45,9 @@ def main():
 
     baseline = {n: hashlib.sha256(subprocess.check_output(
         ['git', 'show', 'HEAD:backend/src/main/resources/db/migration/' + n], cwd=ROOT)).hexdigest()
-        for n in hashes if not n.startswith('V11__')}
+        for n in hashes}
     if any(hashes[n] != h for n, h in baseline.items()):
-        raise RuntimeError('A historical migration V1–V10 differs from HEAD')
+        raise RuntimeError('A migration V1–V11 differs from HEAD')
 
     suffix = uuid.uuid4().hex[:12]
     name = 'clinic-d12-qa-' + suffix
@@ -88,7 +88,7 @@ def main():
 
     try:
         print('1. Running H2 fixture and backend regression (test)', flush=True)
-        res_test = run(gradle + ['--no-daemon', 'test'])
+        res_test = run(gradle + ['--no-daemon', '--rerun-tasks', 'test'])
         h2_results = junit('test')
         print(f"H2 & Unit regression: {json.dumps(h2_results)}", flush=True)
         if res_test.returncode != 0:
@@ -108,7 +108,7 @@ def main():
 
         for _ in range(60):
             ready = run(root_sql, input='SELECT VERSION()')
-            if ready.returncode == 0 and ready.stdout.strip().startswith('8.4.'):
+            if ready.returncode == 0 and ready.stdout.strip().startswith('8.4.11'):
                 print(f"MySQL version ready: {ready.stdout.strip()}", flush=True)
                 break
             time.sleep(2)
@@ -132,14 +132,43 @@ def main():
             stdout = ET.parse(report_d12).getroot().findtext('system-out', '')
             checksums = dict(re.findall(r'D12_(FRESH|UPGRADE)_FLYWAY_CHECKSUM=(-?\d+)', stdout))
             print(f"V11 Flyway Checksums: {checksums}", flush=True)
-            if set(checksums.keys()) != {'FRESH', 'UPGRADE'} or checksums['FRESH'] != checksums['UPGRADE']:
+            if set(checksums.keys()) != {'FRESH', 'UPGRADE'} or set(checksums.values()) != {'1308329671'}:
                 raise RuntimeError(f"Flyway checksum mismatch between FRESH and UPGRADE: {checksums}")
         else:
             raise RuntimeError('Missing PrescriptionSchemaTest JUnit report')
 
+        # These tests launch the actual Spring Boot server on a random loopback port,
+        # send java.net.http requests, use MySQL V11 and keep ddl-auto=validate.
+        api_report = BACKEND / 'build/test-results/mysqlTest/TEST-com.clinicmanagement.MySqlPrescriptionIntegrationTest.xml'
+        if not api_report.is_file():
+            raise RuntimeError('Missing real HTTP prescription integration report')
+        api_suite = ET.parse(api_report).getroot()
+        if int(api_suite.get('tests', 0)) < 20 or any(int(api_suite.get(k, 0)) for k in ('failures', 'errors', 'skipped')):
+            raise RuntimeError('Prescription HTTP cases failed, skipped or were not fully executed')
+        print(f'Real HTTP prescription integration cases: {api_suite.get("tests")} PASS; Hibernate validate startup PASS', flush=True)
+
+        def sql(statement):
+            result = run(root_sql, input=statement)
+            if result.returncode:
+                raise RuntimeError('Owned QA persistence SQL failed (details suppressed)')
+            return result.stdout.strip()
+
+        def snapshot():
+            return {key: sql(f'USE {schemas[key]}; SELECT * FROM prescriptions ORDER BY id; '
+                             'SELECT * FROM prescription_items ORDER BY id; '
+                             'SELECT * FROM medical_records ORDER BY id; '
+                             'SELECT * FROM flyway_schema_history ORDER BY installed_rank;')
+                    for key in ('fresh', 'upgrade')}
+
+        if int(sql(f'SELECT COUNT(*) FROM {schemas["fresh"]}.prescription_items;')) == 0:
+            raise RuntimeError('Persistence check requires nonempty prescription items')
+        before_restart = snapshot()
+
         print('4. Verifying post-restart MySQL container data persistence', flush=True)
-        run(['docker', 'stop', '--timeout', '60', name])
-        run(['docker', 'start', name])
+        if run(['docker', 'stop', '--timeout', '60', name]).returncode:
+            raise RuntimeError('Owned QA stop failed')
+        if run(['docker', 'start', name]).returncode:
+            raise RuntimeError('Owned QA restart failed')
         for _ in range(60):
             ready = run(root_sql, input='SELECT VERSION()')
             if ready.returncode == 0 and ready.stdout.strip().startswith('8.4.'):
@@ -148,18 +177,22 @@ def main():
         else:
             raise RuntimeError('Post-restart readiness check timed out')
 
-        flyway_v11_fresh = run(root_sql, input=f"SELECT checksum FROM {schemas['fresh']}.flyway_schema_history WHERE version='11';").stdout.strip()
-        flyway_v11_upg = run(root_sql, input=f"SELECT checksum FROM {schemas['upgrade']}.flyway_schema_history WHERE version='11';").stdout.strip()
+        flyway_v11_fresh = sql(f"SELECT checksum FROM {schemas['fresh']}.flyway_schema_history WHERE version='11';")
+        flyway_v11_upg = sql(f"SELECT checksum FROM {schemas['upgrade']}.flyway_schema_history WHERE version='11';")
+        if flyway_v11_fresh != '1308329671' or flyway_v11_upg != '1308329671' or snapshot() != before_restart:
+            raise RuntimeError('Post-restart checksum or prescription/record persistence mismatch')
         print(f"Post-restart checksums verified: fresh={flyway_v11_fresh}, upgrade={flyway_v11_upg}", flush=True)
 
-        print('5. Checking API readiness for D12 FR-11', flush=True)
-        print("API D12 (FR-11): PENDING Backend implementation (no controller/service yet). Zero simulated passes.", flush=True)
+        print('5. D12 FR-11 real HTTP QA01–QA15 covered by prescription and existing regression tests: PASS', flush=True)
 
         print('ALL D12 DATABASE QA CHECKS PASSED SUCCESSFULLY.', flush=True)
     finally:
         if started:
-            run(['docker', 'stop', '--timeout', '60', name])
+            if run(['docker', 'stop', '--timeout', '60', name]).returncode:
+                raise RuntimeError('Owned QA final stop failed')
             print('Isolated MySQL container stopped cleanly.', flush=True)
+        if migration_hashes() != hashes:
+            raise RuntimeError('Migration bytes changed during QA')
 
 
 if __name__ == '__main__':
