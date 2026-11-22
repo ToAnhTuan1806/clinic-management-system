@@ -45,7 +45,7 @@ def main(d13=False):
 
     baseline = {n: hashlib.sha256(subprocess.check_output(
         ['git', 'show', 'HEAD:backend/src/main/resources/db/migration/' + n], cwd=ROOT)).hexdigest()
-        for n in hashes if not (d13 and n.startswith('V12__'))}
+        for n in hashes}
     if any(hashes[n] != h for n, h in baseline.items()):
         raise RuntimeError('A migration V1–V11 differs from HEAD')
 
@@ -147,9 +147,23 @@ def main(d13=False):
             report = BACKEND / 'build/test-results/mysqlTest/TEST-com.clinicmanagement.NotificationSchemaTest.xml'
             output = ET.parse(report).getroot().findtext('system-out', '')
             v12_checksums = dict(re.findall(r'D13_(FRESH|UPGRADE)_FLYWAY_CHECKSUM=(-?\d+)', output))
-            if set(v12_checksums) != {'FRESH','UPGRADE'} or len(set(v12_checksums.values())) != 1:
+            if set(v12_checksums) != {'FRESH','UPGRADE'} or set(v12_checksums.values()) != {'-1847747136'}:
                 raise RuntimeError('V12 fresh/upgrade checksum mismatch')
             print(f'V12 Flyway checksums: {v12_checksums}', flush=True)
+            api = ET.parse(BACKEND / 'build/test-results/mysqlTest/TEST-com.clinicmanagement.MySqlAppointmentIntegrationTest.xml').getroot()
+            required = {
+                'd13DashboardPermissionsEmptyDatesAndDefaultVietnamDay',
+                'd13DashboardUsesVietnamBoundariesStatusTotalsDistinctPatientsAndDoctorScope',
+                'd13DashboardMonthYearResponsesMatchIndependentSql',
+                'd13NotificationEventsPaginationOwnershipReadAndRetry',
+                'd13ConcurrentBookingAndConfirmationDoNotDuplicateNotifications',
+                'd13NotificationWriteFailuresRollbackEveryAppointmentMutation',
+                'd13NotificationsSkipDisabledAndUnlinkedPatientAccounts'}
+            executed = {case.get('name', '').split('(')[0] for case in api.findall('testcase')
+                        if case.find('skipped') is None and case.find('failure') is None and case.find('error') is None}
+            if not required.issubset(executed):
+                raise RuntimeError('D13 real HTTP acceptance groups missing or not passing')
+            print('D13 real Spring Boot/MySQL HTTP groups: 7 PASS (QA01-QA15)', flush=True)
 
         # These tests launch the actual Spring Boot server on a random loopback port,
         # send java.net.http requests, use MySQL V11 and keep ddl-auto=validate.
@@ -207,7 +221,7 @@ def main(d13=False):
             for key in ('d13_fresh','d13_upgrade'):
                 if sql(f"SELECT checksum FROM {schemas[key]}.flyway_schema_history WHERE version='12';") != v12_checksums['FRESH']:
                     raise RuntimeError('V12 checksum changed after restart')
-            print('D13 schema/dashboard SQL and restart persistence: PASS; D13 API: PENDING Backend (not executed)', flush=True)
+            print('D13 schema, real HTTP acceptance QA01-QA15 and restart persistence: PASS', flush=True)
 
         print('ALL D12 DATABASE QA CHECKS PASSED SUCCESSFULLY.', flush=True)
     finally:
