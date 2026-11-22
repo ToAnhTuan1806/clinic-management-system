@@ -28,6 +28,7 @@ const Schedules = lazy(() => import('@/pages/schedules'))
 const Appointments = lazy(() => import('@/pages/appointments'))
 const ReceptionDesk = lazy(() => import('@/pages/reception-desk'))
 const Examinations = lazy(() => import('@/pages/examinations'))
+const MedicalHistory = lazy(() => import('@/pages/medical-history'))
 
 function RouteEffects() {
   const { pathname } = useLocation()
@@ -99,6 +100,8 @@ export default function App() {
                               <ReceptionDesk />
                             ) : item.path === '/medical-records' ? (
                               <Examinations />
+                            ) : item.path === '/medical-history' ? (
+                              <MedicalHistory />
                             ) : item.path === '/profile' ? (
                               <Profile />
                             ) : item.path === '/patients' ? (
