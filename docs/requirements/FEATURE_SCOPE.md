@@ -150,7 +150,7 @@ vẫn phải được công bố riêng. Mapping công bố theo V10 do Database
 ## FR-12 — Dashboard
 
 - **Mục tiêu:** cung cấp số liệu vận hành theo vai trò.
-- **Vai trò:** ADMIN xem toàn phòng khám; RECEPTIONIST xem tiếp nhận trong ngày;
+- **Vai trò:** ADMIN xem toàn phòng khám; RECEPTIONIST xem vận hành trong khoảng ngày được chọn;
   DOCTOR xem lịch/khám của mình; PATIENT dùng danh sách lịch riêng thay dashboard quản trị.
 - **Chức năng con:** số lịch theo trạng thái; lượt check-in/hoàn tất; tổng bệnh nhân trong phạm vi;
   bộ lọc khoảng thời gian; không có doanh thu thanh toán trong phạm vi hiện tại.
@@ -162,6 +162,8 @@ vẫn phải được công bố riêng. Mapping công bố theo V10 do Database
 
 - **Mục tiêu:** người dùng nhận biết các thay đổi quan trọng của lịch khám.
 - **Vai trò:** PATIENT và DOCTOR nhận thông báo liên quan; RECEPTIONIST/ADMIN nhận theo nghiệp vụ.
+  Baseline D13 chỉ tự phát cho PATIENT/DOCTOR hợp lệ có liên kết, chưa phát hàng loạt
+  cho ADMIN/RECEPTIONIST khi chưa có quy tắc người nhận xác định.
 - **Chức năng con:** thông báo trong ứng dụng khi tạo/đổi/hủy/xác nhận lịch;
   danh sách phân trang; đếm chưa đọc; đánh dấu đã đọc theo người nhận.
   Email/SMS/push và nhắc lịch theo giờ là mở rộng cần chốt kênh, chi phí và lịch chạy.
