@@ -24,6 +24,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { LoadingState } from '@/components/page-states'
+import { PrescriptionViewer } from '@/components/prescription/prescription-viewer'
 
 const selectClass =
   'h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
@@ -430,6 +431,13 @@ function HistoryRecord({
                 </div>
               ))}
             </dl>
+            {detail.item.releasedAt && (
+              <PrescriptionViewer
+                key={detail.item.id}
+                recordId={detail.item.id}
+                released={Boolean(detail.item.releasedAt)}
+              />
+            )}
             {canRelease(user?.role, detail.item) && (
               <Button onClick={() => setConfirm(true)}>Công bố hồ sơ</Button>
             )}
