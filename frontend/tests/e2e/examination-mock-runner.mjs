@@ -325,7 +325,7 @@ export async function runExaminationMock(page, origin) {
         await open()
         await button('Hoàn tất khám').click()
         await button('Xác nhận hoàn tất').click()
-        await wait(page.getByText('Đã hoàn tất · Chỉ đọc'))
+        await wait(page.getByText('Đã hoàn tất · Chỉ đọc').first())
         assert(
           (await page.getByLabel('Triệu chứng').getAttribute('readonly')) !==
             null,
