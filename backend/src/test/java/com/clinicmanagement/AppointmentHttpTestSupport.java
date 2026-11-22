@@ -746,6 +746,56 @@ abstract class AppointmentHttpTestSupport extends TestSecurityProperties {
     }
 
     @Test
+    void d13DashboardMonthYearResponsesMatchIndependentSql() throws Exception {
+        Instant[] starts = {
+                Instant.parse("2025-12-31T16:59:59.999999Z"), Instant.parse("2025-12-31T17:00:00Z"),
+                Instant.parse("2026-01-31T16:59:59.999999Z"), Instant.parse("2026-01-31T17:00:00Z"),
+                Instant.parse("2026-12-31T16:59:59.999999Z"), Instant.parse("2026-12-31T17:00:00Z"),
+                Instant.parse("2026-01-15T01:00:00Z")};
+        var secondSchedule = schedules.saveAndFlush(new DoctorSchedule(secondDoctor,
+                LocalDate.of(2026, 1, 1), Instant.parse("2026-01-01T01:00:00Z"),
+                Instant.parse("2026-01-01T09:00:00Z"), 30, ScheduleStatus.ACTIVE));
+        for (int i = 0; i < starts.length; i++) {
+            boolean own = i % 2 == 0;
+            var appointment = d13SeedAppointment(own ? mainDoctor : secondDoctor,
+                    own ? mainSchedule : secondSchedule, own ? mainPatient : secondPatient,
+                    starts[i], AppointmentStatus.values()[i]);
+            if (i % 3 == 0) jdbc.update("UPDATE appointments SET checked_in_at=? WHERE id=?",
+                    java.sql.Timestamp.from(Instant.now()), appointment.getId());
+        }
+        var before = jdbc.queryForList("SELECT * FROM appointments ORDER BY id");
+        for (var range : List.of(List.of("2025-12-31", "2025-12-31"), List.of("2026-01-01", "2026-01-01"),
+                List.of("2026-01-01", "2026-01-31"), List.of("2026-02-01", "2026-02-01"),
+                List.of("2026-01-01", "2026-12-31"), List.of("2026-12-31", "2027-01-01"),
+                List.of("2028-01-01", "2028-01-01"))) {
+            var start = java.sql.Timestamp.from(LocalDate.parse(range.get(0)).atStartOfDay(AppointmentService.ZONE_VN).toInstant());
+            var end = java.sql.Timestamp.from(LocalDate.parse(range.get(1)).plusDays(1).atStartOfDay(AppointmentService.ZONE_VN).toInstant());
+            for (Role role : List.of(Role.ADMIN, Role.RECEPTIONIST, Role.DOCTOR)) {
+                String scope = role == Role.DOCTOR ? " AND doctor_id=" + mainDoctor.getId() : "";
+                String filter = " FROM appointments WHERE start_at_utc>=? AND start_at_utc<?" + scope;
+                String path = "/api/v1/dashboard/summary?from=" + range.get(0) + "&to=" + range.get(1);
+                var response = send("GET", path, null, token(role));
+                assertThat(response.statusCode()).isEqualTo(200);
+                assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
+                var data = mapper.readTree(response.body()).path("data");
+                assertThat(data.path("totalAppointments").asLong()).isEqualTo(jdbc.queryForObject("SELECT COUNT(*)" + filter, Long.class, start, end));
+                assertThat(data.path("uniquePatients").asLong()).isEqualTo(jdbc.queryForObject("SELECT COUNT(DISTINCT patient_id)" + filter, Long.class, start, end));
+                assertThat(data.path("checkedInCount").asLong()).isEqualTo(jdbc.queryForObject("SELECT COUNT(*)" + filter + " AND checked_in_at IS NOT NULL", Long.class, start, end));
+                assertThat(data.path("completedCount").asLong()).isEqualTo(jdbc.queryForObject("SELECT COUNT(*)" + filter + " AND status='COMPLETED'", Long.class, start, end));
+                for (var status : AppointmentStatus.values()) {
+                    assertThat(data.path("appointmentsByStatus").path(status.name()).asLong())
+                            .isEqualTo(jdbc.queryForObject("SELECT COUNT(*)" + filter + " AND status=?", Long.class, start, end, status.name()));
+                }
+                Set<String> fields = new HashSet<>();
+                data.properties().forEach(entry -> fields.add(entry.getKey()));
+                assertThat(fields).containsExactlyInAnyOrder("from", "to", "timezone", "totalAppointments",
+                        "appointmentsByStatus", "checkedInCount", "completedCount", "uniquePatients");
+            }
+        }
+        assertThat(jdbc.queryForList("SELECT * FROM appointments ORDER BY id")).isEqualTo(before);
+    }
+
+    @Test
     void d13NotificationEventsPaginationOwnershipReadAndRetry() throws Exception {
         String reason = "synthetic-private-reason-" + UUID.randomUUID();
         secrets.add(reason);
@@ -789,6 +839,17 @@ abstract class AppointmentHttpTestSupport extends TestSecurityProperties {
 
         assertThat(send("POST", "/api/v1/appointments/" + id + "/confirmation",
                 "{\"expectedVersion\":0}", token(Role.RECEPTIONIST)).statusCode()).isEqualTo(200);
+        var otherSchedule = schedules.saveAndFlush(new DoctorSchedule(secondDoctor, mainSchedule.getWorkDate(),
+                mainSchedule.getStartAt(), mainSchedule.getEndAt(), 30, ScheduleStatus.ACTIVE));
+        var originalAppointment = jdbc.queryForList("SELECT * FROM appointments WHERE id=?", Long.valueOf(id));
+        long originalNotifications = notificationRepository.count();
+        String switchDoctor = mapper.writeValueAsString(Map.of("expectedVersion", 1,
+                "scheduleId", otherSchedule.getId().toString(), "startAt", otherSchedule.getStartAt().toString()));
+        var rejected = send("PATCH", "/api/v1/appointments/" + id + "/slot", switchDoctor, patientToken);
+        assertThat(rejected.statusCode()).isEqualTo(400);
+        assertThat(mapper.readTree(rejected.body()).path("code").asText()).isEqualTo("VALIDATION_FAILED");
+        assertThat(notificationRepository.count()).isEqualTo(originalNotifications);
+        assertThat(jdbc.queryForList("SELECT * FROM appointments WHERE id=?", Long.valueOf(id))).isEqualTo(originalAppointment);
         String reschedule = mapper.writeValueAsString(Map.of("expectedVersion", 1,
                 "scheduleId", mainSchedule.getId().toString(), "startAt", mainSchedule.getStartAt().plusSeconds(3600).toString()));
         assertThat(send("PATCH", "/api/v1/appointments/" + id + "/slot", reschedule, patientToken).statusCode()).isEqualTo(200);
