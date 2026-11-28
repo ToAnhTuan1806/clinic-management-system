@@ -94,6 +94,7 @@ abstract class AuthHttpTestSupport extends TestSecurityProperties {
                 MySqlTestDatabase.requireIsolatedUrl(connection.getMetaData().getURL());
             }
         }
+        jdbc.execute("DELETE FROM audit_logs");
         jdbc.execute("DELETE FROM notifications");
         jdbc.execute("DELETE FROM prescription_items");
         jdbc.execute("DELETE FROM prescriptions");
@@ -252,6 +253,7 @@ abstract class AuthHttpTestSupport extends TestSecurityProperties {
         if (action.equals("disable")) {
             jdbc.update("UPDATE users SET status = 'DISABLED' WHERE email = ?", email);
         } else {
+            jdbc.execute("DELETE FROM audit_logs");
             users.deleteAll();
         }
         assertProblem(request("GET", "/api/v1/auth/me", null, token), 401, "INVALID_ACCESS_TOKEN");
@@ -304,7 +306,7 @@ abstract class AuthHttpTestSupport extends TestSecurityProperties {
             assertThrows(AccessDeniedException.class, roleProbe::adminOnly);
         }
         assertProblem(request("GET", "/api/v1/users", null, token), 403, "ACCESS_DENIED");
-        assertProblem(request("GET", "/api/v1/audit-logs", null, token), 403, "ACCESS_DENIED");
+        assertProblem(request("GET", "/api/v1/payments/qr", null, token), 403, "ACCESS_DENIED");
     }
 
     @Test

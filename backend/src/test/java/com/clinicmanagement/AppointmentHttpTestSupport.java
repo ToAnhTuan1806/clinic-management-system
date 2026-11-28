@@ -77,6 +77,7 @@ abstract class AppointmentHttpTestSupport extends TestSecurityProperties {
                 MySqlTestDatabase.requireIsolatedUrl(connection.getMetaData().getURL());
             }
         }
+        jdbc.execute("DELETE FROM audit_logs");
         jdbc.execute("DELETE FROM notifications");
         jdbc.execute("DELETE FROM prescription_items");
         jdbc.execute("DELETE FROM prescriptions");
@@ -793,6 +794,172 @@ abstract class AppointmentHttpTestSupport extends TestSecurityProperties {
             }
         }
         assertThat(jdbc.queryForList("SELECT * FROM appointments ORDER BY id")).isEqualTo(before);
+    }
+
+    @Test
+    void d14ReportsVisitsRbacAggregationAndMatchesDashboard() throws Exception {
+        String basePath = "/api/v1/reports/visits";
+        assertThat(send("GET", basePath, null, null).statusCode()).isEqualTo(401);
+        assertThat(send("GET", basePath, null, token(Role.PATIENT)).statusCode()).isEqualTo(403);
+        assertThat(send("GET", basePath + "?from=2026-11-30&to=2026-11-28", null, token(Role.ADMIN)).statusCode()).isEqualTo(400);
+        assertThat(send("GET", basePath + "?from=2025-01-01&to=2026-01-02", null, token(Role.ADMIN)).statusCode()).isEqualTo(400);
+
+        Specialty neuro = specialties.saveAndFlush(new Specialty("NEUR", "Neurology", "Brain care", true));
+        User doc3User = seed(Role.DOCTOR, "Doctor Gamma");
+        Doctor doc3 = doctors.saveAndFlush(new Doctor(doc3User, neuro, "DOC-03", "LIC-03", "Bio Gamma", true));
+
+        // 2026-06-10 08:00 VN = 2026-06-10 01:00 UTC (mainDoctor, CARD)
+        Instant day1Slot1 = LocalDate.of(2026, 6, 10).atTime(8, 0).atZone(AppointmentService.ZONE_VN).toInstant();
+        // 2026-06-11 06:30 VN = 2026-06-10 23:30 UTC (cross-midnight UTC->VN test! mainDoctor, CARD)
+        Instant day2EarlyVn = LocalDate.of(2026, 6, 11).atTime(6, 30).atZone(AppointmentService.ZONE_VN).toInstant();
+        // 2026-06-11 09:00 VN (doc3, NEUR)
+        Instant day2Slot2 = LocalDate.of(2026, 6, 11).atTime(9, 0).atZone(AppointmentService.ZONE_VN).toInstant();
+
+        var s1 = schedules.saveAndFlush(new DoctorSchedule(mainDoctor, LocalDate.of(2026, 6, 10),
+                day1Slot1, day1Slot1.plusSeconds(7200), 30, ScheduleStatus.ACTIVE));
+        var s2 = schedules.saveAndFlush(new DoctorSchedule(mainDoctor, LocalDate.of(2026, 6, 11),
+                day2EarlyVn, day2EarlyVn.plusSeconds(7200), 30, ScheduleStatus.ACTIVE));
+        var s3 = schedules.saveAndFlush(new DoctorSchedule(doc3, LocalDate.of(2026, 6, 11),
+                day2Slot2, day2Slot2.plusSeconds(7200), 30, ScheduleStatus.ACTIVE));
+
+        var a1 = appointments.saveAndFlush(new Appointment("RPT-1", mainPatient, mainDoctor, s1,
+                actors.get(Role.RECEPTIONIST), UUID.randomUUID().toString(), "a".repeat(64),
+                day1Slot1, day1Slot1.plusSeconds(1800), AppointmentStatus.COMPLETED, null));
+        jdbc.update("UPDATE appointments SET checked_in_at = ? WHERE id = ?",
+                java.sql.Timestamp.from(day1Slot1.minusSeconds(300)), a1.getId());
+
+        appointments.saveAndFlush(new Appointment("RPT-2", secondPatient, mainDoctor, s2,
+                actors.get(Role.RECEPTIONIST), UUID.randomUUID().toString(), "b".repeat(64),
+                day2EarlyVn, day2EarlyVn.plusSeconds(1800), AppointmentStatus.CANCELLED, null));
+
+        var a3 = appointments.saveAndFlush(new Appointment("RPT-3", mainPatient, doc3, s3,
+                actors.get(Role.RECEPTIONIST), UUID.randomUUID().toString(), "c".repeat(64),
+                day2Slot2, day2Slot2.plusSeconds(1800), AppointmentStatus.CHECKED_IN, null));
+        jdbc.update("UPDATE appointments SET checked_in_at = ? WHERE id = ?",
+                java.sql.Timestamp.from(day2Slot2.minusSeconds(300)), a3.getId());
+
+        String query = "?from=2026-06-10&to=2026-06-11";
+        for (Role role : List.of(Role.ADMIN, Role.RECEPTIONIST, Role.DOCTOR)) {
+            var reportRes = send("GET", basePath + query, null, token(role));
+            var dashRes = send("GET", "/api/v1/dashboard/summary" + query, null, token(role));
+            assertThat(reportRes.statusCode()).isEqualTo(200);
+            assertThat(reportRes.headers().firstValue("Cache-Control")).contains("no-store");
+            var reportData = mapper.readTree(reportRes.body()).path("data");
+            var dashData = mapper.readTree(dashRes.body()).path("data");
+
+            // Report totals must match D13 Dashboard exactly
+            assertThat(reportData.path("totalAppointments").asLong()).isEqualTo(dashData.path("totalAppointments").asLong());
+            assertThat(reportData.path("checkedInCount").asLong()).isEqualTo(dashData.path("checkedInCount").asLong());
+            assertThat(reportData.path("completedCount").asLong()).isEqualTo(dashData.path("completedCount").asLong());
+            assertThat(reportData.path("uniquePatients").asLong()).isEqualTo(dashData.path("uniquePatients").asLong());
+            for (AppointmentStatus status : AppointmentStatus.values()) {
+                assertThat(reportData.path("appointmentsByStatus").path(status.name()).asLong())
+                        .isEqualTo(dashData.path("appointmentsByStatus").path(status.name()).asLong());
+            }
+
+            if (role == Role.DOCTOR) {
+                assertThat(reportData.path("totalAppointments").asLong()).isEqualTo(2L);
+                assertThat(reportData.path("byDoctor").size()).isEqualTo(1);
+                assertThat(reportData.path("byDoctor").get(0).path("doctorId").asText()).isEqualTo(mainDoctor.getId().toString());
+                assertThat(reportData.path("bySpecialty").size()).isEqualTo(1);
+                assertThat(reportData.path("dailyVisits").size()).isEqualTo(2);
+                assertThat(reportData.path("dailyVisits").get(0).path("date").asText()).isEqualTo("2026-06-10");
+                assertThat(reportData.path("dailyVisits").get(1).path("date").asText()).isEqualTo("2026-06-11");
+                assertThat(reportData.path("dailyVisits").get(1).path("cancelledCount").asLong()).isEqualTo(1L);
+            } else {
+                assertThat(reportData.path("totalAppointments").asLong()).isEqualTo(3L);
+                assertThat(reportData.path("checkedInCount").asLong()).isEqualTo(2L);
+                assertThat(reportData.path("completedCount").asLong()).isEqualTo(1L);
+                assertThat(reportData.path("uniquePatients").asLong()).isEqualTo(2L);
+                assertThat(reportData.path("byDoctor").size()).isEqualTo(2);
+                assertThat(reportData.path("bySpecialty").size()).isEqualTo(2);
+                assertThat(reportData.path("dailyVisits").size()).isEqualTo(2);
+                assertThat(reportData.path("dailyVisits").get(0).path("date").asText()).isEqualTo("2026-06-10");
+                assertThat(reportData.path("dailyVisits").get(0).path("totalAppointments").asLong()).isEqualTo(1L);
+                assertThat(reportData.path("dailyVisits").get(1).path("date").asText()).isEqualTo("2026-06-11");
+                assertThat(reportData.path("dailyVisits").get(1).path("totalAppointments").asLong()).isEqualTo(2L);
+            }
+        }
+    }
+
+    @Test
+    void d14AuditLogsRbacFiltersPaginationIdempotencyAndRollback() throws Exception {
+        String auditPath = "/api/v1/audit-logs";
+        String adminToken = token(Role.ADMIN);
+        String receptionistToken = token(Role.RECEPTIONIST);
+        String doctorToken = token(Role.DOCTOR);
+        String patientToken = token(Role.PATIENT);
+
+        // RBAC & append-only checks
+        assertThat(send("GET", auditPath, null, null).statusCode()).isEqualTo(401);
+        for (Role role : List.of(Role.DOCTOR, Role.RECEPTIONIST, Role.PATIENT)) {
+            assertThat(send("GET", auditPath, null, token(role)).statusCode()).isEqualTo(403);
+        }
+        assertThat(send("POST", auditPath, "{}", adminToken).statusCode()).isEqualTo(403);
+        assertThat(send("PATCH", auditPath, "{}", adminToken).statusCode()).isEqualTo(403);
+        assertThat(send("DELETE", auditPath, null, adminToken).statusCode()).isEqualTo(403);
+        assertThat(send("GET", auditPath + "?sort=invalid", null, adminToken).statusCode()).isEqualTo(400);
+        assertThat(send("GET", auditPath + "?actorUserId=0", null, adminToken).statusCode()).isEqualTo(400);
+
+        // 1. Booking + idempotent retry (must emit only ONE APPOINTMENT_BOOKED audit)
+        String reqBody = d13Booking("d14-audit-book", "Private booking reason");
+        var booked = send("POST", "/api/v1/appointments", reqBody, patientToken);
+        assertThat(booked.statusCode()).isEqualTo(201);
+        String apptId = mapper.readTree(booked.body()).path("data").path("id").asText();
+        assertThat(send("POST", "/api/v1/appointments", reqBody, patientToken).statusCode()).isEqualTo(200);
+
+        // 2. Confirm appointment
+        assertThat(send("POST", "/api/v1/appointments/" + apptId + "/confirmation", "{\"expectedVersion\":0}", receptionistToken)
+                .statusCode()).isEqualTo(200);
+
+        // 3. Medical record complete & release (+ idempotent release retry)
+        var checkedInAppt = d10Appointment(AppointmentStatus.CHECKED_IN);
+        String recordPath = d10PreparedRecord(checkedInAppt, doctorToken);
+        assertThat(send("POST", recordPath + "/completion", "{\"expectedVersion\":1}", doctorToken).statusCode()).isEqualTo(200);
+        assertThat(send("POST", recordPath + "/release", "{\"expectedVersion\":2}", doctorToken).statusCode()).isEqualTo(200);
+        // Repeat release with current version 3 -> idempotent 200, no duplicate audit
+        assertThat(send("POST", recordPath + "/release", "{\"expectedVersion\":3}", doctorToken).statusCode()).isEqualTo(200);
+
+        // 4. Profile update
+        assertThat(send("PATCH", "/api/v1/me/profile", "{\"fullName\":\"Updated Patient Name\"}", patientToken)
+                .statusCode()).isEqualTo(200);
+
+        // Verify filtered audit queries
+        var bookedLogs = send("GET", auditPath + "?action=APPOINTMENT_BOOKED", null, adminToken);
+        assertThat(bookedLogs.statusCode()).isEqualTo(200);
+        assertThat(bookedLogs.headers().firstValue("Cache-Control")).contains("no-store");
+        var bookedItems = mapper.readTree(bookedLogs.body()).path("data").path("items");
+        assertThat(bookedItems.size()).isEqualTo(1);
+        assertThat(bookedItems.get(0).path("entityId").asText()).isEqualTo(apptId);
+        assertThat(bookedItems.get(0).path("result").asText()).isEqualTo("SUCCESS");
+        assertThat(bookedItems.get(0).path("occurredAt").asText()).endsWith("Z");
+        assertThat(bookedItems.get(0).path("metadata").asText()).doesNotContain("Private booking reason");
+
+        var releaseLogs = mapper.readTree(send("GET", auditPath + "?action=MEDICAL_RECORD_RELEASED", null, adminToken).body())
+                .path("data").path("items");
+        assertThat(releaseLogs.size()).isEqualTo(1);
+        assertThat(releaseLogs.get(0).path("metadata").asText()).doesNotContain("Synthetic diagnosis");
+
+        var actorFiltered = mapper.readTree(send("GET", auditPath + "?actorUserId=" + actors.get(Role.RECEPTIONIST).getId()
+                + "&sort=occurredAt,asc&page=0&size=10", null, adminToken).body()).path("data");
+        assertThat(actorFiltered.path("totalElements").asLong()).isEqualTo(1L);
+        assertThat(actorFiltered.path("items").get(0).path("action").asText()).isEqualTo("APPOINTMENT_CONFIRMED");
+
+        // 5. Rollback test: DB failure writing audit log rolls back business mutation
+        var pendingAppt = appointments.saveAndFlush(new Appointment("RPT-RB", mainPatient, mainDoctor, mainSchedule,
+                actors.get(Role.RECEPTIONIST), UUID.randomUUID().toString(), "d".repeat(64),
+                futureTime(3, 10, 0), futureTime(3, 10, 30), AppointmentStatus.PENDING, null));
+        long countBefore = jdbc.queryForObject("SELECT COUNT(*) FROM audit_logs", Long.class);
+        jdbc.execute("ALTER TABLE audit_logs ADD CONSTRAINT d14_test_reject CHECK (entity_id <> " + pendingAppt.getId() + ")");
+        try {
+            assertThat(send("POST", "/api/v1/appointments/" + pendingAppt.getId() + "/confirmation",
+                    "{\"expectedVersion\":0}", receptionistToken).statusCode()).isEqualTo(409);
+            assertThat(appointments.findById(pendingAppt.getId()).orElseThrow().getStatus())
+                    .isEqualTo(AppointmentStatus.PENDING);
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_logs", Long.class)).isEqualTo(countBefore);
+        } finally {
+            jdbc.execute("ALTER TABLE audit_logs DROP CONSTRAINT d14_test_reject");
+        }
     }
 
     @Test

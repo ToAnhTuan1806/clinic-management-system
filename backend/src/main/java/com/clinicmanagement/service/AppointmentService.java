@@ -39,6 +39,7 @@ public class AppointmentService {
     private final PatientRepository patientRepository;
     private final UserRepository userRepository;
     private final NotificationService notifications;
+    private final AuditLogService auditLogs;
     @PersistenceContext
     private final EntityManager entityManager;
     private final SecureRandom random = new SecureRandom();
@@ -48,7 +49,8 @@ public class AppointmentService {
                               DoctorRepository doctorRepository,
                               PatientRepository patientRepository,
                               UserRepository userRepository,
-                              EntityManager entityManager, NotificationService notifications) {
+                              EntityManager entityManager, NotificationService notifications,
+                              AuditLogService auditLogs) {
         this.appointmentRepository = appointmentRepository;
         this.scheduleRepository = scheduleRepository;
         this.doctorRepository = doctorRepository;
@@ -56,6 +58,7 @@ public class AppointmentService {
         this.userRepository = userRepository;
         this.entityManager = entityManager;
         this.notifications = notifications;
+        this.auditLogs = auditLogs;
     }
 
     // The idempotency re-check after the doctor lock must see the preceding booking's commit.
@@ -199,6 +202,10 @@ public class AppointmentService {
         try {
             Appointment saved = appointmentRepository.saveAndFlush(appointment);
             notifications.appointmentChanged(saved, NotificationType.APPOINTMENT_CREATED, null);
+            auditLogs.recordSuccess(actor.id(), actor.role(), AuditLogService.ACTION_APPOINTMENT_BOOKED,
+                    AuditLogService.ENTITY_APPOINTMENT, saved.getId(),
+                    "appointment:" + saved.getId() + ":v0:BOOKED",
+                    "{\"appointmentCode\":\"" + saved.getAppointmentCode() + "\"}");
             return new AppointmentBookingResult(AppointmentResponse.from(saved), false);
         } catch (DataIntegrityViolationException ex) {
             String msg = ex.getMessage() != null ? ex.getMessage() : "";
@@ -410,6 +417,10 @@ public class AppointmentService {
         try {
             Appointment saved = appointmentRepository.saveAndFlush(freshAppointment);
             notifications.appointmentChanged(saved, NotificationType.APPOINTMENT_RESCHEDULED, previousDoctor);
+            auditLogs.recordSuccess(actor.id(), actor.role(), AuditLogService.ACTION_APPOINTMENT_RESCHEDULED,
+                    AuditLogService.ENTITY_APPOINTMENT, saved.getId(),
+                    "appointment:" + saved.getId() + ":v" + saved.getVersion() + ":RESCHEDULED",
+                    "{\"appointmentCode\":\"" + saved.getAppointmentCode() + "\"}");
             return AppointmentResponse.from(saved);
         } catch (org.springframework.orm.ObjectOptimisticLockingFailureException | jakarta.persistence.OptimisticLockException ex) {
             throw new ManagementException(HttpStatus.CONFLICT, "VERSION_CONFLICT", "Appointment has been modified by another concurrent transaction.");
@@ -506,6 +517,10 @@ public class AppointmentService {
         try {
             Appointment saved = appointmentRepository.saveAndFlush(freshAppointment);
             notifications.appointmentChanged(saved, NotificationType.APPOINTMENT_CANCELLED, null);
+            auditLogs.recordSuccess(actor.id(), actor.role(), AuditLogService.ACTION_APPOINTMENT_CANCELLED,
+                    AuditLogService.ENTITY_APPOINTMENT, saved.getId(),
+                    "appointment:" + saved.getId() + ":v" + saved.getVersion() + ":CANCELLED",
+                    "{\"appointmentCode\":\"" + saved.getAppointmentCode() + "\"}");
             return AppointmentResponse.from(saved);
         } catch (org.springframework.orm.ObjectOptimisticLockingFailureException | jakarta.persistence.OptimisticLockException ex) {
             throw new ManagementException(HttpStatus.CONFLICT, "VERSION_CONFLICT", "Appointment has been modified by another concurrent transaction.");
@@ -552,6 +567,10 @@ public class AppointmentService {
         try {
             Appointment saved = appointmentRepository.saveAndFlush(fresh);
             notifications.appointmentChanged(saved, NotificationType.APPOINTMENT_CONFIRMED, null);
+            auditLogs.recordSuccess(actor.id(), actor.role(), AuditLogService.ACTION_APPOINTMENT_CONFIRMED,
+                    AuditLogService.ENTITY_APPOINTMENT, saved.getId(),
+                    "appointment:" + saved.getId() + ":v" + saved.getVersion() + ":CONFIRMED",
+                    "{\"appointmentCode\":\"" + saved.getAppointmentCode() + "\"}");
             return AppointmentResponse.from(saved);
         } catch (org.springframework.orm.ObjectOptimisticLockingFailureException | jakarta.persistence.OptimisticLockException ex) {
             throw new ManagementException(HttpStatus.CONFLICT, "VERSION_CONFLICT", "Appointment has been modified by another concurrent transaction.");
@@ -620,6 +639,10 @@ public class AppointmentService {
 
         try {
             Appointment saved = appointmentRepository.saveAndFlush(fresh);
+            auditLogs.recordSuccess(actor.id(), actor.role(), AuditLogService.ACTION_APPOINTMENT_CHECKED_IN,
+                    AuditLogService.ENTITY_APPOINTMENT, saved.getId(),
+                    "appointment:" + saved.getId() + ":v" + saved.getVersion() + ":CHECKED_IN",
+                    "{\"appointmentCode\":\"" + saved.getAppointmentCode() + "\"}");
             return AppointmentResponse.from(saved);
         } catch (org.springframework.orm.ObjectOptimisticLockingFailureException | jakarta.persistence.OptimisticLockException ex) {
             throw new ManagementException(HttpStatus.CONFLICT, "VERSION_CONFLICT", "Appointment has been modified by another concurrent transaction.");
@@ -669,6 +692,10 @@ public class AppointmentService {
 
         try {
             Appointment saved = appointmentRepository.saveAndFlush(fresh);
+            auditLogs.recordSuccess(actor.id(), actor.role(), AuditLogService.ACTION_APPOINTMENT_NO_SHOW,
+                    AuditLogService.ENTITY_APPOINTMENT, saved.getId(),
+                    "appointment:" + saved.getId() + ":v" + saved.getVersion() + ":NO_SHOW",
+                    "{\"appointmentCode\":\"" + saved.getAppointmentCode() + "\"}");
             return AppointmentResponse.from(saved);
         } catch (org.springframework.orm.ObjectOptimisticLockingFailureException | jakarta.persistence.OptimisticLockException ex) {
             throw new ManagementException(HttpStatus.CONFLICT, "VERSION_CONFLICT", "Appointment has been modified by another concurrent transaction.");

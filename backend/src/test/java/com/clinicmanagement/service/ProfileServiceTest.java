@@ -18,7 +18,7 @@ import org.springframework.http.HttpStatus;
 
 class ProfileServiceTest {
     private final UserRepository users = mock(UserRepository.class);
-    private final ProfileService service = new ProfileService(users);
+    private final ProfileService service = new ProfileService(users, mock(AuditLogService.class));
 
     @Test
     void getReturnsUserProfile() {
