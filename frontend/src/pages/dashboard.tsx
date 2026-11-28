@@ -146,11 +146,12 @@ function DashboardWorkspace() {
             setRevision((value) => value + 1)
           }}
         >
-          <div className="min-w-0 flex-1 space-y-2">
+          <div className="min-w-[140px] flex-1 space-y-2">
             <Label htmlFor="summary-from">Từ ngày</Label>
             <Input
               id="summary-from"
               type="date"
+              className="h-10"
               value={draft.from}
               onChange={(e) => setDraft({ ...draft, from: e.target.value })}
               aria-invalid={!!validation}
@@ -159,11 +160,12 @@ function DashboardWorkspace() {
               }
             />
           </div>
-          <div className="min-w-0 flex-1 space-y-2">
+          <div className="min-w-[140px] flex-1 space-y-2">
             <Label htmlFor="summary-to">Đến ngày</Label>
             <Input
               id="summary-to"
               type="date"
+              className="h-10"
               value={draft.to}
               onChange={(e) => setDraft({ ...draft, to: e.target.value })}
               aria-invalid={!!validation}
@@ -172,7 +174,9 @@ function DashboardWorkspace() {
               }
             />
           </div>
-          <Button type="submit">Áp dụng</Button>
+          <Button type="submit" className="h-10">
+            Áp dụng
+          </Button>
           <p
             id="summary-timezone"
             className="w-full text-xs text-muted-foreground"

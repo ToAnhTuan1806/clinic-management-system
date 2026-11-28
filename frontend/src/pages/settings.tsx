@@ -61,22 +61,21 @@ export default function Settings() {
       <Card className="gap-4 p-6">
         <div className="flex flex-wrap items-center gap-3">
           <Unplug className="size-5 text-primary" aria-hidden="true" />
-          <h2 className="font-semibold">Kết nối dữ liệu</h2>
-          <Badge variant="outline">Chưa tích hợp API</Badge>
+          <h2 className="font-semibold">Kết nối hệ thống</h2>
+          <Badge variant="secondary">Đã kết nối API</Badge>
         </div>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          Các phân hệ nghiệp vụ vẫn đang ở dạng DEMO và chưa có dữ liệu thật.
-          Quyền truy cập dữ liệu phải tiếp tục được kiểm tra tại Backend.
+          Các phân hệ nghiệp vụ đang kết nối trực tiếp với máy chủ ClinicOS và
+          kiểm soát quyền truy cập theo vai trò tại Backend.
         </p>
       </Card>
       <Card className="gap-5 p-6">
         <div className="flex flex-wrap items-center gap-3">
-          <h2 className="font-semibold">Trạng thái giao diện</h2>
-          <Badge variant="secondary">DEMO</Badge>
+          <h2 className="font-semibold">Thành phần trạng thái giao diện</h2>
         </div>
         <p className="text-sm text-muted-foreground">
-          Xem trước trạng thái trống, đang tải và lỗi. Đây là mẫu giao diện,
-          không phải trạng thái của máy chủ.
+          Xem trước các trạng thái trống, đang tải và thông báo lỗi dùng chung
+          trong hệ thống.
         </p>
         <div
           role="group"
@@ -109,8 +108,8 @@ export default function Settings() {
             <div className="rounded-xl border">
               <EmptyState
                 compact
-                title="DEMO · Chưa có dữ liệu"
-                description="Mẫu trạng thái trống dùng chung cho các phân hệ."
+                title="Chưa có dữ liệu"
+                description="Trạng thái trống chuẩn dùng chung cho các phân hệ."
               />
             </div>
           )}

@@ -21,11 +21,11 @@ export function AuthLayout({ children }: { children: ReactNode }) {
             strokeWidth={1}
             aria-hidden="true"
           />
-          <h2 className="text-4xl leading-tight font-semibold">
+          <p className="text-4xl leading-tight font-semibold">
             Chăm sóc tốt hơn.
             <br />
             Bắt đầu từ kết nối.
-          </h2>
+          </p>
           <p className="mt-6 leading-relaxed text-white/90">
             Một không gian rõ ràng và thống nhất cho hành trình chăm sóc sức
             khỏe của bạn.
@@ -33,7 +33,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
         </div>
         <p className="flex items-center gap-2 text-sm text-white/90">
           <ShieldCheck className="size-4" aria-hidden="true" />
-          Phiên đăng nhập kết thúc khi tải lại trang.
+          Bảo mật theo vai trò · Xác thực phiên làm việc an toàn.
         </p>
       </section>
       <section className="flex min-w-0 flex-col p-5 sm:p-10">
@@ -47,12 +47,12 @@ export function AuthLayout({ children }: { children: ReactNode }) {
           <Badge variant="secondary" className="mb-5 w-fit">
             {isAuthMock
               ? 'DEMO · API MOCK · Không phải Backend thật'
-              : 'ClinicOS · Đăng nhập an toàn'}
+              : 'ClinicOS · Cổng đăng nhập'}
           </Badge>
           {children}
         </div>
         <p className="text-center text-xs text-muted-foreground">
-          ClinicOS · Không sử dụng thông tin thật trong bản thử nghiệm.
+          ClinicOS · Hệ thống quản lý phòng khám hiện đại.
         </p>
       </section>
     </main>

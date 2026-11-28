@@ -117,6 +117,7 @@ function AuditLogsWorkspace() {
             <Input
               id="audit-from"
               type="date"
+              className="h-10"
               value={draft.from}
               onChange={(e) => setDraft({ ...draft, from: e.target.value })}
             />
@@ -126,6 +127,7 @@ function AuditLogsWorkspace() {
             <Input
               id="audit-to"
               type="date"
+              className="h-10"
               value={draft.to}
               onChange={(e) => setDraft({ ...draft, to: e.target.value })}
             />
@@ -135,6 +137,7 @@ function AuditLogsWorkspace() {
             <Input
               id="audit-actor"
               inputMode="numeric"
+              className="h-10"
               placeholder="VD: 8"
               value={draft.actorUserId}
               onChange={(e) =>
@@ -173,13 +176,13 @@ function AuditLogsWorkspace() {
             </select>
           </div>
           <div className="flex flex-wrap items-center gap-2 sm:col-span-2 lg:col-span-5">
-            <Button type="submit" className="h-9">
+            <Button type="submit" className="h-10">
               Lọc nhật ký
             </Button>
             <Button
               type="button"
               variant="outline"
-              className="h-9"
+              className="h-10"
               onClick={() => {
                 const reset = initialFilter()
                 setValidation('')

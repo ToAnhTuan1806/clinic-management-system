@@ -47,7 +47,7 @@ function RouteEffects() {
           }[pathname]
         : (navigation.find((item) => item.path === pathname)?.label ??
           'Không tìm thấy')
-    document.title = `${label} · ClinicOS DEMO`
+    document.title = `${label} · ClinicOS`
     if (previous.current !== pathname) {
       document.getElementById('main-content')?.focus({ preventScroll: true })
       window.scrollTo({ top: 0, behavior: 'instant' })

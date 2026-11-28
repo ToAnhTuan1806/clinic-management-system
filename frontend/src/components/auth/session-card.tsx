@@ -17,8 +17,9 @@ export function SessionCard() {
         <h2 className="font-semibold">Phiên đăng nhập</h2>
       </div>
       <p className="text-sm text-muted-foreground">
-        Vai trò: {user ? roleLabels[user.role] : 'Chưa đăng nhập'}. Phiên chỉ
-        tồn tại trong bộ nhớ và kết thúc khi tải lại trang.
+        Vai trò hiện tại: {user ? roleLabels[user.role] : 'Chưa đăng nhập'}.
+        Phiên làm việc được xác thực trực tiếp với máy chủ và bảo vệ an toàn
+        trong bộ nhớ trình duyệt.
       </p>
       <Button
         variant="outline"

@@ -108,7 +108,7 @@ function ReportsWorkspace() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="mb-2 text-xs font-medium text-muted-foreground">
-            BÁO CÁO VẬN HÀNH · FR-14
+            BÁO CÁO VẬN HÀNH
           </p>
           <h1 className="text-2xl font-semibold sm:text-3xl">
             Báo cáo lượt khám
@@ -144,6 +144,7 @@ function ReportsWorkspace() {
             <Input
               id="report-from"
               type="date"
+              className="h-10"
               value={draft.from}
               onChange={(e) => setDraft({ ...draft, from: e.target.value })}
               aria-invalid={!!validation}
@@ -154,6 +155,7 @@ function ReportsWorkspace() {
             <Input
               id="report-to"
               type="date"
+              className="h-10"
               value={draft.to}
               onChange={(e) => setDraft({ ...draft, to: e.target.value })}
               aria-invalid={!!validation}
