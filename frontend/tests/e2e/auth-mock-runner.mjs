@@ -59,8 +59,8 @@ export async function runAuthMockQA(
   const runtimeErrors = []
   const onError = () => runtimeErrors.push('Uncaught browser error')
   page.on('pageerror', onError)
-  const token = await page.evaluate(() => crypto.randomUUID())
-  const password = await page.evaluate(() => crypto.randomUUID())
+  const token = globalThis.crypto.randomUUID()
+  const password = globalThis.crypto.randomUUID()
   const model = {
     role: 'PATIENT',
     login: 'success',
@@ -132,6 +132,37 @@ export async function runAuthMockQA(
         fullName: 'DEMO',
         email: 'demo@clinic.test',
         role: model.role,
+      })
+    }
+    if (path === '/api/v1/dashboard/summary' && request.method() === 'GET') {
+      const url = new URL(request.url())
+      return success({
+        from: url.searchParams.get('from') ?? '2026-11-01',
+        to: url.searchParams.get('to') ?? '2026-11-28',
+        timezone: 'Asia/Ho_Chi_Minh',
+        totalAppointments: 0,
+        appointmentsByStatus: {
+          PENDING: 0,
+          CONFIRMED: 0,
+          CHECKED_IN: 0,
+          IN_PROGRESS: 0,
+          COMPLETED: 0,
+          CANCELLED: 0,
+          NO_SHOW: 0,
+        },
+        checkedInCount: 0,
+        completedCount: 0,
+        uniquePatients: 0,
+      })
+    }
+    if (path === '/api/v1/notifications' && request.method() === 'GET') {
+      return success({
+        items: [],
+        page: 0,
+        size: 20,
+        totalElements: 0,
+        totalPages: 0,
+        unreadCount: 0,
       })
     }
     model.unexpectedCalls++
