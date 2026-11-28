@@ -50,7 +50,7 @@ export default function Register() {
       </p>
       <Badge variant="outline" className="mt-4 w-fit gap-2 py-1.5 text-primary">
         <UserRoundCheck className="size-4" aria-hidden="true" />
-        Chỉ đăng ký PATIENT · Bệnh nhân
+        Dành cho bệnh nhân đăng ký mới
       </Badge>
       <Form {...form}>
         <form
@@ -156,9 +156,7 @@ export default function Register() {
                   <FormControl>
                     <PasswordInput {...field} autoComplete="new-password" />
                   </FormControl>
-                  <FormDescription>
-                    Từ 12 đến 72 ký tự, tối đa 72 byte UTF-8.
-                  </FormDescription>
+                  <FormDescription>Từ 12 đến 72 ký tự.</FormDescription>
                   <FormMessage role="alert" />
                 </FormItem>
               )}

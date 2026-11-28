@@ -497,7 +497,7 @@ export async function runStaffAcceptance(page, { phase, screenshotDir } = {}) {
             .getByRole('button', { name: 'Đăng ký tài khoản', exact: true })
             .click()
           await visible(
-            page.getByText('Mật khẩu không vượt quá 72 byte UTF-8.', {
+            page.getByText('Mật khẩu quá dài, vui lòng rút ngắn lại.', {
               exact: true,
             }),
           )

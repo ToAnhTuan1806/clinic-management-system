@@ -223,7 +223,7 @@ export async function runRealAuthQA(
           await fill('Mật khẩu', 'á'.repeat(37))
           await registerButton().click()
           await visible(
-            page.getByText('Mật khẩu không vượt quá 72 byte UTF-8.', {
+            page.getByText('Mật khẩu quá dài, vui lòng rút ngắn lại.', {
               exact: true,
             }),
           )
