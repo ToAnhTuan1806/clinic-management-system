@@ -1303,7 +1303,7 @@ Mọi response thành công dùng data wrapper, ID string, timestamp UTC và Cac
 401 cho thiếu/sai JWT, 403 cho sai quyền Dashboard, 404 cho notification ngoài owner,
 400 cho ngày/pagination/ID sai. Lỗi tiếp tục dùng Problem Details.
 
-### 3.12 Báo cáo lượt khám và Audit Logs (CL-D14-BE) — IMPLEMENTED D14 (H2 VERIFIED, PENDING MySQL V13)
+### 3.12 Báo cáo lượt khám và Audit Logs (CL-D14-BE) — IMPLEMENTED D14, MySQL V13 VERIFIED
 
 #### Reports (`GET /api/v1/reports/visits`)
 
@@ -1552,8 +1552,8 @@ Các dòng có nhiều method mô tả các API riêng cùng trạng thái tri�
 | FR-12 | GET | `/dashboard/summary` | ADMIN/RECEPTIONIST toàn phòng khám; DOCTOR self; PATIENT 403 | IMPLEMENTED D13 H2/MySQL V12 |
 | FR-13 | GET | `/notifications` | Đã xác thực, chỉ người nhận | IMPLEMENTED D13 H2/MySQL V12 |
 | FR-13 | PATCH | `/notifications/{id}/read` | Người nhận | IMPLEMENTED D13 H2/MySQL V12 |
-| FR-14 | GET | `/reports/visits` | ADMIN/RECEPTIONIST toàn phòng khám; DOCTOR self; PATIENT 403 | **IMPLEMENTED D14 (H2 VERIFIED, PENDING MySQL V13)** |
-| FR-14 | GET | `/audit-logs` | ADMIN only | **IMPLEMENTED D14 (H2 VERIFIED, PENDING MySQL V13)** |
+| FR-14 | GET | `/reports/visits` | ADMIN/RECEPTIONIST toàn phòng khám; DOCTOR self; PATIENT 403 | **IMPLEMENTED D14 H2/MySQL V13** |
+| FR-14 | GET | `/audit-logs` | ADMIN only | **IMPLEMENTED D14 H2/MySQL V13** |
 
 Không có endpoint QR thanh toán hoặc doanh thu. **FR-15 ngoài D01–D15.**
 
