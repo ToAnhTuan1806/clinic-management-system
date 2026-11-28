@@ -73,3 +73,27 @@ jobs:
       - name: Check formatting
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm run format:check
+      - name: Audit npm dependencies
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm audit --audit-level=high
+
+  security:
+    name: Security Scans (Secrets & Dependencies)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Secret scan (Gitleaks)
+        run: |
+          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz | tar -xz -C /tmp gitleaks
+          /tmp/gitleaks git --no-banner --redact .
+      - name: Vulnerability scan (Trivy fs)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          exit-code: "1"
