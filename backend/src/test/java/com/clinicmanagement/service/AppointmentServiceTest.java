@@ -38,7 +38,7 @@ class AppointmentServiceTest {
 
     private final AppointmentService service = new AppointmentService(
             appointmentRepository, scheduleRepository, doctorRepository, patientRepository, userRepository, entityManager,
-            mock(NotificationService.class));
+            mock(NotificationService.class), mock(AuditLogService.class));
 
     private User patientUser;
     private Patient patient;

@@ -32,7 +32,7 @@ class AuthServiceTest {
         String password = UUID.randomUUID().toString();
         String hash = UUID.randomUUID().toString();
         when(passwords.encode(anyString())).thenReturn(hash);
-        AuthService auth = new AuthService(users, passwords, tokens, Clock.systemUTC());
+        AuthService auth = new AuthService(users, passwords, tokens, Clock.systemUTC(), mock(AuditLogService.class));
         when(users.findByEmail(email)).thenReturn(Optional.of(user));
         when(user.getId()).thenReturn(1L);
         when(user.getPasswordHash()).thenReturn(hash);

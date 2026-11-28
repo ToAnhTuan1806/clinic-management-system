@@ -1303,6 +1303,129 @@ Mọi response thành công dùng data wrapper, ID string, timestamp UTC và Cac
 401 cho thiếu/sai JWT, 403 cho sai quyền Dashboard, 404 cho notification ngoài owner,
 400 cho ngày/pagination/ID sai. Lỗi tiếp tục dùng Problem Details.
 
+### 3.12 Báo cáo lượt khám và Audit Logs (CL-D14-BE) — IMPLEMENTED D14 (H2 VERIFIED, PENDING MySQL V13)
+
+#### Reports (`GET /api/v1/reports/visits`)
+
+`GET /api/v1/reports/visits?from=2026-11-22&to=2026-11-28`
+
+- **Phân quyền:**
+  - `ADMIN`: Toàn phòng khám.
+  - `RECEPTIONIST`: Báo cáo vận hành toàn phòng khám (cùng phạm vi tổng hợp lịch hẹn, không chứa nội dung lâm sàng).
+  - `DOCTOR`: Chỉ dữ liệu của chính mình (`doctor.user.id = principal.id`).
+  - `PATIENT`: Bị từ chối (`403 ACCESS_DENIED`).
+- **Bộ lọc ngày:**
+  - `from`, `to`: Ngày ISO (`YYYY-MM-DD`) theo múi giờ `Asia/Ho_Chi_Minh`. Mặc định mỗi tham số nếu bỏ qua là ngày hiện tại tại `Asia/Ho_Chi_Minh`.
+  - Hỗ trợ `1000-01-02 <= from <= to <= 9999-12-31`, khoảng tối đa `366` ngày (`ChronoUnit.DAYS.between(from, to) < 366`). Sai quy tắc trả `400 VALIDATION_FAILED`.
+  - Lọc theo `appointment.startAt` trong `[đầu ngày from VN -> UTC, đầu ngày sau to VN -> UTC)`.
+- **Tính nhất quán với Dashboard D13:**
+  - Tổng hợp trực tiếp tại Database (không tải entity để đếm trong Java), trong transaction `readOnly = true, isolation = REPEATABLE_READ`.
+  - `totalAppointments`, `appointmentsByStatus` (đủ 7 trạng thái), `checkedInCount` (`checkedInAt != null`), `completedCount` (`status = COMPLETED`), `uniquePatients` (`COUNT(DISTINCT patient_id)`) **khớp chính xác** với `GET /api/v1/dashboard/summary` cho cùng `(viewer, from, to)`.
+  - Bổ sung 3 bảng phân rã (trả mảng rỗng `[]` nếu không có dữ liệu):
+    - `dailyVisits`: Theo từng ngày `Asia/Ho_Chi_Minh` trong khoảng có phát sinh lịch (`date`, `totalAppointments`, `checkedInCount`, `completedCount`, `cancelledCount`, `noShowCount`), sắp xếp `date ASC`.
+    - `byDoctor`: Thống kê theo bác sĩ (`doctorId` string, `doctorCode`, `doctorName`, `specialtyName`, `totalAppointments`, `checkedInCount`, `completedCount`), sắp xếp `totalAppointments DESC, doctorId ASC`. (Với `DOCTOR`, chỉ có tối đa 1 dòng của chính mình).
+    - `bySpecialty`: Thống kê theo chuyên khoa (`specialtyId` string, `specialtyCode`, `specialtyName`, `totalAppointments`, `checkedInCount`, `completedCount`), sắp xếp `totalAppointments DESC, specialtyId ASC`.
+- **Header:** `Cache-Control: no-store`.
+
+```json
+{
+  "data": {
+    "from": "2026-11-22",
+    "to": "2026-11-28",
+    "timezone": "Asia/Ho_Chi_Minh",
+    "totalAppointments": 12,
+    "appointmentsByStatus": {
+      "PENDING": 2,
+      "CONFIRMED": 3,
+      "CHECKED_IN": 1,
+      "IN_PROGRESS": 1,
+      "COMPLETED": 4,
+      "CANCELLED": 1,
+      "NO_SHOW": 0
+    },
+    "checkedInCount": 6,
+    "completedCount": 4,
+    "uniquePatients": 9,
+    "dailyVisits": [
+      {
+        "date": "2026-11-22",
+        "totalAppointments": 5,
+        "checkedInCount": 3,
+        "completedCount": 2,
+        "cancelledCount": 0,
+        "noShowCount": 0
+      }
+    ],
+    "byDoctor": [
+      {
+        "doctorId": "2",
+        "doctorCode": "DOC-01",
+        "doctorName": "Dr. Nguyen",
+        "specialtyName": "Cardiology",
+        "totalAppointments": 12,
+        "checkedInCount": 6,
+        "completedCount": 4
+      }
+    ],
+    "bySpecialty": [
+      {
+        "specialtyId": "1",
+        "specialtyCode": "CARD",
+        "specialtyName": "Cardiology",
+        "totalAppointments": 12,
+        "checkedInCount": 6,
+        "completedCount": 4
+      }
+    ]
+  }
+}
+```
+
+#### Audit Logs (`GET /api/v1/audit-logs`)
+
+`GET /api/v1/audit-logs?from=2026-11-22&to=2026-11-28&actorUserId=8&action=APPOINTMENT_BOOKED&page=0&size=20&sort=occurredAt,desc`
+
+- **Phân quyền:** Chỉ `ADMIN` (`403 ACCESS_DENIED` với `DOCTOR`, `RECEPTIONIST`, `PATIENT`; `401` nếu chưa xác thực).
+- **Append-only:** Không cung cấp `POST`, `PATCH`, `PUT`, `DELETE` cho `/api/v1/audit-logs`.
+- **Tham số lọc & phân trang:**
+  - `from`, `to` (tùy chọn): Ngày ISO theo `Asia/Ho_Chi_Minh`. Nếu chỉ truyền 1 đầu hoặc truyền cả 2 đầu: kiểm tra `from <= to`, khoảng tối đa `366` ngày, năm hợp lệ (`1000-01-02`..`9999-12-31`).
+  - `actorUserId` (tùy chọn): Long ID >= 1.
+  - `action` (tùy chọn): Chuỗi action chính xác (trim, tối đa 64 ký tự).
+  - `page` (mặc định `0`, `>= 0`), `size` (mặc định `20`, `1..100`).
+  - `sort` (tùy chọn): `occurredAt,desc` (mặc định) hoặc `occurredAt,asc` (luôn kèm tie-breaker `id DESC`/`ASC` để phân trang ổn định). Giá trị khác trả `400 VALIDATION_FAILED`.
+- **Sự kiện ghi audit (`result = SUCCESS`):**
+  - Lịch hẹn: `APPOINTMENT_BOOKED`, `APPOINTMENT_RESCHEDULED`, `APPOINTMENT_CANCELLED`, `APPOINTMENT_CONFIRMED`, `APPOINTMENT_CHECKED_IN`, `APPOINTMENT_NO_SHOW`.
+  - Hồ sơ khám: `MEDICAL_RECORD_COMPLETED`, `MEDICAL_RECORD_RELEASED`.
+  - Tài khoản/hồ sơ trong scope: `USER_REGISTERED`, `PROFILE_UPDATED`.
+  - Ghi trong **cùng transaction** nghiệp vụ; rollback nghiệp vụ không lưu audit giả; retry idempotent (booking replay, check-in lặp, reschedule no-op, release lặp) không sinh audit trùng (bảo vệ bằng `event_key` UNIQUE).
+  - Tuyệt đối không ghi mật khẩu, JWT, triệu chứng, chẩn đoán, đơn thuốc hay dữ liệu nhạy cảm vào `metadata`.
+- **Schema V13 (QA):** Bảng `audit_logs` (`id`, `actor_user_id` FK `users(id)` RESTRICT, `actor_role`, `action`, `entity_type`, `entity_id`, `result`, `event_key` UNIQUE, `correlation_id`, `metadata`, `occurred_at` DATETIME(6) UTC).
+
+```json
+{
+  "data": {
+    "items": [
+      {
+        "id": "1",
+        "actorUserId": "8",
+        "actorRole": "RECEPTIONIST",
+        "action": "APPOINTMENT_CHECKED_IN",
+        "entityType": "APPOINTMENT",
+        "entityId": "100",
+        "result": "SUCCESS",
+        "correlationId": null,
+        "metadata": "{\"appointmentCode\":\"APP123456\"}",
+        "occurredAt": "2026-11-28T02:15:00Z"
+      }
+    ],
+    "page": 0,
+    "size": 20,
+    "totalElements": 1,
+    "totalPages": 1
+  }
+}
+```
+
 ## 4. Error response
 
 Dùng Problem Details theo [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457.html),
@@ -1429,8 +1552,8 @@ Các dòng có nhiều method mô tả các API riêng cùng trạng thái tri�
 | FR-12 | GET | `/dashboard/summary` | ADMIN/RECEPTIONIST toàn phòng khám; DOCTOR self; PATIENT 403 | IMPLEMENTED D13 H2/MySQL V12 |
 | FR-13 | GET | `/notifications` | Đã xác thực, chỉ người nhận | IMPLEMENTED D13 H2/MySQL V12 |
 | FR-13 | PATCH | `/notifications/{id}/read` | Người nhận | IMPLEMENTED D13 H2/MySQL V12 |
-| FR-14 | GET | `/reports/visits` | ADMIN; RECEPTIONIST tiếp nhận; DOCTOR self nếu policy cho phép | PROPOSED |
-| FR-14 | GET | `/audit-logs` | ADMIN | PROPOSED |
+| FR-14 | GET | `/reports/visits` | ADMIN/RECEPTIONIST toàn phòng khám; DOCTOR self; PATIENT 403 | **IMPLEMENTED D14 (H2 VERIFIED, PENDING MySQL V13)** |
+| FR-14 | GET | `/audit-logs` | ADMIN only | **IMPLEMENTED D14 (H2 VERIFIED, PENDING MySQL V13)** |
 
 Không có endpoint QR thanh toán hoặc doanh thu. **FR-15 ngoài D01–D15.**
 

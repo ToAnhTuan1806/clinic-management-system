@@ -31,14 +31,17 @@ public class MedicalRecordService {
     private final UserRepository users;
     private final Clock clock;
     private final PatientRepository patients;
+    private final AuditLogService auditLogs;
 
     public MedicalRecordService(MedicalRecordRepository records, AppointmentRepository appointments,
-                                UserRepository users, Clock clock, PatientRepository patients) {
+                                UserRepository users, Clock clock, PatientRepository patients,
+                                AuditLogService auditLogs) {
         this.records = records;
         this.appointments = appointments;
         this.users = users;
         this.clock = clock;
         this.patients = patients;
+        this.auditLogs = auditLogs;
     }
 
     @Transactional
@@ -119,7 +122,12 @@ public class MedicalRecordService {
             throw versionConflict();
         }
         record.complete(users.getReferenceById(viewer.id()), clock.instant());
-        return flush(record);
+        MedicalRecordView.Clinical completed = flush(record);
+        auditLogs.recordSuccess(viewer.id(), viewer.role(), AuditLogService.ACTION_MEDICAL_RECORD_COMPLETED,
+                AuditLogService.ENTITY_MEDICAL_RECORD, record.getId(),
+                "medical_record:" + record.getId() + ":v" + record.getVersion() + ":COMPLETED",
+                "{\"appointmentId\":\"" + record.getAppointment().getId() + "\"}");
+        return completed;
     }
 
     @Transactional(readOnly = true)
@@ -160,7 +168,12 @@ public class MedicalRecordService {
             return MedicalRecordView.Clinical.from(record);
         }
         record.release(users.getReferenceById(viewer.id()), clock.instant());
-        return flush(record);
+        MedicalRecordView.Clinical released = flush(record);
+        auditLogs.recordSuccess(viewer.id(), viewer.role(), AuditLogService.ACTION_MEDICAL_RECORD_RELEASED,
+                AuditLogService.ENTITY_MEDICAL_RECORD, record.getId(),
+                "medical_record:" + record.getId() + ":v" + record.getVersion() + ":RELEASED",
+                "{\"appointmentId\":\"" + record.getAppointment().getId() + "\"}");
+        return released;
     }
 
     private MedicalRecord lockDraft(AuthenticatedUser viewer, Long id, Long expectedVersion) {
