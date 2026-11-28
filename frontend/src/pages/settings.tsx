@@ -108,6 +108,7 @@ export default function Settings() {
             <div className="rounded-xl border">
               <EmptyState
                 compact
+                showAction={false}
                 title="Chưa có dữ liệu"
                 description="Trạng thái trống chuẩn dùng chung cho các phân hệ."
               />

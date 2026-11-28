@@ -26,10 +26,12 @@ export function EmptyState({
   title = 'Chưa có dữ liệu để hiển thị',
   description = 'Màn hình đang được chuẩn bị. Dữ liệu sẽ xuất hiện khi API được tích hợp.',
   compact = false,
+  showAction = true,
 }: {
   title?: string
   description?: string
   compact?: boolean
+  showAction?: boolean
 }) {
   return (
     <div
@@ -46,9 +48,11 @@ export function EmptyState({
       <p className="mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">
         {description}
       </p>
-      <Button asChild variant="outline" className="mt-5">
-        <Link to="/settings">Xem thiết lập nền tảng</Link>
-      </Button>
+      {showAction && (
+        <Button asChild variant="outline" className="mt-5">
+          <Link to="/settings">Xem thiết lập nền tảng</Link>
+        </Button>
+      )}
     </div>
   )
 }

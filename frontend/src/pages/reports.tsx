@@ -194,29 +194,27 @@ function ReportsWorkspace() {
         </Alert>
       ) : data ? (
         <>
-          <section
+          <dl
             aria-label="Chỉ số tổng hợp lượt khám"
-            className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+            className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4"
           >
             {kpis.map((item) => {
               const Icon = item.icon
               return (
-                <Card key={item.label} className="p-5">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm font-medium text-muted-foreground">
-                      {item.label}
-                    </p>
-                    <span className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                      <Icon className="size-4" aria-hidden="true" />
-                    </span>
+                <Card key={item.label} className="gap-0 p-5">
+                  <div className="mb-4 flex size-10 items-center justify-center rounded-xl bg-primary/7 text-primary">
+                    <Icon className="size-5" aria-hidden="true" />
                   </div>
-                  <p className="mt-3 text-3xl font-semibold tabular-nums">
-                    {item.value}
-                  </p>
+                  <dt className="text-sm text-muted-foreground">
+                    {item.label}
+                  </dt>
+                  <dd className="mt-2 text-3xl font-semibold tabular-nums">
+                    {item.value.toLocaleString('vi-VN')}
+                  </dd>
                 </Card>
               )
             })}
-          </section>
+          </dl>
 
           {data.totalAppointments === 0 ? (
             <Card className="p-8 text-center">

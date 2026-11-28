@@ -119,6 +119,10 @@ function AuditLogsWorkspace() {
               type="date"
               className="h-10"
               value={draft.from}
+              aria-invalid={
+                !!validation && !!optionalDateRangeError(draft.from, draft.to)
+              }
+              aria-describedby={validation ? 'audit-validation' : undefined}
               onChange={(e) => setDraft({ ...draft, from: e.target.value })}
             />
           </div>
@@ -129,6 +133,10 @@ function AuditLogsWorkspace() {
               type="date"
               className="h-10"
               value={draft.to}
+              aria-invalid={
+                !!validation && !!optionalDateRangeError(draft.from, draft.to)
+              }
+              aria-describedby={validation ? 'audit-validation' : undefined}
               onChange={(e) => setDraft({ ...draft, to: e.target.value })}
             />
           </div>
@@ -140,6 +148,10 @@ function AuditLogsWorkspace() {
               className="h-10"
               placeholder="VD: 8"
               value={draft.actorUserId}
+              aria-invalid={
+                !!validation && !!actorUserIdError(draft.actorUserId)
+              }
+              aria-describedby={validation ? 'audit-validation' : undefined}
               onChange={(e) =>
                 setDraft({ ...draft, actorUserId: e.target.value })
               }
@@ -196,6 +208,7 @@ function AuditLogsWorkspace() {
           </div>
           {validation && (
             <Alert
+              id="audit-validation"
               variant="destructive"
               className="sm:col-span-2 lg:col-span-5"
             >
