@@ -1,0 +1,2 @@
+# Verified false positive: synthetic idempotency requestKey fixture in frontend unit test
+046a6963ea45073818d1e0e81da77a055dfac31e:frontend/tests/booking.contract.test.ts:generic-api-key:31
