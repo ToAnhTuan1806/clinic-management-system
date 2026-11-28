@@ -150,7 +150,7 @@ export default function Login() {
             </Button>
           </fieldset>
           <p className="text-xs leading-relaxed text-muted-foreground">
-            Phiên chỉ được giữ trong bộ nhớ và kết thúc khi tải lại trang.
+            Phiên đăng nhập được bảo mật an toàn trong bộ nhớ trình duyệt.
           </p>
         </form>
       </Form>
@@ -158,7 +158,7 @@ export default function Login() {
         Bạn chưa có tài khoản?{' '}
         <Link
           to="/register"
-          className="inline-flex min-h-9 items-center rounded font-semibold text-primary"
+          className="inline-flex min-h-10 items-center rounded font-semibold text-primary"
         >
           Đăng ký bệnh nhân
         </Link>

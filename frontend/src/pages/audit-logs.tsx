@@ -117,7 +117,12 @@ function AuditLogsWorkspace() {
             <Input
               id="audit-from"
               type="date"
+              className="h-10"
               value={draft.from}
+              aria-invalid={
+                !!validation && !!optionalDateRangeError(draft.from, draft.to)
+              }
+              aria-describedby={validation ? 'audit-validation' : undefined}
               onChange={(e) => setDraft({ ...draft, from: e.target.value })}
             />
           </div>
@@ -126,7 +131,12 @@ function AuditLogsWorkspace() {
             <Input
               id="audit-to"
               type="date"
+              className="h-10"
               value={draft.to}
+              aria-invalid={
+                !!validation && !!optionalDateRangeError(draft.from, draft.to)
+              }
+              aria-describedby={validation ? 'audit-validation' : undefined}
               onChange={(e) => setDraft({ ...draft, to: e.target.value })}
             />
           </div>
@@ -135,8 +145,13 @@ function AuditLogsWorkspace() {
             <Input
               id="audit-actor"
               inputMode="numeric"
+              className="h-10"
               placeholder="VD: 8"
               value={draft.actorUserId}
+              aria-invalid={
+                !!validation && !!actorUserIdError(draft.actorUserId)
+              }
+              aria-describedby={validation ? 'audit-validation' : undefined}
               onChange={(e) =>
                 setDraft({ ...draft, actorUserId: e.target.value })
               }
@@ -173,13 +188,13 @@ function AuditLogsWorkspace() {
             </select>
           </div>
           <div className="flex flex-wrap items-center gap-2 sm:col-span-2 lg:col-span-5">
-            <Button type="submit" className="h-9">
+            <Button type="submit" className="h-10">
               Lọc nhật ký
             </Button>
             <Button
               type="button"
               variant="outline"
-              className="h-9"
+              className="h-10"
               onClick={() => {
                 const reset = initialFilter()
                 setValidation('')
@@ -193,6 +208,7 @@ function AuditLogsWorkspace() {
           </div>
           {validation && (
             <Alert
+              id="audit-validation"
               variant="destructive"
               className="sm:col-span-2 lg:col-span-5"
             >

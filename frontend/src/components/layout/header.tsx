@@ -51,7 +51,7 @@ export function Header() {
           <SheetHeader className="sr-only">
             <SheetTitle>Menu điều hướng</SheetTitle>
             <SheetDescription>
-              Chọn một màn hình trong không gian phòng khám DEMO.
+              Chọn phân hệ cần thao tác trong hệ thống ClinicOS.
             </SheetDescription>
           </SheetHeader>
           <SidebarContent
@@ -76,16 +76,20 @@ export function Header() {
         </span>
       </div>
       <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-5">
-        <Badge
-          variant="outline"
-          className="hidden border-primary/20 bg-primary/5 px-2.5 py-1 text-primary sm:inline-flex"
-        >
-          {isAuthMock ? 'API MOCK' : 'DEMO'}
-        </Badge>
-        <span
-          className="hidden h-6 w-px bg-border sm:block"
-          aria-hidden="true"
-        />
+        {isAuthMock && (
+          <>
+            <Badge
+              variant="outline"
+              className="hidden border-primary/20 bg-primary/5 px-2.5 py-1 text-primary sm:inline-flex"
+            >
+              API MOCK
+            </Badge>
+            <span
+              className="hidden h-6 w-px bg-border sm:block"
+              aria-hidden="true"
+            />
+          </>
+        )}
         <NotificationCenter />
         <ThemeToggle />
         <Button

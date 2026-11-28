@@ -514,9 +514,14 @@ function AppointmentsWorkspace({ relatedId }: { relatedId: string | null }) {
           {/* Status Filters */}
           <div className="flex flex-wrap items-center gap-1.5">
             {(
-              ['ALL', 'PENDING', 'CONFIRMED', 'COMPLETED', 'CANCELLED'] as (
-                AppointmentStatus | 'ALL'
-              )[]
+              [
+                'ALL',
+                'PENDING',
+                'CONFIRMED',
+                'CHECKED_IN',
+                'COMPLETED',
+                'CANCELLED',
+              ] as (AppointmentStatus | 'ALL')[]
             ).map((st) => (
               <Button
                 key={st}
