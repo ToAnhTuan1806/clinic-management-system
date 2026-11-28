@@ -68,7 +68,7 @@ class MySqlPrescriptionIntegrationTest extends TestSecurityProperties {
     @AfterEach
     void clean() {
         MySqlTestDatabase.requireIsolatedUrl(System.getenv("DB_URL"));
-        for (String table : List.of("notifications", "prescription_items", "prescriptions", "medical_records",
+        for (String table : List.of("audit_logs", "notifications", "prescription_items", "prescriptions", "medical_records",
                 "appointments", "doctor_schedules", "patients", "doctors", "specialties", "users")) {
             jdbc.update("DELETE FROM " + table);
         }

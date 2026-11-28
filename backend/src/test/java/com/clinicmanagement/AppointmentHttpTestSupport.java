@@ -825,8 +825,8 @@ abstract class AppointmentHttpTestSupport extends TestSecurityProperties {
         var a1 = appointments.saveAndFlush(new Appointment("RPT-1", mainPatient, mainDoctor, s1,
                 actors.get(Role.RECEPTIONIST), UUID.randomUUID().toString(), "a".repeat(64),
                 day1Slot1, day1Slot1.plusSeconds(1800), AppointmentStatus.COMPLETED, null));
-        jdbc.update("UPDATE appointments SET checked_in_at = ? WHERE id = ?",
-                java.sql.Timestamp.from(day1Slot1.minusSeconds(300)), a1.getId());
+        jdbc.update("UPDATE appointments SET checked_in_at = ?, checked_in_by = ? WHERE id = ?",
+                java.sql.Timestamp.from(Instant.now().plusSeconds(1)), actors.get(Role.RECEPTIONIST).getId(), a1.getId());
 
         appointments.saveAndFlush(new Appointment("RPT-2", secondPatient, mainDoctor, s2,
                 actors.get(Role.RECEPTIONIST), UUID.randomUUID().toString(), "b".repeat(64),
@@ -835,8 +835,8 @@ abstract class AppointmentHttpTestSupport extends TestSecurityProperties {
         var a3 = appointments.saveAndFlush(new Appointment("RPT-3", mainPatient, doc3, s3,
                 actors.get(Role.RECEPTIONIST), UUID.randomUUID().toString(), "c".repeat(64),
                 day2Slot2, day2Slot2.plusSeconds(1800), AppointmentStatus.CHECKED_IN, null));
-        jdbc.update("UPDATE appointments SET checked_in_at = ? WHERE id = ?",
-                java.sql.Timestamp.from(day2Slot2.minusSeconds(300)), a3.getId());
+        jdbc.update("UPDATE appointments SET checked_in_at = ?, checked_in_by = ? WHERE id = ?",
+                java.sql.Timestamp.from(Instant.now().plusSeconds(1)), actors.get(Role.RECEPTIONIST).getId(), a3.getId());
 
         String query = "?from=2026-06-10&to=2026-06-11";
         for (Role role : List.of(Role.ADMIN, Role.RECEPTIONIST, Role.DOCTOR)) {
