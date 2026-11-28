@@ -2,9 +2,9 @@ name: Sprint 1 CI
 
 on:
   pull_request:
-    branches: [dev]
+    branches: [dev, main]
   push:
-    branches: [dev, "feature/**"]
+    branches: [dev, main, "feature/**"]
 
 permissions:
   contents: read
@@ -75,7 +75,7 @@ jobs:
         run: npm run format:check
       - name: Audit npm dependencies
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=moderate
 
   security:
     name: Security Scans (Secrets & Dependencies)
