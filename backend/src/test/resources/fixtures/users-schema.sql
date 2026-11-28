@@ -8,8 +8,11 @@ CREATE TABLE users (
     address VARCHAR(255),
     role VARCHAR(20) NOT NULL CHECK (role IN ('ADMIN', 'DOCTOR', 'RECEPTIONIST', 'PATIENT')),
     status VARCHAR(16) NOT NULL CHECK (status IN ('ACTIVE', 'DISABLED')),
+    auth_provider VARCHAR(16) NOT NULL DEFAULT 'LOCAL' CHECK (auth_provider IN ('LOCAL', 'GOOGLE')),
+    google_sub VARCHAR(255),
     last_login_at TIMESTAMP(6),
     created_at TIMESTAMP(6) NOT NULL,
     updated_at TIMESTAMP(6) NOT NULL,
-    CONSTRAINT uk_users_email UNIQUE (email)
+    CONSTRAINT uk_users_email UNIQUE (email),
+    CONSTRAINT uk_users_google_sub UNIQUE (google_sub)
 );
