@@ -81,7 +81,25 @@ npm run dev
 
 Mở trình duyệt tại **`http://localhost:5173`**.
 
-> **Tạo tài khoản nhân sự (`ADMIN`, `RECEPTIONIST`, `DOCTOR`) ở môi trường local:** API công khai `/api/v1/auth/register` chỉ tạo vai trò `PATIENT` theo thiết kế bảo mật. Sau khi đăng ký tài khoản trên giao diện (mật khẩu 12–72 ký tự), có thể nâng vai trò trong MySQL local bằng lệnh `UPDATE users SET role='ADMIN' WHERE email='...';` (tương tự với `RECEPTIONIST` và `DOCTOR`).
+### 3.4. Tạo nhanh 4 tài khoản demo (chỉ dùng trên local)
+
+Vì lý do bảo mật (*không hardcode default credentials*), Flyway không tự chèn tài khoản mẫu vào database và API công khai `/api/v1/auth/register` chỉ tạo vai trò `PATIENT`. Để thiết lập bộ 4 tài khoản thử nghiệm trên máy local:
+
+| Vai trò | Email gợi ý | Họ tên |
+| :--- | :--- | :--- |
+| **`ADMIN`** (Quản trị viên) | `admin@clinicos.local` | Quản trị viên ClinicOS |
+| **`RECEPTIONIST`** (Lễ tân) | `reception@clinicos.local` | Lễ tân Nguyễn Lan |
+| **`DOCTOR`** (Bác sĩ) | `doctor@clinicos.local` | BS. Trần Minh Khoa |
+| **`PATIENT`** (Bệnh nhân) | `patient@clinicos.local` | Nguyễn Văn An |
+
+1. Đăng ký 4 tài khoản trên tại **`http://localhost:5173/register`** (mật khẩu cục bộ tự chọn từ 12–72 ký tự).
+2. Phân quyền 3 tài khoản nhân sự trong MySQL local:
+
+```powershell
+docker exec -e MYSQL_PWD="<CLINIC_MYSQL_PASSWORD>" clinic-management-d01-mysql-1 mysql -u clinic_app clinic_management_db -e "UPDATE users SET role='ADMIN' WHERE email='admin@clinicos.local'; UPDATE users SET role='RECEPTIONIST' WHERE email='reception@clinicos.local'; UPDATE users SET role='DOCTOR' WHERE email='doctor@clinicos.local'; SELECT id, email, role, status FROM users;"
+```
+
+3. Đăng nhập `admin@clinicos.local` để tạo chuyên khoa, liên kết hồ sơ bác sĩ (`doctor@clinicos.local`), liên kết hồ sơ bệnh nhân (`patient@clinicos.local`) và tạo lịch làm việc trước khi chạy kịch bản demo ở Mục 6.
 
 ---
 
