@@ -88,6 +88,38 @@ export function normalizeAuthError(error: unknown): AuthApiError {
     fields.email = 'Email này đã được sử dụng. Vui lòng dùng email khác.'
     return new AuthApiError(fields.email, status, code, fields)
   }
+  if (code === 'GOOGLE_LOGIN_NOT_ALLOWED') {
+    return new AuthApiError(
+      'Đăng nhập bằng Google chỉ hỗ trợ tài khoản bệnh nhân. Nhân sự vui lòng đăng nhập bằng email và mật khẩu.',
+      status,
+      code,
+      fields,
+    )
+  }
+  if (code === 'INVALID_GOOGLE_TOKEN') {
+    return new AuthApiError(
+      'Phiên xác thực Google không hợp lệ hoặc đã hết hạn. Vui lòng thử lại.',
+      status,
+      code,
+      fields,
+    )
+  }
+  if (code === 'GOOGLE_AUTH_NOT_CONFIGURED') {
+    return new AuthApiError(
+      'Tính năng đăng nhập bằng Google chưa được cấu hình trên máy chủ.',
+      status,
+      code,
+      fields,
+    )
+  }
+  if (code === 'GOOGLE_ACCOUNT_MISMATCH') {
+    return new AuthApiError(
+      'Email này đã được liên kết với một tài khoản Google khác.',
+      status,
+      code,
+      fields,
+    )
+  }
   const message =
     status === 401
       ? 'Email hoặc mật khẩu không đúng.'

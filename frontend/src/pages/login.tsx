@@ -9,6 +9,7 @@ import { emailRules, loginPasswordRules } from '@/auth/validation'
 import { useSubmission } from '@/auth/use-submission'
 import { AuthLayout } from '@/components/auth/auth-layout'
 import { AuthFeedback } from '@/components/auth/auth-feedback'
+import { GoogleSignInButton } from '@/components/auth/google-sign-in-button'
 import { PasswordInput } from '@/components/auth/password-input'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -24,7 +25,7 @@ import {
 } from '@/components/ui/form'
 
 export default function Login() {
-  const { login, notice } = useAuth()
+  const { login, loginWithGoogle, notice } = useAuth()
   const { state } = useLocation()
   const form = useForm<LoginInput>({
     defaultValues: { email: '', password: '' },
@@ -154,6 +155,22 @@ export default function Login() {
           </p>
         </form>
       </Form>
+      <GoogleSignInButton
+        disabled={pending}
+        mode="signin"
+        onCredential={(idToken) => {
+          void run(async (signal) => {
+            setError(null)
+            try {
+              await loginWithGoogle(idToken, signal)
+            } catch (failure) {
+              if (signal.aborted) return
+              setError(normalizeAuthError(failure).message)
+            }
+          })
+        }}
+        onError={(message) => setError(message)}
+      />
       <p className="mt-6 border-t pt-6 text-center text-sm text-muted-foreground">
         Bạn chưa có tài khoản?{' '}
         <Link

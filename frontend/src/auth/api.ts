@@ -14,6 +14,14 @@ export function createAuthApi(client: AxiosInstance, contract: AuthContract) {
       )
       return contract.decodeAccessToken(response.data)
     },
+    async loginWithGoogle(idToken: string, signal?: AbortSignal) {
+      const response = await client.post(
+        '/api/v1/auth/google',
+        { idToken },
+        { signal, authMode: 'public' },
+      )
+      return contract.decodeAccessToken(response.data)
+    },
     async register(input: RegisterInput, signal?: AbortSignal) {
       const response = await client.post(
         '/api/v1/auth/register',
@@ -49,6 +57,13 @@ export const authApi = {
   login: async (input: LoginInput, signal?: AbortSignal) => {
     try {
       return await (await getApi()).login(input, signal)
+    } catch (error) {
+      throw normalizeAuthError(error)
+    }
+  },
+  loginWithGoogle: async (idToken: string, signal?: AbortSignal) => {
+    try {
+      return await (await getApi()).loginWithGoogle(idToken, signal)
     } catch (error) {
       throw normalizeAuthError(error)
     }
