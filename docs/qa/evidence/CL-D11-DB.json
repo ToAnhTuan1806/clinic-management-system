@@ -1,0 +1,179 @@
+{
+  "task": "CL-D11-DB",
+  "migration_sha256": {
+    "V1__create_users.sql": "27043f2c2669b8b666d4c17f9be12d14cc40a7e96451ad10b2a99f3b07955edf",
+    "V2__create_specialties_and_doctors.sql": "1f1f39cdea70eff2fa1198543ffd41b62d874d629d5c530a7c1cf45f89276973",
+    "V3__create_patients_and_profile_fields.sql": "9a9395e048768a87cd54aeaded3cc8c59b97f5a90124a7a2cc52d566fb38e7e0",
+    "V4__add_profile_contact_fields_to_users.sql": "c2b2f5cc9fbdc27060e426133e541c1e379df3f7d1491d33326f6bbd55d22c6f",
+    "V5__create_doctor_schedules.sql": "65de95a05969411f0f15c9bc19d44399fff72b507da2fc2fe1fb7685b86ee71d",
+    "V6__create_appointments.sql": "9d5e1a3742364515afc660a4635ffe73690219b45cd12d2a2947e5aea5d7cc64",
+    "V7__appointment_lifecycle.sql": "245e8b189bb6fe4e18261dbaf5b6be746e54feaf878b32024d999ce31192f363",
+    "V8__appointment_reception_lifecycle.sql": "3aa1e76d4e27da0342e1b4a5c7e751733d4377a035fa012955f5778e5e132a20",
+    "V9__create_medical_records.sql": "75dc648044e795c168e0bc787a3f86d112ca3d542567f23040e061eba104d1bf",
+    "V10__add_medical_record_release.sql": "c2d3b6ab3688701fa8454849a5b89b4ac360f7fbe1ffe5bd47c2e06fb478893b"
+  },
+  "isolated_container": "clinic-d11-qa-6bd9ad41b8c9",
+  "branch": "feature/quynh",
+  "baseline_revision": "1277cf31cefc2eaa16cafe026920b360e694a19a",
+  "v1_v9_sha256_matches_head": true,
+  "policy_confirmation": "User approved legacy backfill and separate assigned-doctor release on 2026-11-22",
+  "api_d11": {
+    "status": "PASS",
+    "prepared_scenarios": 12,
+    "executed": 12,
+    "passed": 12,
+    "failed": 0,
+    "skipped_pending": 0,
+    "scenarios": [
+      {
+        "id": "QA01",
+        "name": "Missing or invalid JWT rejected with 401 and RFC 9457 Problem Details",
+        "status": "PASS",
+        "evidence": {
+          "missing_token_status": 401,
+          "expired_status": 401,
+          "bad_sig_status": 401
+        }
+      },
+      {
+        "id": "QA02",
+        "name": "PATIENT reads own history correctly with pagination envelope and Cache-Control: no-store",
+        "status": "PASS",
+        "evidence": {
+          "items_count": 3,
+          "totalElements": 3,
+          "cache_control": "no-store"
+        }
+      },
+      {
+        "id": "QA03",
+        "name": "PATIENT cannot read other patient's history or medical records (404 Resource Not Found)",
+        "status": "PASS",
+        "evidence": {
+          "history_status": 404,
+          "record_status": 404
+        }
+      },
+      {
+        "id": "QA04",
+        "name": "Assigned DOCTOR reads history including unreleased records (totalElements=5)",
+        "status": "PASS",
+        "evidence": {
+          "totalElements": 5,
+          "unreleased_visible_count": 2
+        }
+      },
+      {
+        "id": "QA05",
+        "name": "Unassigned DOCTOR without appointments cannot access history (404 Resource Not Found)",
+        "status": "PASS",
+        "evidence": {
+          "unassigned_doctor_status": 404
+        }
+      },
+      {
+        "id": "QA06",
+        "name": "ADMIN and RECEPTIONIST receive administrative metadata only; clinical fields strictly excluded",
+        "status": "PASS",
+        "evidence": {
+          "admin_history_status": 200,
+          "admin_detail_has_clinical": false,
+          "rec_detail_has_clinical": false
+        }
+      },
+      {
+        "id": "QA07",
+        "name": "Unreleased COMPLETED record not revealed to PATIENT (404 on detail, 404 on by-appointment, omitted from history)",
+        "status": "PASS",
+        "evidence": {
+          "detail_status": 404,
+          "by_appointment_status": 404,
+          "in_history": false
+        }
+      },
+      {
+        "id": "QA08",
+        "name": "Backfilled D10 record is readable by PATIENT with full clinical fields and released metadata",
+        "status": "PASS",
+        "evidence": {
+          "record_id": "1",
+          "version": 3,
+          "releasedAt": "2026-11-01T08:30:00Z"
+        }
+      },
+      {
+        "id": "QA09",
+        "name": "DOCTOR release with valid expectedVersion increments version, sets UTC releasedAt, and enforces role gating",
+        "status": "PASS",
+        "evidence": {
+          "version": 4,
+          "releasedAt": "2026-11-21T22:43:08.445342Z",
+          "releasedBy": "2",
+          "patient_403": 403
+        }
+      },
+      {
+        "id": "QA10",
+        "name": "Repeated release with current version returns 200 (idempotent); stale version returns 409 Conflict",
+        "status": "PASS",
+        "evidence": {
+          "repeat_status": 200,
+          "repeat_version": 4,
+          "stale_status": 409
+        }
+      },
+      {
+        "id": "QA11",
+        "name": "Pagination constraints (size 1-100, page >= 0), stable ordering (completedAt DESC, id DESC), and role scoping verified",
+        "status": "PASS",
+        "evidence": {
+          "bad_size_status": 400,
+          "patient_scope_total": 4,
+          "doctor_scope_total": 5
+        }
+      },
+      {
+        "id": "QA12",
+        "name": "Concurrency release race yields exactly one 200 and one 409, followed by verified patient accessibility",
+        "status": "PASS",
+        "evidence": {
+          "concurrent_statuses": [
+            200,
+            409
+          ],
+          "post_release_patient_status": 200,
+          "new_totalElements": 5
+        }
+      }
+    ]
+  },
+  "h2_and_unit": {
+    "pass": 283,
+    "fail": 0,
+    "skipped": 0
+  },
+  "mysql_version": "8.4.11",
+  "mysql": {
+    "pass": 200,
+    "fail": 0,
+    "skipped": 0
+  },
+  "v10_flyway_checksums": {
+    "FRESH": "-1009264399",
+    "UPGRADE": "-1009264399"
+  },
+  "hibernate_validate": {
+    "status": "PASS",
+    "scope": "Entities fully mapped and validated against MySQL 8.4 V10 schema with ddl-auto=validate"
+  },
+  "post_restart_integrity": {
+    "status": "PASS",
+    "qa_live_records": 6,
+    "v10_flyway_checksum": -1009264399
+  },
+  "result": "PASS",
+  "status": "READY FOR REVIEW",
+  "recorded_at_utc": "2026-11-21T22:43:14.635857+00:00",
+  "container_stopped": true,
+  "migration_bytes_preserved": true
+}

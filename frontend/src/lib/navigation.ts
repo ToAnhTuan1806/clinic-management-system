@@ -1,10 +1,12 @@
 import {
+  BarChart3,
   CalendarClock,
   CalendarDays,
   ClipboardList,
   LayoutDashboard,
   Layers2,
   Settings2,
+  ShieldCheck,
   Stethoscope,
   UserCheck,
   UserRound,
@@ -82,6 +84,14 @@ export const navigation = [
     description: 'Hàng đợi và hồ sơ khám của bác sĩ.',
   },
   {
+    path: '/medical-history',
+    roles: ['DOCTOR', 'PATIENT'] as readonly Role[],
+    label: 'Lịch sử khám',
+    title: 'Lịch sử khám',
+    icon: ClipboardList,
+    description: 'Lịch sử khám và trạng thái công bố hồ sơ.',
+  },
+  {
     path: '/profile',
     roles: everyone,
     label: 'Hồ sơ cá nhân',
@@ -104,6 +114,24 @@ export const navigation = [
     title: 'Đặt lịch khám',
     icon: CalendarDays,
     description: 'Không gian đặt lịch và theo dõi lịch khám của bạn.',
+  },
+  {
+    path: '/reports',
+    roles: staff,
+    label: 'Báo cáo',
+    title: 'Báo cáo lượt khám',
+    icon: BarChart3,
+    description:
+      'Thống kê lượt khám theo ngày, bác sĩ, chuyên khoa và trạng thái.',
+  },
+  {
+    path: '/audit-logs',
+    roles: ['ADMIN'] as readonly Role[],
+    label: 'Nhật ký kiểm toán',
+    title: 'Nhật ký kiểm toán hệ thống',
+    icon: ShieldCheck,
+    description:
+      'Truy vết thao tác nghiệp vụ quan trọng dành cho quản trị viên.',
   },
 ] as const
 

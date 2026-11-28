@@ -15,6 +15,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
 public interface UserRepository extends JpaRepository<User, Long> {
+    @Query("select u from User u where u.id in :ids and u.status = com.clinicmanagement.entity.UserStatus.ACTIVE")
+    java.util.List<User> findActiveNotificationRecipients(@Param("ids") java.util.Set<Long> ids);
     Optional<User> findByEmail(String email);
     boolean existsByEmail(String email);
 

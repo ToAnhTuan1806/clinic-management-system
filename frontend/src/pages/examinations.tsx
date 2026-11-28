@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ClipboardList, RefreshCw } from 'lucide-react'
 import { useAuth } from '@/auth/context'
 import { isAuthMock } from '@/auth/config'
@@ -19,6 +19,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { LoadingState } from '@/components/page-states'
+import { PrescriptionEditor } from '@/components/prescription/prescription-editor'
 import {
   cleanDraft,
   createExaminationApi,
@@ -322,6 +323,24 @@ function ExaminationDetail({
   const [blocked, setBlocked] = useState(false)
   const [confirm, setConfirm] = useState(false)
   const [reload, setReload] = useState(0)
+  const [tab, setTab] = useState<'clinical' | 'prescription'>('clinical')
+  const [prescriptionDirty, setPrescriptionDirty] = useState(false)
+  const [prescriptionBusy, setPrescriptionBusy] = useState(false)
+  const prescriptionState = useCallback((dirty: boolean, busy: boolean) => {
+    setPrescriptionDirty(dirty)
+    setPrescriptionBusy(busy)
+  }, [])
+  const prescriptionConflict = useCallback((status?: number) => {
+    setPrescriptionBusy(false)
+    setBlocked(true)
+    setError(
+      'Không thể đồng bộ hồ sơ. Vui lòng tải lại toàn bộ hồ sơ trước khi tiếp tục.',
+    )
+    if (status === 401 || status === 403 || status === 404) {
+      setRecord(null)
+      setDraft(null)
+    }
+  }, [])
   const recordId = record?.id
   const [loading, setLoading] = useState(Boolean(recordApi))
   const { pending, run } = useSubmission()
@@ -372,7 +391,14 @@ function ExaminationDetail({
     fieldNames.some((key) => cleanDraft(draft)[key] !== record[key]),
   )
   const change = (action: 'create' | 'save' | 'complete') => {
-    if (!recordApi || blocked || loading) return
+    if (
+      !recordApi ||
+      blocked ||
+      loading ||
+      prescriptionBusy ||
+      (action === 'complete' && prescriptionDirty)
+    )
+      return
     void run(async (signal) => {
       setError('')
       setFeedback('')
@@ -428,20 +454,24 @@ function ExaminationDetail({
   }
 
   const preventClose = (event: { preventDefault: () => void }) => {
-    if (pending) event.preventDefault()
+    if (pending || prescriptionBusy) event.preventDefault()
   }
   const readOnly =
-    pending || loading || blocked || record?.status === 'COMPLETED'
+    pending ||
+    prescriptionBusy ||
+    loading ||
+    blocked ||
+    record?.status === 'COMPLETED'
   return (
     <Dialog
       open
       onOpenChange={(open) => {
-        if (!open && !pending) close()
+        if (!open && !pending && !prescriptionBusy) close()
       }}
     >
       <DialogContent
         className="space-y-4"
-        closeDisabled={pending}
+        closeDisabled={pending || prescriptionBusy}
         onEscapeKeyDown={preventClose}
         onInteractOutside={preventClose}
         onCloseAutoFocus={(event) => {
@@ -468,7 +498,7 @@ function ExaminationDetail({
         </p>
         {blocked && !pending && (
           <div className="space-y-2">
-            {dirty && (
+            {(dirty || prescriptionDirty) && (
               <p className="text-sm text-muted-foreground">
                 Tải lại sẽ thay các thay đổi chưa lưu bằng bản trên máy chủ.
               </p>
@@ -494,66 +524,133 @@ function ExaminationDetail({
           <LoadingState />
         ) : record && draft ? (
           <>
-            <Badge>
-              {record.status === 'COMPLETED'
-                ? 'Đã hoàn tất · Chỉ đọc'
-                : 'Bản nháp'}
-            </Badge>
-            <form
-              className="space-y-3"
-              onSubmit={(event) => {
-                event.preventDefault()
-                if (!readOnly && dirty) change('save')
-              }}
-            >
-              {fieldNames.map((key) => (
-                <div key={key} className="space-y-1">
-                  <Label htmlFor={'exam-' + key}>
-                    {examinationFields[key]}
-                  </Label>
-                  <textarea
-                    id={'exam-' + key}
-                    rows={2}
-                    maxLength={maxFieldLength}
-                    className={selectClass + ' h-auto min-h-16 py-2'}
-                    value={draft[key]}
-                    readOnly={readOnly}
-                    onChange={(event) =>
-                      setDraft({ ...draft, [key]: event.target.value })
-                    }
-                  />
-                </div>
-              ))}
-              {record.status === 'IN_PROGRESS' && (
-                <>
-                  <p className="text-sm text-muted-foreground">
-                    Lưu triệu chứng và chẩn đoán mô phỏng trước khi hoàn tất.
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="submit"
-                      variant="outline"
-                      disabled={readOnly || !dirty}
-                    >
-                      {pending ? 'Đang xử lý…' : 'Lưu nháp'}
-                    </Button>
-                    <Button
-                      type="button"
-                      disabled={
-                        readOnly ||
-                        dirty ||
-                        !record.symptoms.trim() ||
-                        !record.diagnosis.trim() ||
-                        !record.conclusion.trim()
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2">
+              <div className="flex gap-1">
+                <Button
+                  type="button"
+                  variant={tab === 'clinical' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setTab('clinical')}
+                >
+                  Hồ sơ lâm sàng
+                </Button>
+                <Button
+                  type="button"
+                  variant={tab === 'prescription' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setTab('prescription')}
+                >
+                  Đơn thuốc mô phỏng
+                </Button>
+              </div>
+              <Badge>
+                {record.status === 'COMPLETED'
+                  ? 'Đã hoàn tất · Chỉ đọc'
+                  : 'Bản nháp'}
+              </Badge>
+            </div>
+
+            <div hidden={tab !== 'clinical'}>
+              <form
+                className="space-y-3"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  if (!readOnly && dirty) change('save')
+                }}
+              >
+                {fieldNames.map((key) => (
+                  <div key={key} className="space-y-1">
+                    <Label htmlFor={'exam-' + key}>
+                      {examinationFields[key]}
+                    </Label>
+                    <textarea
+                      id={'exam-' + key}
+                      rows={2}
+                      maxLength={maxFieldLength}
+                      className={selectClass + ' h-auto min-h-16 py-2'}
+                      value={draft[key]}
+                      readOnly={readOnly}
+                      onChange={(event) =>
+                        setDraft({ ...draft, [key]: event.target.value })
                       }
-                      onClick={() => setConfirm(true)}
-                    >
-                      Hoàn tất khám
-                    </Button>
+                    />
                   </div>
-                </>
-              )}
-            </form>
+                ))}
+                {record.status === 'IN_PROGRESS' && (
+                  <>
+                    <p className="text-sm text-muted-foreground">
+                      Lưu triệu chứng và chẩn đoán mô phỏng trước khi hoàn tất.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="submit"
+                        variant="outline"
+                        disabled={readOnly || !dirty}
+                      >
+                        {pending ? 'Đang xử lý…' : 'Lưu nháp'}
+                      </Button>
+                      <Button
+                        type="button"
+                        disabled={
+                          readOnly ||
+                          dirty ||
+                          prescriptionDirty ||
+                          !record.symptoms.trim() ||
+                          !record.diagnosis.trim() ||
+                          !record.conclusion.trim()
+                        }
+                        onClick={() => setConfirm(true)}
+                      >
+                        Hoàn tất khám
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </form>
+            </div>
+            {prescriptionDirty && tab === 'clinical' && (
+              <p
+                role="status"
+                className="text-sm text-amber-700 dark:text-amber-300"
+              >
+                Đơn thuốc còn thay đổi chưa lưu. Hãy lưu đơn thuốc trước khi
+                hoàn tất khám.
+              </p>
+            )}
+            <div hidden={tab !== 'prescription'}>
+              <PrescriptionEditor
+                key={record.id + ':' + reload}
+                recordId={record.id}
+                recordStatus={record.status}
+                recordVersion={record.version}
+                onVersionChange={async (newVer, signal) => {
+                  const latest = await recordApi.read(
+                    record.id,
+                    appointment.id,
+                    signal,
+                  )
+                  if (signal.aborted) return
+                  if (
+                    latest.version !== newVer ||
+                    fieldNames.some((key) => latest[key] !== record[key])
+                  )
+                    throw new Error('STALE_CLINICAL_RECORD')
+                  setRecord(latest)
+                  setDraft((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          version: latest.version,
+                          status: latest.status,
+                        }
+                      : latest,
+                  )
+                }}
+                onStateChange={prescriptionState}
+                onConflict={prescriptionConflict}
+                disabled={blocked || loading || pending}
+              />
+            </div>
           </>
         ) : !blocked && latestAppointment.status === 'CHECKED_IN' ? (
           <Button

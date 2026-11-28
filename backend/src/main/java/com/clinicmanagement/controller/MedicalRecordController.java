@@ -59,6 +59,13 @@ public class MedicalRecordController {
         return clinical(records.complete(viewer, id, request.expectedVersion()));
     }
 
+    @PostMapping("/{id}/release")
+    public ResponseEntity<ApiResponse<MedicalRecordView.Clinical>> release(
+            @AuthenticationPrincipal AuthenticatedUser viewer, @PathVariable @Positive Long id,
+            @Valid @RequestBody MedicalRecordCompletionRequest request) {
+        return clinical(records.release(viewer, id, request.expectedVersion()));
+    }
+
     private static ResponseEntity<ApiResponse<MedicalRecordView.Clinical>> clinical(MedicalRecordView.Clinical record) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(new ApiResponse<>(record));
     }

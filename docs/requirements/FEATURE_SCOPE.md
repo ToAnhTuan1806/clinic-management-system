@@ -106,7 +106,7 @@ JWT, tài khoản, bảng nghiệp vụ, đặt lịch và giao diện chưa đ�
 ## FR-09 — Hồ sơ khám
 
 - **Mục tiêu:** ghi nhận nội dung khám gắn với một lượt tiếp nhận.
-- **Vai trò:** DOCTOR được phân công tạo/sửa/hoàn tất; PATIENT đọc bản đã hoàn tất của mình;
+- **Vai trò:** DOCTOR được phân công tạo/sửa/hoàn tất/công bố; PATIENT đọc bản đã hoàn tất và công bố của mình;
   RECEPTIONIST chỉ xem trạng thái vận hành; ADMIN xem metadata phục vụ vận hành/audit.
 - **Chức năng con:** tạo hồ sơ từ lịch đã check-in; lưu triệu chứng, chẩn đoán, ghi chú;
   lưu nháp và hoàn tất; liên kết bác sĩ, bệnh nhân và lịch hẹn.
@@ -116,6 +116,16 @@ JWT, tài khoản, bảng nghiệp vụ, đặt lịch và giao diện chưa đ�
   payload phải kiểm tra độ dài và trường bắt buộc trước khi hoàn tất.
 
 ## FR-10 — Lịch sử khám
+
+**Thay đổi policy D11 so với SRS/D10:** PATIENT chỉ đọc nội dung hồ sơ của mình sau
+khi hồ sơ đã hoàn tất và được công bố riêng bởi DOCTOR được phân công. Hoàn tất
+không tự công bố. Policy áp dụng cho cả GET hồ sơ, lookup theo appointment và lịch sử.
+BE triển khai phạm vi bác sĩ chỉ xem lượt do chính mình được phân công. Công bố lặp
+với version hiện tại trả kết quả đã công bố, version cũ trả 409. Hồ sơ cũ chưa có
+metadata công bố không được PATIENT đọc. V10 của QA backfill riêng các hồ sơ D10
+đã hoàn tất hợp lệ để bảo toàn quyền đọc cũ, dùng thời điểm/người hoàn tất làm metadata
+công bố lịch sử và giữ version, nội dung, timestamps cũ. Các hồ sơ hoàn tất sau V10
+vẫn phải được công bố riêng. Mapping công bố theo V10 do Database/QA sở hữu.
 
 - **Mục tiêu:** tra cứu các lượt khám trước theo quyền truy cập.
 - **Vai trò:** PATIENT xem lịch sử bản thân; DOCTOR xem lịch sử cần cho bệnh nhân đang được
@@ -140,7 +150,7 @@ JWT, tài khoản, bảng nghiệp vụ, đặt lịch và giao diện chưa đ�
 ## FR-12 — Dashboard
 
 - **Mục tiêu:** cung cấp số liệu vận hành theo vai trò.
-- **Vai trò:** ADMIN xem toàn phòng khám; RECEPTIONIST xem tiếp nhận trong ngày;
+- **Vai trò:** ADMIN xem toàn phòng khám; RECEPTIONIST xem vận hành trong khoảng ngày được chọn;
   DOCTOR xem lịch/khám của mình; PATIENT dùng danh sách lịch riêng thay dashboard quản trị.
 - **Chức năng con:** số lịch theo trạng thái; lượt check-in/hoàn tất; tổng bệnh nhân trong phạm vi;
   bộ lọc khoảng thời gian; không có doanh thu thanh toán trong phạm vi hiện tại.
@@ -152,6 +162,8 @@ JWT, tài khoản, bảng nghiệp vụ, đặt lịch và giao diện chưa đ�
 
 - **Mục tiêu:** người dùng nhận biết các thay đổi quan trọng của lịch khám.
 - **Vai trò:** PATIENT và DOCTOR nhận thông báo liên quan; RECEPTIONIST/ADMIN nhận theo nghiệp vụ.
+  Baseline D13 chỉ tự phát cho PATIENT/DOCTOR hợp lệ có liên kết, chưa phát hàng loạt
+  cho ADMIN/RECEPTIONIST khi chưa có quy tắc người nhận xác định.
 - **Chức năng con:** thông báo trong ứng dụng khi tạo/đổi/hủy/xác nhận lịch;
   danh sách phân trang; đếm chưa đọc; đánh dấu đã đọc theo người nhận.
   Email/SMS/push và nhắc lịch theo giờ là mở rộng cần chốt kênh, chi phí và lịch chạy.

@@ -17,6 +17,7 @@ final class MySqlTestDatabase {
     static void properties(DynamicPropertyRegistry registry) {
         requireIsolatedUrl(environment("DB_URL"));
         registry.add("spring.flyway.locations", MySqlTestDatabase::migrationLocation);
+        registry.add("clinic.security.rate-limit.enabled", () -> "false");
     }
 
     static Flyway flyway() {

@@ -45,8 +45,8 @@ export function MainLayout() {
           <Outlet />
         </Suspense>
         <footer className="mt-9 flex flex-wrap items-center justify-between gap-2 border-t pt-5 text-xs text-muted-foreground">
-          <span>ClinicOS · Thiết kế cho hành trình chăm sóc tốt hơn.</span>
-          <span>DEMO · Nghiệp vụ chưa kết nối</span>
+          <span>ClinicOS · Hệ thống quản lý phòng khám.</span>
+          <span>Múi giờ hiển thị: Asia/Ho_Chi_Minh (UTC+7)</span>
         </footer>
       </main>
     </div>

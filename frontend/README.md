@@ -2,6 +2,69 @@
 
 React + TypeScript + Vite, Tailwind CSS v4, shadcn/ui, Lucide, React Router, Axios và Magic UI. Giữ scaffold Modern Medical Dashboard D01 và bổ sung auth UI/routing D02.
 
+### D11 · Final real API E2E acceptance (FR-10)
+
+**STATUS: READY FOR COMMIT.** Branch `feature/trang`, HEAD `1277cf31cefc2eaa16cafe026920b360e694a19a`. Backend D11 commit `6210a64751add8d49b34754575d4de57a845a109`, artifact SHA-256 `89BDA49B6ED73D341CA51FE7D4B4A11D0E3E98962E3BA7F8FC36AC329FF6B369`. MySQL **8.4.11**, Flyway **V1–V10 success**, V10 checksum **-1009264399**. Migrations và source Backend/Database không sửa.
+
+`/medical-history` dành cho DOCTOR/PATIENT, dùng layout/theme hiện có. API thật gồm GET `/api/v1/patients/{id}/medical-history`, GET `/api/v1/medical-records/{id}`, POST `/api/v1/medical-records/{id}/release` với expectedVersion. Patient tự xác định qua GET `/api/v1/me/patient-profile`. Doctor discovery đọc GET `/api/v1/appointments` đến hết trang theo scope Backend. Enrichment chỉ dùng metadata appointment, cache giới hạn theo phiên; dữ liệu discovery được dùng lại để tránh N+1. Query lỗi/abort hoặc session thay đổi không giữ timeline/clinical cũ.
+
+#### Kết quả thực thi hiện tại
+
+| Nguồn                                  | PASS                   | FAIL | SKIPPED |
+| -------------------------------------- | ---------------------- | ---- | ------- |
+| Vitest toàn FE, 14 files               | **252**                | 0    | 0       |
+| Playwright MCP mock regression         | **7 nhóm**             | 0    | 0       |
+| Playwright MCP real Backend/MySQL      | **FE01–FE12, 12 nhóm** | 0    | 0       |
+| Lint / format:check / production build | **3 gates**            | 0    | 0       |
+
+63 phản hồi HTTP thật được ghi nhận bằng method/path/status, gồm 46 từ browser và 17 từ APIRequestContext. Phân bố 200 × 52, 401 × 1, 403 × 3, 404 × 6, 409 × 1. Ca loading chỉ trì hoãn rồi continue request thật; ca offline dùng browser offline; lỗi ownership 404 UI đến từ Backend thật bằng credential doctor khác chỉ trong RAM của runner. Không fulfill response trong real suite. Không có uncaught runtime error, console error bất thường hoặc credential/token trong console/log đã audit. QA Backend 495/495 do bên QA bàn giao không cộng vào các số FE này.
+
+| Case | Phạm vi đã PASS bằng HTTP thật                                                                                                                           |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FE01 | Doctor login/ME, real adapter, tìm đủ hai bệnh nhân kể cả bệnh nhân sau appointment 100; discovery đúng hai request                                      |
+| FE02 | totalElements=101, totalPages=21 ở size=5, thứ tự completedAt DESC/id DESC, page trước/sau; không gọi detail appointment dư khi discovery đã có metadata |
+| FE03 | Doctor assigned xác nhận công bố bản completed, hủy dialog không ghi, success sau response và refetch                                                    |
+| FE04 | PATIENT chưa release/khác owner nhận 404, history chỉ có bản published, total/count theo quyền                                                           |
+| FE05 | PATIENT xem lịch sử và clinical của bản vừa công bố, không có thao tác ghi                                                                               |
+| FE06 | ADMIN/RECEPTIONIST nhận metadata không clinical, ba role ngoài DOCTOR release 403, doctor khác 404, anonymous 401                                        |
+| FE07 | Release cạnh tranh thành công ở phiên khác, UI version cũ 409, che detail cũ, reload version/publication mới                                             |
+| FE08 | Bộ lọc tìm được record cuối trang 101; search/empty và giữ thứ tự server                                                                                 |
+| FE09 | Request loading che danh sách cũ; empty và retry                                                                                                         |
+| FE10 | Offline và Backend 404 không tạo hồ sơ giả, không lộ clinical, online retry khôi phục                                                                    |
+| FE11 | Logout/đổi account xóa clinical; ADMIN/RECEPTIONIST bị RoleGuard chặn                                                                                    |
+| FE12 | Desktop 1280px/mobile 320px, Light/Dark, không tràn ngang, Enter/Tab/Escape, focus trap/restore và ảnh synthetic                                         |
+
+#### Lỗi FE có regression và đã sửa
+
+- Discovery doctor trước đây chỉ đọc 100 appointments. Đã đọc đến hết totalElements, deduplicate bệnh nhân và prime cache metadata từ các appointment hợp lệ.
+- Bộ lọc trước đây chỉ xử lý 100 history records đầu. Đã đọc đủ mọi trang trong scope rồi lọc/phân trang tại FE. PATIENT mặc định RELEASED dùng paging server trực tiếp vì Backend đã lọc release theo quyền.
+- Enrichment từng nuốt HTTP 404/401 thành dữ liệu dự phòng. Đã giữ status từ Axios/interceptor, từ chối kết quả phiên cũ, xóa cache khi đổi session, và kiểm tra patient/record identity trước hiển thị detail.
+- Lọc ngày từng dùng UTC nên sai khi ngày Việt Nam lệch UTC. Regression tái hiện trước sửa; nay dùng cùng chuyển đổi Asia/Ho_Chi_Minh với UI.
+- Fixture unit cho metadata-only được bổ sung response enrichment tường minh; không bỏ assertions. Tổng test tăng từ 248 lên 252 bằng 4 regression mới. Tất cả source/test D11 chưa commit có trước lượt này được giữ lại.
+
+Backend hiện chỉ hỗ trợ page/size cho history; search/date/publication do FE thực hiện trên toàn tập được phép. Tập lớn sẽ cần nhiều request hơn; không mở rộng API Backend trong task này. Đã kiểm chứng 101 history records, 102 appointment thuộc doctor hiện tại và 103 appointments/records tổng dataset.
+
+#### Runtime, evidence và chạy lại
+
+[D11 host helper](tests/runtime/D11-Acceptance-Host.ps1) xác minh vault handoff/label/volume/artifact, tạo MySQL/network/volume mới và Backend D11, chỉ áp dụng migration đã chốt trên bản sao. Source fixture D03 chỉ được đọc để copy dữ liệu synthetic nền; process API kiểm thử là D11/V10. Tất cả mock flags=false, Vite `127.0.0.1:5194`, Chrome CDP host. [Fixture helper](tests/runtime/D11-Synthetic-Fixture.ps1) từ chối DB có appointments hoặc sai ownership label, nạp 103 lịch/hồ sơ và ba bệnh nhân synthetic trong transaction trên bản sao riêng. Không ghi credentials/token/password hash ra evidence. Source fingerprint/counts/V1–V2 và eligible user ID 5 giữ nguyên.
+
+Chu trình chạy lại: StartClone → D11-Synthetic-Fixture.ps1 → [runHistoryReal(browser,page,origin)](tests/e2e/history-real-runner.mjs) qua Playwright MCP/CDP → Verify/Audit → Cleanup. Runtime do task tạo đã dừng, giữ mọi database/volume. Các runtime source được giữ nguyên. Mock dùng `VITE_AUTH_MOCK=true`, `VITE_HISTORY_MOCK=true` và [mock runner](tests/e2e/history-mock-runner.mjs); kết quả mock tách riêng real.
+
+Ảnh real, chỉ dữ liệu synthetic: [desktop Light](docs/qa/d11/history-desktop-real.jpg), [mobile Dark 320px](docs/qa/d11/history-mobile-real.jpg). Ảnh mock cũ được giữ tại [desktop mock](docs/qa/d11/history-desktop-mock.jpg) và [mobile mock](docs/qa/d11/history-mobile-mock.jpg).
+
+21 files D11 cần review/commit thủ công, chưa stage:
+
+- `.env.example`, `README.md`, `playwright.config.ts`
+- `src/app.tsx`, `src/lib/navigation.ts`
+- `src/history/api.ts`, `src/history/gateway.ts`, `src/history/model.ts`
+- `src/pages/medical-history.tsx`, `src/testing/history-mock.ts`
+- `tests/history.contract.test.ts`, `tests/history.mock.test.ts`
+- `tests/e2e/history-mock-runner.mjs`, `tests/e2e/history-real-runner.mjs`, `tests/e2e/history.mock.spec.ts`
+- `tests/runtime/D11-Acceptance-Host.ps1`, `tests/runtime/D11-Synthetic-Fixture.ps1`
+- `docs/qa/d11/history-desktop-mock.jpg`, `docs/qa/d11/history-mobile-mock.jpg`, `docs/qa/d11/history-desktop-real.jpg`, `docs/qa/d11/history-mobile-real.jpg`
+
+Không còn blocker D11. Không add/commit/push/merge/reset/rebase/stash hoặc đổi branch/worktree.
+
 ### D10 · Không gian khám bệnh
 
 `/medical-records` dành cho DOCTOR. Hàng đợi thật dùng GET appointments với phạm vi bác sĩ do Backend quyết định, lọc ngày Việt Nam và hai trạng thái `CHECKED_IN` / `IN_PROGRESS`. Tìm kiếm và phân trang hoạt động trên tập lịch của ngày đã chọn.

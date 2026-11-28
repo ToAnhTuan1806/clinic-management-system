@@ -1,8 +1,8 @@
-# API Contract — Clinic Management System (Sprint 1: D02–D04, Sprint 2: D06–D07)
+# API Contract — Clinic Management System (D01–D11)
 
-Rà soát ổn định: **CL-D07-BE**; phạm vi API đã triển khai gồm Auth/JWT D02,
-Doctors/Specialties D03, Profile/Patients D04, Doctor Work Schedules D06, và Appointment Booking D07, kế thừa nền tảng D01.
-Contract chính thức cho FE Sprint 2, cập nhật ngày **2026-11-21**.
+Nghiệm thu **CL-D11-BE**, kế thừa Auth/JWT, danh mục, Profile/Patients, lịch làm việc,
+đặt/đổi/hủy và tiếp nhận lịch hẹn, hồ sơ khám D10. D11 bổ sung lịch sử và công bố hồ sơ.
+Contract chính thức cho FE Sprint 3, cập nhật ngày **2026-11-22**.
 `IMPLEMENTED` chỉ áp dụng cho phần đã có code và kiểm thử; `PROPOSED` chưa phải API sử dụng được.
 Phạm vi chức năng: [FR-01–FR-14](requirements/FEATURE_SCOPE.md).
 
@@ -11,9 +11,9 @@ Phạm vi chức năng: [FR-01–FR-14](requirements/FEATURE_SCOPE.md).
 - Base path: `/api/v1`; JSON UTF-8; tên trường camelCase; URL danh từ số nhiều, chữ thường có dấu `-`.
 - GET đọc dữ liệu; POST tạo hoặc thực hiện chuyển trạng thái; PATCH cập nhật một phần.
   DELETE chỉ dùng khi mô hình cho phép xóa, không dùng để xóa lịch sử khám.
-- User, Doctor, Specialty, Patient dùng PK BIGINT signed; API trả id và id liên kết dạng chuỗi
+- User, Doctor, Specialty, Patient, DoctorSchedule, Appointment, MedicalRecord dùng PK BIGINT signed; API trả id và id liên kết dạng chuỗi
   để tránh mất chính xác ở JavaScript. Request id liên kết dùng chuỗi số nguyên dương trong phạm vi BIGINT signed.
-  V1 users, V2 doctor/specialty, V3 patients và V4 profile contacts đã tích hợp;
+  V1–V10 đã tích hợp, gồm bảng hồ sơ khám V9 và công bố/backfill V10;
   migration do Database/QA sở hữu và không bị sửa.
 - Ngày: `YYYY-MM-DD`; thời điểm: ISO-8601 UTC, ví dụ `2026-11-20T02:00:00Z`.
   FE hiển thị theo `Asia/Ho_Chi_Minh`, không gửi thời điểm thiếu offset.
@@ -1040,14 +1040,15 @@ Payload:
 - POST completion nhận `{"expectedVersion":1}`. Bắt buộc có triệu chứng, chẩn đoán
   và kết luận khác rỗng. Backend ghi `completedAt`, `completedBy` cùng với chuyển
   appointment sang `COMPLETED` trong cùng transaction. Bản hoàn tất không cho sửa trực tiếp.
-- DOCTOR chỉ đọc và ghi hồ sơ của appointment được phân công. PATIENT chỉ đọc hồ sơ đã
-  hoàn tất của patient đang liên kết với chính tài khoản JWT. ADMIN và RECEPTIONIST chỉ
+- DOCTOR chỉ đọc và ghi hồ sơ của appointment được phân công. Từ D11, PATIENT chỉ đọc hồ sơ đã
+  hoàn tất và công bố của patient đang liên kết với chính tài khoản JWT. ADMIN và RECEPTIONIST chỉ
   đọc metadata. Backend lấy bác sĩ, bệnh nhân và người ghi từ DB, không nhận các ID đó trong payload ghi.
 
 `data` của mọi response thành công chứa metadata
 `id`, `appointmentId`, `doctorId`, `patientId`, `status`, `createdBy`, `completedBy`,
 `createdAt`, `updatedAt`, `completedAt`, `version`. ID là chuỗi, timestamp ISO-8601 UTC.
 `completedAt` và `completedBy` là null trước khi hoàn tất. `status` lấy từ appointment.
+Từ D11, metadata còn có `releasedAt` và `releasedBy`, cùng null trước khi công bố.
 DOCTOR và PATIENT đủ quyền còn nhận bốn trường lâm sàng ở cùng cấp trong `data`.
 DTO của ADMIN/RECEPTIONIST không chứa các trường lâm sàng. Response có `Cache-Control: no-store`.
 PATCH và completion thành công tăng phiên bản hồ sơ. Phiên bản này độc lập với version của appointment.
@@ -1062,6 +1063,368 @@ PATCH và completion thành công tăng phiên bản hồ sơ. Phiên bản này
 | 409 | VERSION_CONFLICT / MEDICAL_RECORD_CONFLICT | Phiên bản đã đổi hoặc xung đột ràng buộc DB |
 
 Lỗi dùng Problem Details hiện có, không trả nội dung lâm sàng hay chi tiết SQL.
+
+### 3.9 Lịch sử khám và công bố hồ sơ — IMPLEMENTED D11
+
+D11 thay đổi quyền PATIENT so với SRS/D10 ở mục 3.8. Chính sách đích yêu cầu hồ sơ
+vừa COMPLETED vừa được bác sĩ công bố trước khi PATIENT đọc nội dung. Completion
+không tự công bố. Policy chuyển đổi V10 của QA giữ quyền đọc D10 bằng backfill hồ sơ
+cũ của appointment COMPLETED có completed_at/completed_by hợp lệ. Các hồ sơ này có
+released_at = completed_at và released_by = completed_by, giữ nội dung, version và
+timestamps cũ. Đây là ghi nhận quyền lịch sử, không khẳng định bác sĩ đã bấm release.
+Hồ sơ mới sau V10 cần công bố riêng. Điều kiện đọc áp dụng đồng thời cho GET theo
+record ID, lookup theo appointment và lịch sử khám.
+
+Đã tích hợp nguyên bản QA `V10__add_medical_record_release.sql`, blob Git
+`5fb22038f4fafd55dff64d72d654666d4b75b03c`, có trên remote dev tại commit
+`bbdd149e30948904e1fe7ac5a1d92109ed54eed3`. SHA-256
+`c2d3b6ab3688701fa8454849a5b89b4ac360f7fbe1ffe5bd47c2e06fb478893b`.
+Đã bỏ cơ chế fixture thay schema MySQL. Fixture H2 chỉ phục vụ test H2.
+
+| Endpoint D11 | Mục đích | Trạng thái |
+| --- | --- | --- |
+| GET `/api/v1/patients/{id}/medical-history` | Lịch sử phân trang trong phạm vi quyền | IMPLEMENTED D11 |
+| POST `/api/v1/medical-records/{id}/release` | DOCTOR assigned công bố bản hoàn tất với expectedVersion | IMPLEMENTED D11 |
+
+Quyết định BE D11 theo yêu cầu tiếp tục triển khai
+
+- V10 do QA sở hữu. BE giữ Hibernate ddl-auto validate.
+- DOCTOR chỉ nhận lịch sử của lượt do chính mình được phân công. Phân công chỉ gồm
+  appointment khác CANCELLED/NO_SHOW. Không có phân công hợp lệ trả 404. PATIENT
+  đổi patientId sang người khác nhận 404. ADMIN/RECEPTIONIST đọc metadata.
+- Công bố lặp với expectedVersion hiện tại trả 200, không thay thời điểm/người công bố
+  hoặc tăng version. Version cũ trả 409 VERSION_CONFLICT. Hai request cùng version
+  chỉ một request ghi thành công. API lỗi tiếp tục dùng 400/401/403/404/409 và Problem Details.
+
+Mapping theo V10
+
+- V10 bổ sung `released_at DATETIME(6) NULL`, `released_by BIGINT NULL` FK users,
+  hai giá trị cùng null hoặc cùng có giá trị, khi công bố phải có completed_at/completed_by,
+  thời điểm công bố không trước completed_at. FK users dùng ON DELETE/UPDATE RESTRICT,
+  có index released_by. Bản nháp và bản hoàn tất mới sau V10 giữ null đến khi release.
+- Release nhận `{"expectedVersion":1}`, trả 200 `{"data":{...}}` với metadata công bố
+  và version mới. Kiểm tra version trước ghi, version cũ trả 409.
+- History nhận `page=0&size=20`, size 1–100, chỉ liệt kê lượt đã hoàn tất trong phạm vi
+  quyền, sắp xếp `completedAt DESC, id DESC`. Envelope dùng
+  `{"data":{"items":[],"page":0,"size":20,"totalElements":0,"totalPages":0}}`.
+  Dùng projection metadata và count có cùng bộ lọc quyền để tránh N+1 và lộ tổng số bản ghi ngoài scope.
+
+Ví dụ response công bố (các trường lâm sàng chỉ có với DOCTOR được phép)
+
+```json
+{"data":{"id":"10","appointmentId":"100","doctorId":"2","patientId":"3","status":"COMPLETED","createdBy":"8","completedBy":"8","completedAt":"2026-11-22T03:00:00Z","createdAt":"2026-11-22T02:00:00Z","updatedAt":"2026-11-22T04:00:00Z","version":2,"releasedAt":"2026-11-22T04:00:00Z","releasedBy":"8","symptoms":"Synthetic symptoms","diagnosis":"Synthetic diagnosis","notes":null,"conclusion":"Synthetic conclusion"}}
+```
+
+Ví dụ history item (mọi role nhận DTO metadata, không có nội dung lâm sàng)
+
+```json
+{"data":{"items":[{"id":"10","appointmentId":"100","doctorId":"2","completedAt":"2026-11-22T03:00:00Z","releasedAt":"2026-11-22T04:00:00Z","version":2}],"page":0,"size":20,"totalElements":1,"totalPages":1}}
+```
+
+Lịch sử cần lọc quyền tại truy vấn trước count/phân trang, sắp xếp thời gian kèm ID
+để thứ tự ổn định. DTO danh sách chỉ chứa metadata cần thiết, các trường ID là string,
+timestamp UTC, response data wrapper và Cache-Control no-store. PATIENT chỉ thấy
+bản thân và các hồ sơ đã công bố. ADMIN/RECEPTIONIST không nhận nội dung lâm sàng.
+
+### 3.10 Quản lý Đơn thuốc Mô phỏng (CL-D12-BE) — IMPLEMENTED D12
+
+Triển khai API quản lý đơn thuốc mô phỏng (FR-11) liên kết 1-1 với hồ sơ khám (MedicalRecord D10–D11). Phục vụ kê đơn mô phỏng trong quá trình khám chữa bệnh tại phòng khám.
+
+> [!NOTE]
+> Nghiêm cấm quản lý kho dược, xuất nhập tồn, bán lẻ thuốc, liên thông đơn thuốc điện tử quốc gia hoặc gợi ý AI tự động kê đơn. Dữ liệu mang tính chất mô phỏng nghiệp vụ (`simulation: true`).
+
+| Endpoint D12 | Method | Quyền truy cập | Mục đích | Trạng thái |
+| --- | --- | --- | --- | --- |
+| `/api/v1/medical-records/{id}/prescription` | `GET` | DOCTOR assigned / PATIENT self đã công bố | Đọc thông tin đơn thuốc mô phỏng | **IMPLEMENTED D12** |
+| `/api/v1/medical-records/{id}/prescription` | `PUT` | DOCTOR assigned | Tạo mới / Cập nhật toàn bộ đơn thuốc mô phỏng | **IMPLEMENTED D12** |
+
+#### Quy tắc nghiệp vụ và ràng buộc:
+- **Phân quyền & Kiểm soát truy cập (RBAC & Ownership):**
+  - `DOCTOR (assigned)`: Được phép `GET` và `PUT` khi ca khám đang diễn ra (`IN_PROGRESS`). Khi ca khám đang diễn ra, cờ `editable: true`. Khi hồ sơ đã hoàn tất (`COMPLETED`), `editable: false` và không được phép `PUT` nữa (trả 409 `INVALID_STATE_TRANSITION`).
+  - `PATIENT (self)`: Chỉ được phép `GET` khi hồ sơ khám đồng thời đạt hai điều kiện: `COMPLETED` và đã được công bố (`releasedAt != null`). Nếu hồ sơ chưa hoàn tất hoặc chưa công bố, trả 404 `NOT_FOUND` (ngăn rò rỉ thông tin trước khi bác sĩ phát hành). Bệnh nhân luôn nhận `editable: false`.
+  - `ADMIN` & `RECEPTIONIST`: Bị từ chối truy cập (403 `ACCESS_DENIED`).
+  - Bác sĩ khác hoặc bệnh nhân khác: Trả 404 `NOT_FOUND` (ngăn rò rỉ ID và sự tồn tại của hồ sơ).
+- **Concurrency & Khóa bi quan/lạc quan (Optimistic Locking):**
+  - Request `PUT` bắt buộc mang `expectedVersion` tương ứng với version hiện tại của `MedicalRecord`. Nếu version không khớp, trả 409 `VERSION_CONFLICT`.
+  - Khi lưu đơn thuốc thành công, version của `MedicalRecord` được tự động tăng lên 1 (touch entity version).
+  - Hai request `PUT` đồng thời mang cùng `expectedVersion` thì chỉ 1 request thành công (200), request còn lại bị xung đột phiên bản (409).
+  - Request `PUT` đồng thời với `POST /completion` thì chỉ 1 thao tác thành công (200), thao tác còn lại trả 409.
+- **Ràng buộc dữ liệu (Validation):**
+  - `expectedVersion`: Bắt buộc, số nguyên không âm (`min = 0`).
+  - `items`: Danh sách từ 0 đến tối đa 50 thuốc. Cho phép gửi danh sách rỗng `[]` để xóa toàn bộ thuốc trong đơn.
+  - Mỗi item trong danh sách:
+    - `medicationName`: Bắt buộc, chuỗi không trống, độ dài 1–200 ký tự (tự động cắt khoảng trắng thừa).
+    - `quantity`: Bắt buộc, số nguyên từ 1 đến 10,000.
+    - `dosage`: Bắt buộc, chuỗi không trống, độ dài 1–100 ký tự.
+    - `frequency`: Bắt buộc, chuỗi không trống, độ dài 1–100 ký tự.
+    - `durationDays`: Bắt buộc, số nguyên từ 1 đến 365 ngày.
+    - `instructions`: Tùy chọn, tối đa 1,000 ký tự (chuỗi rỗng được chuẩn hóa thành `null`).
+  - Vi phạm bất kỳ điều kiện nào ở trên trả 400 `VALIDATION_FAILED` theo chuẩn Problem Details.
+- **Header & Cache:** Cả hai endpoint đều trả header `Cache-Control: no-store`.
+
+#### Ví dụ Request PUT `/api/v1/medical-records/{id}/prescription`:
+```json
+{
+  "expectedVersion": 1,
+  "items": [
+    {
+      "medicationName": "Paracetamol 500mg",
+      "quantity": 10,
+      "dosage": "500mg",
+      "frequency": "2 lần/ngày",
+      "durationDays": 5,
+      "instructions": "Uống sau khi ăn"
+    },
+    {
+      "medicationName": "Vitamin C 100mg",
+      "quantity": 20,
+      "dosage": "100mg",
+      "frequency": "1 lần/ngày",
+      "durationDays": 10,
+      "instructions": null
+    }
+  ]
+}
+```
+
+#### Ví dụ Response (200 OK):
+```json
+{
+  "data": {
+    "id": "1",
+    "medicalRecordId": "10",
+    "recordVersion": 2,
+    "editable": true,
+    "simulation": true,
+    "items": [
+      {
+        "id": "1",
+        "medicationName": "Paracetamol 500mg",
+        "quantity": 10,
+        "dosage": "500mg",
+        "frequency": "2 lần/ngày",
+        "durationDays": 5,
+        "instructions": "Uống sau khi ăn"
+      },
+      {
+        "id": "2",
+        "medicationName": "Vitamin C 100mg",
+        "quantity": 20,
+        "dosage": "100mg",
+        "frequency": "1 lần/ngày",
+        "durationDays": 10,
+        "instructions": null
+      }
+    ]
+  }
+}
+```
+
+Khi chưa có đơn thuốc nào được lưu, `GET` trả `id: null`, `items: []`, `editable: true` (hoặc `false` nếu đã hoàn tất), `simulation: true`:
+```json
+{
+  "data": {
+    "id": null,
+    "medicalRecordId": "10",
+    "recordVersion": 1,
+    "editable": true,
+    "simulation": true,
+    "items": []
+  }
+}
+```
+
+### 3.11 Dashboard và thông báo trong ứng dụng — IMPLEMENTED D13, MySQL V12 VERIFIED
+
+#### Dashboard
+
+`GET /api/v1/dashboard/summary?from=2026-11-22&to=2026-11-22`
+
+- ADMIN và RECEPTIONIST nhận số liệu toàn phòng khám. DOCTOR chỉ nhận appointment
+  có doctor.user.id trùng principal. PATIENT nhận 403. Tham số doctorId do client
+  gửi không thay đổi phạm vi của DOCTOR.
+- from/to là ngày ISO tại Asia/Ho_Chi_Minh, mỗi tham số bỏ qua mặc định ngày hiện tại
+  tại Việt Nam. from <= to, khoảng gồm hai đầu tối đa 366 ngày. Để biểu diễn được
+  toàn bộ khoảng UTC trong MySQL DATETIME, hỗ trợ ngày từ 1000-01-02 đến 9999-12-31.
+  Ngày hoặc khoảng sai trả 400.
+- Backend chuyển sang [đầu ngày from UTC, đầu ngày sau to UTC), lọc theo startAt.
+  appointmentsByStatus gồm đầy đủ bảy trạng thái, kể cả CANCELLED/NO_SHOW, tổng bằng
+  totalAppointments. checkedInCount đếm checkedInAt khác null trong tập đã lọc,
+  completedCount đếm status COMPLETED, uniquePatients dùng COUNT(DISTINCT patient_id).
+  Hai truy vấn aggregate trong cùng transaction REPEATABLE_READ, không load entities
+  để đếm và không JOIN bảng notifications.
+- Response không có thông tin định danh bệnh nhân hoặc nội dung lâm sàng.
+
+```json
+{"data":{"from":"2026-11-22","to":"2026-11-22","timezone":"Asia/Ho_Chi_Minh","totalAppointments":0,"appointmentsByStatus":{"PENDING":0,"CONFIRMED":0,"CHECKED_IN":0,"IN_PROGRESS":0,"COMPLETED":0,"CANCELLED":0,"NO_SHOW":0},"checkedInCount":0,"completedCount":0,"uniquePatients":0}}
+```
+
+#### Notifications
+
+`GET /api/v1/notifications?page=0&size=20` cho cả bốn role có JWT hợp lệ.
+Chỉ trả người nhận hiện tại, page >= 0, size 1–100, sắp createdAt DESC rồi id DESC.
+unreadCount là tổng chưa đọc của chính người dùng, không phụ thuộc trang hiện tại.
+Trang vượt dữ liệu trả items rỗng, giữ totalElements/totalPages/unreadCount.
+
+```json
+{"data":{"items":[{"id":"1","appointmentId":"100","appointmentCode":"APP123456","eventType":"APPOINTMENT_CREATED","title":"Appointment booked","body":"Appointment booked: APP123456","createdAt":"2026-11-22T02:00:00Z","readAt":null}],"page":0,"size":20,"totalElements":1,"totalPages":1,"unreadCount":1}}
+```
+
+`PATCH /api/v1/notifications/{id}/read` không yêu cầu request body hoặc recipientUserId.
+Trả 200 với data là notification DTO ở trên và readAt UTC. Lần đầu ghi readAt,
+các lần sau giữ nguyên giá trị. Khóa row theo id và recipient bảo đảm hai request
+đồng thời cùng nhận kết quả đã đọc. ID người khác hoặc không tồn tại trả 404.
+
+#### Mutation và migration
+
+- Booking sinh APPOINTMENT_CREATED, đổi lịch sinh APPOINTMENT_RESCHEDULED, hủy lịch sinh
+  APPOINTMENT_CANCELLED, xác nhận sinh APPOINTMENT_CONFIRMED. Không sinh event từ check-in/no-show.
+- Người nhận là user PATIENT liên kết và user DOCTOR được phân công, status ACTIVE,
+  role đúng. Khi chuyển bác sĩ, publisher xét cả bác sĩ cũ và mới rồi dedupe theo user ID.
+  Luồng reschedule D08 hiện vẫn chỉ cho đổi slot cùng bác sĩ. Không phát hàng loạt cho staff.
+- Chỉ dùng template title/body cố định với appointmentCode. Không chép reason, tên bệnh nhân,
+  triệu chứng, chẩn đoán hoặc thuốc vào thông báo.
+- Sau saveAndFlush appointment, event key là
+  `appointment:{id}:version:{postChangeVersion}:event:{eventType}`.
+  UNIQUE(recipient_user_id,event_key) bảo vệ DB. Notification dùng transaction MANDATORY
+  chung mutation. Lỗi ghi notification trả 409 NOTIFICATION_CONFLICT và rollback toàn bộ.
+  Booking replay không phát event, kể cả appointment đã có version mới.
+- Reschedule PENDING tới đúng schedule/start/end hiện tại trả resource hiện có, giữ
+  version và không phát event. Xác nhận/hủy sai trạng thái hoặc version vẫn bị từ chối
+  theo D08/D09. Không backfill thông báo lịch sử.
+- Mapping đối chiếu file V12 của QA gồm notifications với recipient_user_id, appointment_id,
+  event_type VARCHAR(32), event_key VARCHAR(128), title VARCHAR(160), body VARCHAR(500) nullable,
+  created_at DATETIME(6), read_at DATETIME(6) nullable, hai FK RESTRICT và unique recipient/event.
+  V12 nguyên bản của QA đã có trong workspace và được kiểm thử trên MySQL 8.4.11 cô lập.
+  Fresh V1–V12, upgrade V11→V12, Flyway validate, migration lặp no-op và Hibernate
+  ddl-auto=validate đều đạt. Bộ MySQL integration: 234 PASS, 0 FAIL, 0 SKIPPED.
+
+Mọi response thành công dùng data wrapper, ID string, timestamp UTC và Cache-Control no-store.
+401 cho thiếu/sai JWT, 403 cho sai quyền Dashboard, 404 cho notification ngoài owner,
+400 cho ngày/pagination/ID sai. Lỗi tiếp tục dùng Problem Details.
+
+### 3.12 Báo cáo lượt khám và Audit Logs (CL-D14-BE) — IMPLEMENTED D14, MySQL V13 VERIFIED
+
+#### Reports (`GET /api/v1/reports/visits`)
+
+`GET /api/v1/reports/visits?from=2026-11-22&to=2026-11-28`
+
+- **Phân quyền:**
+  - `ADMIN`: Toàn phòng khám.
+  - `RECEPTIONIST`: Báo cáo vận hành toàn phòng khám (cùng phạm vi tổng hợp lịch hẹn, không chứa nội dung lâm sàng).
+  - `DOCTOR`: Chỉ dữ liệu của chính mình (`doctor.user.id = principal.id`).
+  - `PATIENT`: Bị từ chối (`403 ACCESS_DENIED`).
+- **Bộ lọc ngày:**
+  - `from`, `to`: Ngày ISO (`YYYY-MM-DD`) theo múi giờ `Asia/Ho_Chi_Minh`. Mặc định mỗi tham số nếu bỏ qua là ngày hiện tại tại `Asia/Ho_Chi_Minh`.
+  - Hỗ trợ `1000-01-02 <= from <= to <= 9999-12-31`, khoảng tối đa `366` ngày (`ChronoUnit.DAYS.between(from, to) < 366`). Sai quy tắc trả `400 VALIDATION_FAILED`.
+  - Lọc theo `appointment.startAt` trong `[đầu ngày from VN -> UTC, đầu ngày sau to VN -> UTC)`.
+- **Tính nhất quán với Dashboard D13:**
+  - Tổng hợp trực tiếp tại Database (không tải entity để đếm trong Java), trong transaction `readOnly = true, isolation = REPEATABLE_READ`.
+  - `totalAppointments`, `appointmentsByStatus` (đủ 7 trạng thái), `checkedInCount` (`checkedInAt != null`), `completedCount` (`status = COMPLETED`), `uniquePatients` (`COUNT(DISTINCT patient_id)`) **khớp chính xác** với `GET /api/v1/dashboard/summary` cho cùng `(viewer, from, to)`.
+  - Bổ sung 3 bảng phân rã (trả mảng rỗng `[]` nếu không có dữ liệu):
+    - `dailyVisits`: Theo từng ngày `Asia/Ho_Chi_Minh` trong khoảng có phát sinh lịch (`date`, `totalAppointments`, `checkedInCount`, `completedCount`, `cancelledCount`, `noShowCount`), sắp xếp `date ASC`.
+    - `byDoctor`: Thống kê theo bác sĩ (`doctorId` string, `doctorCode`, `doctorName`, `specialtyName`, `totalAppointments`, `checkedInCount`, `completedCount`), sắp xếp `totalAppointments DESC, doctorId ASC`. (Với `DOCTOR`, chỉ có tối đa 1 dòng của chính mình).
+    - `bySpecialty`: Thống kê theo chuyên khoa (`specialtyId` string, `specialtyCode`, `specialtyName`, `totalAppointments`, `checkedInCount`, `completedCount`), sắp xếp `totalAppointments DESC, specialtyId ASC`.
+- **Header:** `Cache-Control: no-store`.
+
+```json
+{
+  "data": {
+    "from": "2026-11-22",
+    "to": "2026-11-28",
+    "timezone": "Asia/Ho_Chi_Minh",
+    "totalAppointments": 12,
+    "appointmentsByStatus": {
+      "PENDING": 2,
+      "CONFIRMED": 3,
+      "CHECKED_IN": 1,
+      "IN_PROGRESS": 1,
+      "COMPLETED": 4,
+      "CANCELLED": 1,
+      "NO_SHOW": 0
+    },
+    "checkedInCount": 6,
+    "completedCount": 4,
+    "uniquePatients": 9,
+    "dailyVisits": [
+      {
+        "date": "2026-11-22",
+        "totalAppointments": 5,
+        "checkedInCount": 3,
+        "completedCount": 2,
+        "cancelledCount": 0,
+        "noShowCount": 0
+      }
+    ],
+    "byDoctor": [
+      {
+        "doctorId": "2",
+        "doctorCode": "DOC-01",
+        "doctorName": "Dr. Nguyen",
+        "specialtyName": "Cardiology",
+        "totalAppointments": 12,
+        "checkedInCount": 6,
+        "completedCount": 4
+      }
+    ],
+    "bySpecialty": [
+      {
+        "specialtyId": "1",
+        "specialtyCode": "CARD",
+        "specialtyName": "Cardiology",
+        "totalAppointments": 12,
+        "checkedInCount": 6,
+        "completedCount": 4
+      }
+    ]
+  }
+}
+```
+
+#### Audit Logs (`GET /api/v1/audit-logs`)
+
+`GET /api/v1/audit-logs?from=2026-11-22&to=2026-11-28&actorUserId=8&action=APPOINTMENT_BOOKED&page=0&size=20&sort=occurredAt,desc`
+
+- **Phân quyền:** Chỉ `ADMIN` (`403 ACCESS_DENIED` với `DOCTOR`, `RECEPTIONIST`, `PATIENT`; `401` nếu chưa xác thực).
+- **Append-only:** Không cung cấp `POST`, `PATCH`, `PUT`, `DELETE` cho `/api/v1/audit-logs`.
+- **Tham số lọc & phân trang:**
+  - `from`, `to` (tùy chọn): Ngày ISO theo `Asia/Ho_Chi_Minh`. Nếu chỉ truyền 1 đầu hoặc truyền cả 2 đầu: kiểm tra `from <= to`, khoảng tối đa `366` ngày, năm hợp lệ (`1000-01-02`..`9999-12-31`).
+  - `actorUserId` (tùy chọn): Long ID >= 1.
+  - `action` (tùy chọn): Chuỗi action chính xác (trim, tối đa 64 ký tự).
+  - `page` (mặc định `0`, `>= 0`), `size` (mặc định `20`, `1..100`).
+  - `sort` (tùy chọn): `occurredAt,desc` (mặc định) hoặc `occurredAt,asc` (luôn kèm tie-breaker `id DESC`/`ASC` để phân trang ổn định). Giá trị khác trả `400 VALIDATION_FAILED`.
+- **Sự kiện ghi audit (`result = SUCCESS`):**
+  - Lịch hẹn: `APPOINTMENT_BOOKED`, `APPOINTMENT_RESCHEDULED`, `APPOINTMENT_CANCELLED`, `APPOINTMENT_CONFIRMED`, `APPOINTMENT_CHECKED_IN`, `APPOINTMENT_NO_SHOW`.
+  - Hồ sơ khám: `MEDICAL_RECORD_COMPLETED`, `MEDICAL_RECORD_RELEASED`.
+  - Tài khoản/hồ sơ trong scope: `USER_REGISTERED`, `PROFILE_UPDATED`.
+  - Ghi trong **cùng transaction** nghiệp vụ; rollback nghiệp vụ không lưu audit giả; retry idempotent (booking replay, check-in lặp, reschedule no-op, release lặp) không sinh audit trùng (bảo vệ bằng `event_key` UNIQUE).
+  - Tuyệt đối không ghi mật khẩu, JWT, triệu chứng, chẩn đoán, đơn thuốc hay dữ liệu nhạy cảm vào `metadata`.
+- **Schema V13 (QA):** Bảng `audit_logs` (`id`, `actor_user_id` FK `users(id)` RESTRICT, `actor_role`, `action`, `entity_type`, `entity_id`, `result`, `event_key` UNIQUE, `correlation_id`, `metadata`, `occurred_at` DATETIME(6) UTC).
+
+```json
+{
+  "data": {
+    "items": [
+      {
+        "id": "1",
+        "actorUserId": "8",
+        "actorRole": "RECEPTIONIST",
+        "action": "APPOINTMENT_CHECKED_IN",
+        "entityType": "APPOINTMENT",
+        "entityId": "100",
+        "result": "SUCCESS",
+        "correlationId": null,
+        "metadata": "{\"appointmentCode\":\"APP123456\"}",
+        "occurredAt": "2026-11-28T02:15:00Z"
+      }
+    ],
+    "page": 0,
+    "size": 20,
+    "totalElements": 1,
+    "totalPages": 1
+  }
+}
+```
 
 ## 4. Error response
 
@@ -1115,12 +1478,12 @@ D07 có `SLOT_ALREADY_BOOKED`, `IDEMPOTENCY_CONFLICT`, `SCHEDULE_HAS_APPOINTMENT
 | RECEPTIONIST | Hồ sơ hành chính bệnh nhân, lịch, xác nhận, check-in | Chỉ metadata vận hành của hồ sơ khám; không sửa chẩn đoán/đơn thuốc |
 | PATIENT | Hồ sơ cá nhân, đặt/đổi/hủy lịch và lịch sử của mình | Kiểm tra ownership ở BE; không tin patientId từ client |
 
-**IMPLEMENTED đến D10:** GET health và POST register/login public; GET auth/me, GET/PATCH me/profile,
+**IMPLEMENTED đến D11:** GET health và POST register/login public; GET auth/me, GET/PATCH me/profile,
 GET/POST patients, GET/PATCH patients/{id}, GET me/patient-profile, GET eligible-users,
 GET/POST/PATCH doctors và specialties, POST/GET/PATCH doctor-schedules, GET schedule-slots
 (đã loại bỏ slot bị chiếm), POST/GET/GET-{id} appointments theo đúng RBAC, ownership,
 double booking prevention (pessimistic lock + DB unique constraint), idempotency và scope bảo mật đã duyệt.
-Các thao tác đổi/hủy, tiếp nhận và hồ sơ khám có quyền riêng ở mục 3.6–3.8.
+Các thao tác đổi/hủy, tiếp nhận, hồ sơ khám, lịch sử và công bố có quyền riêng ở mục 3.6–3.9.
 Mọi API khác denyAll, kể cả ADMIN. HTTP Basic/form login/session cookie không dùng;
 không có tài khoản mặc định. Session policy stateless, request cache tắt.
 CSRF tắt vì credential chỉ được gửi chủ động qua Authorization header, không dùng cookie xác thực.
@@ -1178,18 +1541,19 @@ Các dòng có nhiều method mô tả các API riêng cùng trạng thái tri�
 | FR-08 | POST | `/appointments/{id}/check-in` | RECEPTIONIST | **IMPLEMENTED D09** |
 | FR-08 | POST | `/appointments/{id}/no-show` | RECEPTIONIST | **IMPLEMENTED D09** |
 | FR-09 | POST | `/medical-records` | DOCTOR assigned, lịch đã check-in | **IMPLEMENTED D10** |
-| FR-09 | GET | `/medical-records/{id}` | DOCTOR assigned; PATIENT self bản hoàn tất; ADMIN/RECEPTIONIST metadata | **IMPLEMENTED D10** |
+| FR-09 | GET | `/medical-records/{id}` | DOCTOR assigned; PATIENT self bản hoàn tất và công bố; ADMIN/RECEPTIONIST metadata | **IMPLEMENTED D10, policy D11** |
 | FR-09 | GET | `/medical-records/by-appointment/{id}` | Cùng quyền GET hồ sơ, id là appointmentId | **IMPLEMENTED D10** |
 | FR-09 | PATCH | `/medical-records/{id}` | DOCTOR assigned, bản nháp | **IMPLEMENTED D10** |
 | FR-09 | POST | `/medical-records/{id}/completion` | DOCTOR assigned | **IMPLEMENTED D10** |
-| FR-10 | GET | `/patients/{id}/medical-history` | PATIENT self / DOCTOR assigned; ADMIN/RECEPTIONIST metadata | PROPOSED |
-| FR-11 | GET | `/medical-records/{id}/prescription` | DOCTOR assigned / PATIENT self bản hoàn tất | PROPOSED |
-| FR-11 | PUT | `/medical-records/{id}/prescription` | DOCTOR assigned, thay toàn bộ đơn nháp mô phỏng | PROPOSED |
-| FR-12 | GET | `/dashboard/summary` | ADMIN/RECEPTIONIST theo phạm vi; DOCTOR self | PROPOSED |
-| FR-13 | GET | `/notifications` | Đã xác thực, chỉ người nhận | PROPOSED |
-| FR-13 | PATCH | `/notifications/{id}/read` | Người nhận | PROPOSED |
-| FR-14 | GET | `/reports/visits` | ADMIN; RECEPTIONIST tiếp nhận; DOCTOR self nếu policy cho phép | PROPOSED |
-| FR-14 | GET | `/audit-logs` | ADMIN | PROPOSED |
+| FR-09 | POST | `/medical-records/{id}/release` | DOCTOR assigned, bản hoàn tất, expectedVersion | **IMPLEMENTED D11** |
+| FR-10 | GET | `/patients/{id}/medical-history` | PATIENT self đã công bố / DOCTOR assigned; ADMIN/RECEPTIONIST metadata | **IMPLEMENTED D11** |
+| FR-11 | GET | `/medical-records/{id}/prescription` | DOCTOR assigned / PATIENT self bản hoàn tất và công bố | **IMPLEMENTED D12** |
+| FR-11 | PUT | `/medical-records/{id}/prescription` | DOCTOR assigned, thay toàn bộ đơn nháp mô phỏng, expectedVersion | **IMPLEMENTED D12** |
+| FR-12 | GET | `/dashboard/summary` | ADMIN/RECEPTIONIST toàn phòng khám; DOCTOR self; PATIENT 403 | IMPLEMENTED D13 H2/MySQL V12 |
+| FR-13 | GET | `/notifications` | Đã xác thực, chỉ người nhận | IMPLEMENTED D13 H2/MySQL V12 |
+| FR-13 | PATCH | `/notifications/{id}/read` | Người nhận | IMPLEMENTED D13 H2/MySQL V12 |
+| FR-14 | GET | `/reports/visits` | ADMIN/RECEPTIONIST toàn phòng khám; DOCTOR self; PATIENT 403 | **IMPLEMENTED D14 H2/MySQL V13** |
+| FR-14 | GET | `/audit-logs` | ADMIN only | **IMPLEMENTED D14 H2/MySQL V13** |
 
 Không có endpoint QR thanh toán hoặc doanh thu. **FR-15 ngoài D01–D15.**
 

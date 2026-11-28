@@ -303,6 +303,8 @@ export async function runExaminationMock(page, origin) {
             'queue overflow',
           )
           await open()
+          // A disabled completion button cannot receive keyboard focus while reads are pending.
+          await button('Hoàn tất khám').click({ trial: true })
           await button('Hoàn tất khám').focus()
           await page.keyboard.press('Enter')
           await wait(heading('Xác nhận hoàn tất khám'))
@@ -325,7 +327,7 @@ export async function runExaminationMock(page, origin) {
         await open()
         await button('Hoàn tất khám').click()
         await button('Xác nhận hoàn tất').click()
-        await wait(page.getByText('Đã hoàn tất · Chỉ đọc'))
+        await wait(page.getByText('Đã hoàn tất · Chỉ đọc').first())
         assert(
           (await page.getByLabel('Triệu chứng').getAttribute('readonly')) !==
             null,

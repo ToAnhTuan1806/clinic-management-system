@@ -20,6 +20,8 @@ export default defineConfig({
       VITE_DIRECTORY_MOCK: 'true',
       VITE_SCHEDULE_MOCK: 'true',
       VITE_BOOKING_MOCK: 'true',
+      VITE_HISTORY_MOCK: 'true',
+      VITE_PRESCRIPTION_MOCK: 'true',
     },
   },
 })

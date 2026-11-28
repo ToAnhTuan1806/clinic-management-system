@@ -16,9 +16,11 @@ import org.springframework.transaction.annotation.Transactional;
 @PreAuthorize("hasAnyRole('ADMIN','DOCTOR','RECEPTIONIST','PATIENT')")
 public class ProfileService {
     private final UserRepository users;
+    private final AuditLogService auditLogs;
 
-    public ProfileService(UserRepository users) {
+    public ProfileService(UserRepository users, AuditLogService auditLogs) {
         this.users = users;
+        this.auditLogs = auditLogs;
     }
 
     public UserProfileResponse get(AuthenticatedUser viewer) {
@@ -33,6 +35,9 @@ public class ProfileService {
         }
         User user = users.findLocked(viewer.id()).orElseThrow(ManagementException::missing);
         user.updateProfile(request.fullName(), request.phone(), request.address());
-        return UserProfileResponse.from(users.saveAndFlush(user));
+        User saved = users.saveAndFlush(user);
+        auditLogs.recordSuccess(viewer.id(), viewer.role(), AuditLogService.ACTION_PROFILE_UPDATED,
+                AuditLogService.ENTITY_USER, saved.getId(), null, null);
+        return UserProfileResponse.from(saved);
     }
 }

@@ -23,13 +23,16 @@ public class AuthService {
     private final PasswordEncoder passwords;
     private final JwtTokenService tokens;
     private final Clock clock;
+    private final AuditLogService auditLogs;
     private final String dummyHash;
 
-    public AuthService(UserRepository users, PasswordEncoder passwords, JwtTokenService tokens, Clock clock) {
+    public AuthService(UserRepository users, PasswordEncoder passwords, JwtTokenService tokens, Clock clock,
+                       AuditLogService auditLogs) {
         this.users = users;
         this.passwords = passwords;
         this.tokens = tokens;
         this.clock = clock;
+        this.auditLogs = auditLogs;
         // Equalize BCrypt work for unknown emails without creating an account.
         this.dummyHash = passwords.encode(UUID.randomUUID().toString());
     }
@@ -41,7 +44,11 @@ public class AuthService {
         }
         User user = User.registerPatient(request.email(), passwords.encode(request.password()), request.fullName());
         try {
-            return UserResponse.from(users.saveAndFlush(user));
+            User saved = users.saveAndFlush(user);
+            auditLogs.recordSuccess(saved.getId(), saved.getRole(), AuditLogService.ACTION_USER_REGISTERED,
+                    AuditLogService.ENTITY_USER, saved.getId(),
+                    "user:" + saved.getId() + ":REGISTERED", null);
+            return UserResponse.from(saved);
         } catch (DataIntegrityViolationException exception) {
             // The database UNIQUE constraint also protects simultaneous registrations.
             throw duplicateEmail();

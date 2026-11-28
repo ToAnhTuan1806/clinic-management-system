@@ -2,6 +2,7 @@ package com.clinicmanagement.config;
 
 import com.clinicmanagement.exception.ApiProblems;
 import com.clinicmanagement.security.ActiveUserJwtConverter;
+import com.clinicmanagement.security.AuthRateLimitFilter;
 import jakarta.servlet.DispatcherType;
 import java.io.IOException;
 import java.util.List;
@@ -12,6 +13,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.server.ServerHttpResponse;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -21,6 +23,8 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.security.web.csrf.CsrfFilter;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
+import org.springframework.security.web.header.writers.StaticHeadersWriter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.DefaultCorsProcessor;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -33,7 +37,11 @@ public class SecurityConfig {
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http, ObjectMapper objectMapper,
             ActiveUserJwtConverter converter,
-            @Value("${clinic.security.cors.allowed-origins:}") String allowedOrigins) throws Exception {
+            @Value("${clinic.security.cors.allowed-origins:}") String allowedOrigins,
+            @Value("${clinic.security.rate-limit.enabled:true}") boolean rateLimitEnabled,
+            @Value("${clinic.security.rate-limit.login-max-requests:10}") int loginMaxRequests,
+            @Value("${clinic.security.rate-limit.register-max-requests:5}") int registerMaxRequests,
+            @Value("${clinic.security.rate-limit.window-seconds:60}") long rateLimitWindowSeconds) throws Exception {
         AuthenticationEntryPoint unauthorized = (request, response, exception) -> {
             response.setHeader(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
             boolean supplied = request.getHeader(HttpHeaders.AUTHORIZATION) != null;
@@ -92,12 +100,29 @@ public class SecurityConfig {
                             .hasAnyRole("RECEPTIONIST", "PATIENT")
                         .requestMatchers(HttpMethod.GET, "/api/v1/appointments", "/api/v1/appointments/*")
                             .hasAnyRole("ADMIN", "RECEPTIONIST", "DOCTOR", "PATIENT")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/medical-records/*/prescription")
+                            .hasAnyRole("DOCTOR", "PATIENT")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/medical-records/*/prescription")
+                            .hasRole("DOCTOR")
                         .requestMatchers(HttpMethod.POST, "/api/v1/medical-records",
                                 "/api/v1/medical-records/*/completion").hasRole("DOCTOR")
                         .requestMatchers(HttpMethod.PATCH, "/api/v1/medical-records/*").hasRole("DOCTOR")
                         .requestMatchers(HttpMethod.GET, "/api/v1/medical-records/*",
                                 "/api/v1/medical-records/by-appointment/*")
                             .hasAnyRole("ADMIN", "DOCTOR", "RECEPTIONIST", "PATIENT")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/medical-records/*/release").hasRole("DOCTOR")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/patients/*/medical-history")
+                            .hasAnyRole("ADMIN", "DOCTOR", "RECEPTIONIST", "PATIENT")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/dashboard/summary")
+                            .hasAnyRole("ADMIN", "RECEPTIONIST", "DOCTOR")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/notifications")
+                            .hasAnyRole("ADMIN", "RECEPTIONIST", "DOCTOR", "PATIENT")
+                        .requestMatchers(HttpMethod.PATCH, "/api/v1/notifications/*/read")
+                            .hasAnyRole("ADMIN", "RECEPTIONIST", "DOCTOR", "PATIENT")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/reports/visits")
+                            .hasAnyRole("ADMIN", "RECEPTIONIST", "DOCTOR")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/audit-logs")
+                            .hasRole("ADMIN")
                         .anyRequest().denyAll())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .requestCache(cache -> cache.disable())
@@ -107,7 +132,19 @@ public class SecurityConfig {
                 // Credentials are only explicit Authorization headers, never cookies or sessions.
                 .csrf(csrf -> csrf.disable())
                 .cors(cors -> cors.disable())
+                .headers(headers -> headers
+                        .contentTypeOptions(Customizer.withDefaults())
+                        .frameOptions(frame -> frame.deny())
+                        .contentSecurityPolicy(csp -> csp
+                                .policyDirectives("default-src 'none'; frame-ancestors 'none'"))
+                        .referrerPolicy(referrer -> referrer
+                                .policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))
+                        .addHeaderWriter(new StaticHeadersWriter(
+                                "Permissions-Policy", "geolocation=(), microphone=(), camera=()")))
                 .addFilterBefore(corsFilter(allowedOrigins, objectMapper), CsrfFilter.class)
+                .addFilterAfter(new AuthRateLimitFilter(
+                        rateLimitEnabled, loginMaxRequests, registerMaxRequests,
+                        rateLimitWindowSeconds, objectMapper), CorsFilter.class)
                 .oauth2ResourceServer(resource -> resource
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(converter))
                         .authenticationEntryPoint(unauthorized).accessDeniedHandler(forbidden))
@@ -125,7 +162,7 @@ public class SecurityConfig {
     private CorsFilter corsFilter(String origins, ObjectMapper mapper) {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(CorsOrigins.parse(origins));
-        configuration.setAllowedMethods(List.of("GET", "POST", "PATCH", "OPTIONS"));
+        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("Authorization", "Content-Type"));
         configuration.setExposedHeaders(List.of("Location"));
         configuration.setAllowCredentials(false);

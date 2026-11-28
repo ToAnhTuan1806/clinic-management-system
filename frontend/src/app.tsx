@@ -28,6 +28,9 @@ const Schedules = lazy(() => import('@/pages/schedules'))
 const Appointments = lazy(() => import('@/pages/appointments'))
 const ReceptionDesk = lazy(() => import('@/pages/reception-desk'))
 const Examinations = lazy(() => import('@/pages/examinations'))
+const MedicalHistory = lazy(() => import('@/pages/medical-history'))
+const Reports = lazy(() => import('@/pages/reports'))
+const AuditLogs = lazy(() => import('@/pages/audit-logs'))
 
 function RouteEffects() {
   const { pathname } = useLocation()
@@ -44,7 +47,7 @@ function RouteEffects() {
           }[pathname]
         : (navigation.find((item) => item.path === pathname)?.label ??
           'Không tìm thấy')
-    document.title = `${label} · ClinicOS DEMO`
+    document.title = `${label} · ClinicOS`
     if (previous.current !== pathname) {
       document.getElementById('main-content')?.focus({ preventScroll: true })
       window.scrollTo({ top: 0, behavior: 'instant' })
@@ -99,12 +102,18 @@ export default function App() {
                               <ReceptionDesk />
                             ) : item.path === '/medical-records' ? (
                               <Examinations />
+                            ) : item.path === '/medical-history' ? (
+                              <MedicalHistory />
                             ) : item.path === '/profile' ? (
                               <Profile />
                             ) : item.path === '/patients' ? (
                               <Patients />
                             ) : item.path === '/schedules' ? (
                               <Schedules />
+                            ) : item.path === '/reports' ? (
+                              <Reports />
+                            ) : item.path === '/audit-logs' ? (
+                              <AuditLogs />
                             ) : item.path === '/doctors' ||
                               item.path === '/specialties' ? (
                               <Directory

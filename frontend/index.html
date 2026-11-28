@@ -9,25 +9,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="ClinicOS — Nền tảng giao diện quản lý phòng khám. Bản DEMO chưa tích hợp API."
+      content="ClinicOS — Hệ thống quản lý phòng khám toàn diện."
     />
-    <title>ClinicOS DEMO</title>
-    <script>
-      try {
-        const theme = localStorage.getItem('clinic-theme')
-        const dark =
-          theme === 'dark' ||
-          (theme !== 'light' &&
-            matchMedia('(prefers-color-scheme: dark)').matches)
-        document.documentElement.classList.toggle('dark', dark)
-        document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
-      } catch {
-        document.documentElement.classList.toggle(
-          'dark',
-          matchMedia('(prefers-color-scheme: dark)').matches,
-        )
-      }
-    </script>
+    <title>ClinicOS</title>
+    <script src="/theme-init.js"></script>
   </head>
   <body>
     <div id="root"></div>

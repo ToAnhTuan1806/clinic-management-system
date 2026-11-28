@@ -19,6 +19,11 @@ import java.util.Optional;
 
 public interface AppointmentRepository extends JpaRepository<Appointment, Long>, JpaSpecificationExecutor<Appointment> {
 
+    @Query("select count(a) > 0 from Appointment a where a.patient.id = :patientId "
+            + "and a.doctor.user.id = :userId and a.status not in "
+            + "(com.clinicmanagement.entity.AppointmentStatus.CANCELLED, com.clinicmanagement.entity.AppointmentStatus.NO_SHOW)")
+    boolean hasHistoryAssignment(@Param("patientId") Long patientId, @Param("userId") Long userId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select a from Appointment a where a.id = :id")
     Optional<Appointment> findLockedForExamination(@Param("id") Long id);
