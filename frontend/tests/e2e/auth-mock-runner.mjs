@@ -345,7 +345,7 @@ export async function runAuthMockQA(
         await expect(page.getByRole('combobox')).toHaveCount(0)
         await expect(page.locator('input[name=role]')).toHaveCount(0)
         await expect(
-          page.getByText('Chỉ đăng ký PATIENT · Bệnh nhân', { exact: true }),
+          page.getByText('Dành cho bệnh nhân đăng ký mới', { exact: true }),
         ).toBeVisible()
         await page.getByLabel('Mật khẩu', { exact: true }).fill(password)
         await page

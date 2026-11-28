@@ -17,7 +17,7 @@ const passwordSafety = (value: string) => {
   if (!value.trim()) return 'Vui lòng nhập mật khẩu.'
   return (
     new TextEncoder().encode(value).byteLength <= 72 ||
-    'Mật khẩu không vượt quá 72 byte UTF-8.'
+    'Mật khẩu quá dài, vui lòng rút ngắn lại.'
   )
 }
 export const loginPasswordRules = {

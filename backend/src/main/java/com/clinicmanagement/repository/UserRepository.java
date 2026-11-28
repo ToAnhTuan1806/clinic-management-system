@@ -18,6 +18,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Query("select u from User u where u.id in :ids and u.status = com.clinicmanagement.entity.UserStatus.ACTIVE")
     java.util.List<User> findActiveNotificationRecipients(@Param("ids") java.util.Set<Long> ids);
     Optional<User> findByEmail(String email);
+    Optional<User> findByGoogleSub(String googleSub);
     boolean existsByEmail(String email);
 
     @Query("""
