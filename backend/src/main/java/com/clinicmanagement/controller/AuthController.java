@@ -1,6 +1,7 @@
 package com.clinicmanagement.controller;
 
 import com.clinicmanagement.dto.ApiResponse;
+import com.clinicmanagement.dto.GoogleLoginRequest;
 import com.clinicmanagement.dto.LoginRequest;
 import com.clinicmanagement.dto.LoginResponse;
 import com.clinicmanagement.dto.RegisterRequest;
@@ -36,6 +37,12 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<LoginResponse>> login(@Valid @RequestBody LoginRequest request) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(new ApiResponse<>(auth.login(request)));
+    }
+
+    @PostMapping("/google")
+    public ResponseEntity<ApiResponse<LoginResponse>> loginWithGoogle(@Valid @RequestBody GoogleLoginRequest request) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(new ApiResponse<>(auth.loginWithGoogle(request)));
     }
 
     @GetMapping("/me")

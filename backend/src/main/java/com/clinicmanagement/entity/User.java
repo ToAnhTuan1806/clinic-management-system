@@ -18,7 +18,10 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 @Entity
-@Table(name = "users", uniqueConstraints = @UniqueConstraint(name = "uk_users_email", columnNames = "email"))
+@Table(name = "users", uniqueConstraints = {
+        @UniqueConstraint(name = "uk_users_email", columnNames = "email"),
+        @UniqueConstraint(name = "uk_users_google_sub", columnNames = "google_sub")
+})
 public class User {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -49,6 +52,14 @@ public class User {
     @Column(nullable = false, length = 16)
     private UserStatus status;
 
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
+    @Column(name = "auth_provider", nullable = false, length = 16)
+    private AuthProvider authProvider = AuthProvider.LOCAL;
+
+    @Column(name = "google_sub", length = 255)
+    private String googleSub;
+
     @JdbcTypeCode(SqlTypes.TIMESTAMP)
     @Column(name = "last_login_at")
     private Instant lastLoginAt;
@@ -71,7 +82,24 @@ public class User {
         user.fullName = fullName.trim();
         user.role = Role.PATIENT;
         user.status = UserStatus.ACTIVE;
+        user.authProvider = AuthProvider.LOCAL;
         return user;
+    }
+
+    public static User registerGooglePatient(String email, String randomPasswordHash, String fullName, String googleSub) {
+        User user = new User();
+        user.email = email.trim().toLowerCase(Locale.ROOT);
+        user.passwordHash = randomPasswordHash;
+        user.fullName = fullName.trim();
+        user.role = Role.PATIENT;
+        user.status = UserStatus.ACTIVE;
+        user.authProvider = AuthProvider.GOOGLE;
+        user.googleSub = googleSub.trim();
+        return user;
+    }
+
+    public void linkGoogleSub(String googleSub) {
+        this.googleSub = googleSub.trim();
     }
 
     @PrePersist
@@ -104,6 +132,8 @@ public class User {
     public String getAddress() { return address; }
     public Role getRole() { return role; }
     public UserStatus getStatus() { return status; }
+    public AuthProvider getAuthProvider() { return authProvider; }
+    public String getGoogleSub() { return googleSub; }
     public Instant getLastLoginAt() { return lastLoginAt; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

@@ -15,7 +15,11 @@ import type { LoginInput } from './types'
 export function AuthProvider({ children }: { children: ReactNode }) {
   const snapshot = useSyncExternalStore(subscribeAuth, getAuthSnapshot)
   const pending = useRef<AbortController | null>(null)
-  async function login(input: LoginInput, signal?: AbortSignal) {
+
+  async function authenticate(
+    fetcher: (signal: AbortSignal) => Promise<string>,
+    signal?: AbortSignal,
+  ) {
     if (pending.current) return
     const controller = new AbortController()
     pending.current = controller
@@ -24,7 +28,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       ? AbortSignal.any([signal, controller.signal])
       : controller.signal
     try {
-      const token = await authApi.login(input, requestSignal)
+      const token = await fetcher(requestSignal)
       const user = await authApi.me(token, requestSignal)
       if (requestSignal.aborted || !establishSession(version, token, user))
         throw new AuthApiError('Yêu cầu đã được hủy.', 0, 'REQUEST_CANCELLED')
@@ -35,19 +39,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (pending.current === controller) pending.current = null
     }
   }
+
+  async function login(input: LoginInput, signal?: AbortSignal) {
+    await authenticate(
+      (requestSignal) => authApi.login(input, requestSignal),
+      signal,
+    )
+  }
+
+  async function loginWithGoogle(idToken: string, signal?: AbortSignal) {
+    await authenticate(
+      (requestSignal) => authApi.loginWithGoogle(idToken, requestSignal),
+      signal,
+    )
+  }
+
   function logout() {
     pending.current?.abort()
     pending.current = null
     clearSession()
   }
+
   async function refreshUser() {
     const current = getAuthSnapshot()
     if (current.status !== 'authenticated') return
     const user = await authApi.me()
     updateSessionUser(user, current.version)
   }
+
   return (
-    <AuthContext.Provider value={{ ...snapshot, login, logout, refreshUser }}>
+    <AuthContext.Provider
+      value={{ ...snapshot, login, loginWithGoogle, logout, refreshUser }}
+    >
       {children}
     </AuthContext.Provider>
   )

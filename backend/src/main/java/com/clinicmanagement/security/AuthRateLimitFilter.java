@@ -20,6 +20,7 @@ import tools.jackson.databind.ObjectMapper;
  */
 public class AuthRateLimitFilter extends OncePerRequestFilter {
     private static final String LOGIN_PATH = "/api/v1/auth/login";
+    private static final String GOOGLE_LOGIN_PATH = "/api/v1/auth/google";
     private static final String REGISTER_PATH = "/api/v1/auth/register";
     private static final int MAX_BUCKETS = 10_000;
 
@@ -57,7 +58,7 @@ public class AuthRateLimitFilter extends OncePerRequestFilter {
         String path = request.getRequestURI();
         int limit;
         String scope;
-        if (LOGIN_PATH.equals(path)) {
+        if (LOGIN_PATH.equals(path) || GOOGLE_LOGIN_PATH.equals(path)) {
             limit = loginMaxRequests;
             scope = "login";
         } else if (REGISTER_PATH.equals(path)) {

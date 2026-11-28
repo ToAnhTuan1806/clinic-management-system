@@ -4,12 +4,14 @@ import { Link, useNavigate } from 'react-router'
 import { ArrowRight, LoaderCircle, UserRoundCheck } from 'lucide-react'
 import { authApi } from '@/auth/api'
 import { isAuthMock } from '@/auth/config'
+import { useAuth } from '@/auth/context'
 import { normalizeAuthError } from '@/auth/errors'
 import type { RegisterInput } from '@/auth/types'
 import { emailRules, nameRules, registerPasswordRules } from '@/auth/validation'
 import { useSubmission } from '@/auth/use-submission'
 import { AuthLayout } from '@/components/auth/auth-layout'
 import { AuthFeedback } from '@/components/auth/auth-feedback'
+import { GoogleSignInButton } from '@/components/auth/google-sign-in-button'
 import { PasswordInput } from '@/components/auth/password-input'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -26,6 +28,7 @@ import {
 
 type RegisterForm = RegisterInput & { confirmPassword: string }
 export default function Register() {
+  const { loginWithGoogle } = useAuth()
   const navigate = useNavigate()
   const form = useForm<RegisterForm>({
     defaultValues: {
@@ -207,6 +210,22 @@ export default function Register() {
           </fieldset>
         </form>
       </Form>
+      <GoogleSignInButton
+        disabled={pending}
+        mode="signup"
+        onCredential={(idToken) => {
+          void run(async (signal) => {
+            setError(null)
+            try {
+              await loginWithGoogle(idToken, signal)
+            } catch (failure) {
+              if (signal.aborted) return
+              setError(normalizeAuthError(failure).message)
+            }
+          })
+        }}
+        onError={(message) => setError(message)}
+      />
       <p className="mt-6 border-t pt-6 text-center text-sm text-muted-foreground">
         Đã có tài khoản?{' '}
         <Link
